@@ -11,6 +11,7 @@ using namespace System::Drawing;
 using namespace System::Diagnostics;
 using namespace System::IO;
 using namespace System::Collections::Generic;
+using namespace System::Text; // Necessário para o Encoding::UTF8
 
 namespace T2MSecurityManager {
 
@@ -85,7 +86,7 @@ namespace T2MSecurityManager {
 			this->SuspendLayout();
 
 			// Janela
-			this->Text = L"T2M Security Manager v2.1";
+			this->Text = L"T2M Security Manager v2.2 (UTF-8 Support)";
 			this->Size = System::Drawing::Size(940, 750);
 			this->BackColor = System::Drawing::Color::WhiteSmoke;
 			this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
@@ -125,7 +126,7 @@ namespace T2MSecurityManager {
 			this->txtOutput->ForeColor = System::Drawing::Color::LimeGreen;
 			this->txtOutput->Font = (gcnew System::Drawing::Font(L"Consolas", 10));
 
-			// --- URL (AGORA VAZIO) ---
+			// --- URL ---
 			this->lblUrl->Location = System::Drawing::Point(240, 460);
 			this->lblUrl->Size = System::Drawing::Size(100, 20);
 			this->lblUrl->Text = L"URL Alvo:";
@@ -135,7 +136,7 @@ namespace T2MSecurityManager {
 			this->txtUrl->Location = System::Drawing::Point(240, 480);
 			this->txtUrl->Size = System::Drawing::Size(660, 25);
 			this->txtUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			this->txtUrl->Text = L""; // <--- MUDANÇA AQUI: Começa vazio!
+			this->txtUrl->Text = L"";
 
 			// --- TOKEN ---
 			this->lblToken->Location = System::Drawing::Point(240, 515);
@@ -227,14 +228,14 @@ namespace T2MSecurityManager {
 			StreamReader^ sr = gcnew StreamReader("config.txt");
 
 			String^ linha = sr->ReadLine();
-			if (linha != nullptr) txtUrl->Text = linha; // Restaura URL se existir
+			if (linha != nullptr) txtUrl->Text = linha;
 
 			linha = sr->ReadLine();
-			if (linha != nullptr) txtToken->Text = linha; // Restaura Token
+			if (linha != nullptr) txtToken->Text = linha;
 
 			while ((linha = sr->ReadLine()) != nullptr) {
 				String^ caminho = linha;
-				if (File::Exists(caminho)) { // Só adiciona se o script ainda existir na pasta
+				if (File::Exists(caminho)) {
 					String^ nome = Path::GetFileName(caminho);
 					if (!scriptPaths->ContainsKey(nome)) {
 						scriptPaths->Add(nome, caminho);
@@ -307,6 +308,13 @@ namespace T2MSecurityManager {
 		psi->RedirectStandardOutput = true;
 		psi->RedirectStandardError = true;
 		psi->CreateNoWindow = true;
+
+		// ============================================================
+		// CORREÇÃO: Habilitar UTF-8 para suportar Emojis
+		// ============================================================
+		psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
+		psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
+		psi->EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
 
 		pythonProcess = gcnew Process();
 		pythonProcess->StartInfo = psi;

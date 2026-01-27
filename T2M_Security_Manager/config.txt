@@ -1,2 +1,10 @@
-eu sou o cara que bala 
-cddcsscsxsxs
+https://www.google.com
+Teste
+C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\exploit_html_injection.py
+C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\exploit_sql_injection.py
+C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\exploit_xss_stored.py
+C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\scan_admin_expurgo.py
+C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\scan_arquivos_ocultos.py
+C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\scan_autenticacao.py
+C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\scan_cors_vulnerabilidade.py
+C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\scan_metodos_http.py
