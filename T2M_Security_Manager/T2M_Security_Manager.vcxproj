@@ -124,11 +124,24 @@
     <ClInclude Include="MyForm.h">
       <FileType>CppForm</FileType>
     </ClInclude>
+    <ClInclude Include="resource1.h" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="MyForm.resx">
       <DependentUpon>MyForm.h</DependentUpon>
     </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\..\..\..\Downloads\ChatGPT Image 27 de jan. de 2026, 17_33_38.png" />
+    <Image Include="icon2.ico" />
+    <Image Include="T2M_logo-03.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="gerador_ia.py" />
+    <None Include="get_token.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="T2M_Security_Manager1.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
