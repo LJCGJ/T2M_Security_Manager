@@ -1,70 +1,130 @@
-# -*- coding: utf-8 -*-
-import sys
+Ôªøimport sys
 import os
-import datetime
-import google.generativeai as genai
+import time
+import subprocess
+
+# --- O MOTOR DE AUTO-INSTALA√á√ÉO SILENCIOSA ---
+def garantir_bibliotecas():
+    bibliotecas_faltando = []
+    
+    try:
+        import google.generativeai
+    except ImportError:
+        bibliotecas_faltando.append("google-generativeai")
+        
+    try:
+        import requests
+    except ImportError:
+        bibliotecas_faltando.append("requests")
+        
+    try:
+        import openai
+    except ImportError:
+        bibliotecas_faltando.append("openai")
+        
+    if bibliotecas_faltando:
+        for lib in bibliotecas_faltando:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", lib, "--quiet"])
 
 def main():
-    # O C++ envia: script.py, api_key, prompt, url_alvo
-    if len(sys.argv) < 4:
-        print("ERRO_ARGS: Faltam argumentos para a IA.")
-        return
-
-    api_key = sys.argv[1]
-    prompt_usuario = sys.argv[2]
-    url_alvo = sys.argv[3]
-
-    if api_key == "PADRAO" or api_key.strip() == "":
-        print("ERRO_CHAVE: Por favor, adicione uma API Key v·lida do Gemini no menu.")
-        return
-
     try:
-        # 1. Configura a IA
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-
-        # 2. O Prompt com o Contexto da URL
-        prompt_sistema = f"""
-        VocÍ È um Engenheiro de SeguranÁa de Software SÍnior.
-        Crie um script Python para realizar um teste de seguranÁa na seguinte URL alvo: {url_alvo}
+        garantir_bibliotecas()
+        import requests
         
-        Objetivo do Teste solicitado pelo usu·rio: {prompt_usuario}
+        if len(sys.argv) < 4:
+            print("ERRO PYTHON: O C++ n√£o enviou a chave, prompt ou URL corretamente.")
+            return
+            
+        api_key = sys.argv[1].strip()
+        prompt_usuario = sys.argv[2]
+        url_alvo = sys.argv[3]
         
-        REGRAS RÕGIDAS E ABSOLUTAS:
-        1. O script gerado DEVE utilizar 'sys.argv' para receber argumentos externos. 
-           (sys.argv[1] ser· a URL alvo, sys.argv[2] ser· o Token JWT).
-        2. Use a biblioteca 'requests' se for fazer requisiÁıes HTTP.
-        3. Imprima resultados claros no terminal (ex: print(">>> Teste ConcluÌdo...")).
-        4. RETORNE APENAS O C”DIGO PYTHON PURO. N„o use formataÁ„o markdown (como ```python).
+        prompt_mestre = f"""
+        Voc√™ √© um Engenheiro de Seguran√ßa da Informa√ß√£o S√™nior focado em testes automatizados.
+        Crie um script Python focado em testar vulnerabilidades na seguinte URL: {url_alvo}
+        
+        A√ß√£o solicitada pelo usu√°rio:
+        {prompt_usuario}
+        
+        REGRAS ABSOLUTAS:
+        1. Retorne APENAS o c√≥digo Python. Sem formata√ß√£o markdown, sem textos extras.
+        2. O script gerado deve receber a URL por sys.argv[1] e o Token por sys.argv[2].
+        3. O script deve importar 'sys' e 'requests'.
+        4. Fa√ßa tratamento de erros (try/except) para n√£o travar em falhas de conex√£o.
         """
 
-        response = model.generate_content(prompt_sistema)
-        codigo_gerado = response.text
+        codigo = ""
 
-        # Limpeza caso a IA coloque a marcaÁ„o markdown
-        if codigo_gerado.startswith("```python"):
-            codigo_gerado = codigo_gerado.replace("```python", "").replace("```", "").strip()
-        elif codigo_gerado.startswith("```"):
-            codigo_gerado = codigo_gerado.replace("```", "").strip()
+        # --- O NOVO ROTEADOR MULTI-IA ---
+        if api_key.startswith("AIza"):
+            # ROTA 1: GOOGLE GEMINI
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            
+            modelos_disponiveis = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            preferencias = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
+            
+            modelo_escolhido = None
+            for pref in preferencias:
+                if pref in modelos_disponiveis:
+                    modelo_escolhido = pref
+                    break
+                    
+            if not modelo_escolhido:
+                if modelos_disponiveis:
+                    modelo_escolhido = modelos_disponiveis[0]
+                else:
+                    print("ERRO PYTHON: Esta API Key n√£o tem acesso a nenhum modelo de texto da Google.")
+                    return
 
-        # 3. CriaÁ„o da pasta "modelos de teste em IA" em Documentos
-        pasta_documentos = os.path.join(os.path.expanduser('~'), 'Documents')
-        pasta_ia = os.path.join(pasta_documentos, 'modelos de teste em IA')
+            model = genai.GenerativeModel(modelo_escolhido)
+            response = model.generate_content(prompt_mestre)
+            codigo = response.text.strip()
+
+        elif api_key.startswith("sk-"):
+            # ROTA 2: OPENAI (CHATGPT)
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini", # Modelo super r√°pido e excelente para c√≥digo
+                messages=[
+                    {"role": "system", "content": "Voc√™ √© um Engenheiro de Seguran√ßa S√™nior experiente em Python."},
+                    {"role": "user", "content": prompt_mestre}
+                ]
+            )
+            codigo = response.choices[0].message.content.strip()
+
+        else:
+            print("ERRO PYTHON: Formato de API Key n√£o reconhecido. Use uma chave do Google Gemini (AIza...) ou OpenAI (sk-...).")
+            return
+
+        # --- LIMPEZA E SALVAMENTO ---
+        marcador_python = "```" + "python"
+        marcador_simples = "```"
+        if codigo.startswith(marcador_python):
+            codigo = codigo[len(marcador_python):]
+        elif codigo.startswith(marcador_simples):
+            codigo = codigo[len(marcador_simples):]
+        if codigo.endswith(marcador_simples):
+            codigo = codigo[:-len(marcador_simples)]
+        codigo = codigo.strip()
+
+        pasta_docs = os.path.expanduser("~/Documents")
+        pasta_ia = os.path.join(pasta_docs, "modelos de teste em IA")
         os.makedirs(pasta_ia, exist_ok=True)
-
-        # 4. Salva o Arquivo com data e hora
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        nome_arquivo = f"scan_ia_{timestamp}.py"
+        
+        nome_arquivo = f"scan_dinamico_{int(time.time())}.py"
         caminho_completo = os.path.join(pasta_ia, nome_arquivo)
-
+        
         with open(caminho_completo, "w", encoding="utf-8") as f:
-            f.write(codigo_gerado)
-
-        # Retorna o caminho para o C++ adicionar na lista
+            f.write(codigo)
+            
         print(f"SUCESSO_IA:{caminho_completo}")
 
     except Exception as e:
-        print(f"ERRO_API: {e}")
+        print(f"ERRO INTERNO PYTHON: {str(e)}")
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding='utf-8')
     main()
