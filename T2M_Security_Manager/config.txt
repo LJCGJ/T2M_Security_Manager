@@ -10,3 +10,5 @@ C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\s
 C:\Users\LeonardoJoseCordeiro\Desktop\Scripts de teste de segurança em python\scan_metodos_http.py
 C:\Users\LeonardoJoseCordeiro/Documents\modelos de teste em IA\scan_dinamico_1774380161.py
 C:\Users\LeonardoJoseCordeiro/Documents\modelos de teste em IA\scan_dinamico_1774382599.py
+C:\Users\LeonardoJoseCordeiro/Documents\modelos de teste em IA\scan_dinamico_1774383047.py
+C:\Users\LeonardoJoseCordeiro/Documents\modelos de teste em IA\scan_dinamico_1774548563.py

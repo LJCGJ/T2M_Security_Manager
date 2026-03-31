@@ -25,7 +25,7 @@ namespace T2MSecurityManager {
 			// --- BOTÃO GERAR IA ---
 			this->btnGerarIA = (gcnew System::Windows::Forms::Button());
 			this->btnGerarIA->Name = L"btnGerarIA";
-			this->btnGerarIA->Text = L"✨ Gerar Script com IA";
+			this->btnGerarIA->Text = L"✨ T2M Copilot (IA)";
 			this->btnGerarIA->Location = System::Drawing::Point(20, 660);
 			this->btnGerarIA->Size = System::Drawing::Size(200, 35);
 			this->btnGerarIA->BackColor = System::Drawing::Color::Indigo;
@@ -40,12 +40,6 @@ namespace T2MSecurityManager {
 			try {
 				if (File::Exists("T2M_logo-03.png")) {
 					this->picLogo->Image = System::Drawing::Image::FromFile("T2M_logo-03.png");
-				}
-			}
-			catch (...) {}
-
-			try {
-				if (File::Exists("T2M_logo-03.png")) {
 					System::Drawing::Bitmap^ bmp = gcnew System::Drawing::Bitmap("T2M_logo-03.png");
 					this->Icon = System::Drawing::Icon::FromHandle(bmp->GetHicon());
 				}
@@ -65,6 +59,15 @@ namespace T2MSecurityManager {
 	private:
 		Dictionary<String^, String^>^ scriptPaths;
 		Process^ pythonProcess;
+
+		// --- Variáveis do Novo Chat Copilot ---
+		Form^ formIA;
+		RichTextBox^ rtbChat;
+		TextBox^ txtChatInput;
+		Button^ btnSendChat;
+		Button^ btnMapearSite;
+		Button^ btnSaveScript;
+		ComboBox^ comboModeloChat;
 
 		System::Windows::Forms::PictureBox^ picLogo;
 		System::Windows::Forms::ListBox^ lstScripts;
@@ -271,7 +274,7 @@ namespace T2MSecurityManager {
 			this->Controls->Add(this->btnExport);
 			this->Name = L"MyForm";
 			this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
-			this->Text = L"T2M Security Manager v4.0 (Safe Mode)"; // <-- ATUALIZADO PARA V4.0
+			this->Text = L"T2M Security Manager v4.0 (MCP Edition)";
 			this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
 			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->EndInit();
 			this->ResumeLayout(false);
@@ -279,6 +282,7 @@ namespace T2MSecurityManager {
 		}
 #pragma endregion
 
+		// --- FUNÇÕES BÁSICAS DA INTERFACE ---
 	private: System::Void chkHabilitarLogin_CheckedChanged(System::Object^ sender, System::EventArgs^ e) {
 		if (chkHabilitarLogin->Checked) {
 			btnLoginAuto->Enabled = true;
@@ -296,27 +300,18 @@ namespace T2MSecurityManager {
 			urlAlvo = "https://sgidd.t2mlab.com/auth";
 			txtUrl->Text = urlAlvo;
 		}
-
-		txtUrl->Enabled = false;
-		txtToken->Enabled = false;
-		chkHabilitarLogin->Enabled = false;
-		btnLoginAuto->Enabled = false;
-		btnLoginAuto->BackColor = System::Drawing::Color::LightGray;
+		txtUrl->Enabled = false; txtToken->Enabled = false;
+		chkHabilitarLogin->Enabled = false; btnLoginAuto->Enabled = false;
 		btnLoginAuto->Text = L"⏳ Aguarde...";
-		txtOutput->Clear();
-		txtOutput->AppendText(">>> INICIANDO LOGIN AUTOMÁTICO...\n");
+		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO LOGIN AUTOMÁTICO...\n");
 
 		ProcessStartInfo^ psi = gcnew ProcessStartInfo();
 		psi->FileName = "python";
 		psi->Arguments = "-u \"get_token.py\" \"" + urlAlvo + "\"";
-		psi->UseShellExecute = false;
-		psi->RedirectStandardOutput = true;
-		psi->CreateNoWindow = true;
-		psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
-		psi->EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+		psi->UseShellExecute = false; psi->RedirectStandardOutput = true;
+		psi->CreateNoWindow = true; psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
 
-		Process^ pLogin = gcnew Process();
-		pLogin->StartInfo = psi;
+		Process^ pLogin = gcnew Process(); pLogin->StartInfo = psi;
 
 		try {
 			pLogin->Start();
@@ -328,37 +323,22 @@ namespace T2MSecurityManager {
 				if (partes->Length >= 2) {
 					txtToken->Text = partes[1]->Trim();
 					txtOutput->AppendText("\n>>> SUCESSO! Token capturado.\n");
-					MessageBox::Show("Token capturado com sucesso!", "Login Auto");
 				}
 			}
-			else {
-				txtOutput->AppendText("\n>>> AVISO: Token não encontrado ou tempo esgotado.\n");
-			}
+			else { txtOutput->AppendText("\n>>> AVISO: Token não encontrado.\n"); }
 		}
-		catch (Exception^ ex) {
-			MessageBox::Show("Erro: " + ex->Message);
-		}
+		catch (Exception^ ex) { MessageBox::Show(L"Erro: " + ex->Message); }
 
-		txtUrl->Enabled = true;
-		txtToken->Enabled = true;
-		chkHabilitarLogin->Enabled = true;
-		btnLoginAuto->Enabled = true;
-		btnLoginAuto->BackColor = System::Drawing::Color::LightBlue;
-		btnLoginAuto->Text = L"🔑 Login Automático";
+		txtUrl->Enabled = true; txtToken->Enabled = true; chkHabilitarLogin->Enabled = true;
+		btnLoginAuto->Enabled = true; btnLoginAuto->Text = L"🔑 Login Automático";
 	}
 
 	private: void SalvarConfiguracao() {
-		if (!chkSalvar->Checked) {
-			if (File::Exists("config.txt")) File::Delete("config.txt");
-			return;
-		}
+		if (!chkSalvar->Checked) { if (File::Exists("config.txt")) File::Delete("config.txt"); return; }
 		try {
 			StreamWriter^ sw = gcnew StreamWriter("config.txt");
-			sw->WriteLine(txtUrl->Text);
-			sw->WriteLine(txtToken->Text);
-			for each (KeyValuePair<String^, String^> pair in scriptPaths) {
-				sw->WriteLine(pair.Value);
-			}
+			sw->WriteLine(txtUrl->Text); sw->WriteLine(txtToken->Text);
+			for each (KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
 			sw->Close();
 		}
 		catch (...) {}
@@ -368,497 +348,371 @@ namespace T2MSecurityManager {
 		if (!File::Exists("config.txt")) return;
 		try {
 			StreamReader^ sr = gcnew StreamReader("config.txt");
-			String^ linha = sr->ReadLine();
-			if (linha != nullptr) txtUrl->Text = linha;
-			linha = sr->ReadLine();
-			if (linha != nullptr) txtToken->Text = linha;
+			String^ linha = sr->ReadLine(); if (linha != nullptr) txtUrl->Text = linha;
+			linha = sr->ReadLine(); if (linha != nullptr) txtToken->Text = linha;
 			while ((linha = sr->ReadLine()) != nullptr) {
-				String^ caminho = linha;
-				if (File::Exists(caminho)) {
-					String^ nome = Path::GetFileName(caminho);
-					if (!scriptPaths->ContainsKey(nome)) {
-						scriptPaths->Add(nome, caminho);
-						lstScripts->Items->Add(nome);
-					}
+				if (File::Exists(linha)) {
+					String^ nome = Path::GetFileName(linha);
+					if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, linha); lstScripts->Items->Add(nome); }
 				}
 			}
-			sr->Close();
-			chkSalvar->Checked = true;
+			sr->Close(); chkSalvar->Checked = true;
 		}
 		catch (...) {}
 	}
 
 	private: void CarregarScriptsIA() {
 		try {
-			String^ pastaDocumentos = Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments);
-			String^ pastaIA = Path::Combine(pastaDocumentos, "modelos de teste em IA");
-
+			String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
 			if (Directory::Exists(pastaIA)) {
 				array<String^>^ arquivos = Directory::GetFiles(pastaIA, "*.py");
 				for each (String ^ arquivo in arquivos) {
 					String^ nome = Path::GetFileName(arquivo);
-					if (!scriptPaths->ContainsKey(nome)) {
-						scriptPaths->Add(nome, arquivo);
-						lstScripts->Items->Add(nome);
-					}
+					if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, arquivo); lstScripts->Items->Add(nome); }
 				}
 			}
 		}
 		catch (...) {}
 	}
 
-	private: System::Void MyForm_FormClosing(System::Object^ sender, System::Windows::Forms::FormClosingEventArgs^ e) {
-		SalvarConfiguracao();
-	}
+	private: System::Void MyForm_FormClosing(System::Object^ sender, System::Windows::Forms::FormClosingEventArgs^ e) { SalvarConfiguracao(); }
 
 	private: System::Void btnAdd_Click(System::Object^ sender, System::EventArgs^ e) {
-		OpenFileDialog^ openFile = gcnew OpenFileDialog();
-		openFile->Filter = "Python Scripts (*.py)|*.py";
+		OpenFileDialog^ openFile = gcnew OpenFileDialog(); openFile->Filter = "Python Scripts (*.py)|*.py";
 		if (openFile->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
-			String^ caminho = openFile->FileName;
-			String^ nome = Path::GetFileName(caminho);
-			if (!scriptPaths->ContainsKey(nome)) {
-				scriptPaths->Add(nome, caminho);
-				lstScripts->Items->Add(nome);
-			}
+			String^ caminho = openFile->FileName; String^ nome = Path::GetFileName(caminho);
+			if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, caminho); lstScripts->Items->Add(nome); }
 		}
 	}
 
 	private: System::Void btnRemove_Click(System::Object^ sender, System::EventArgs^ e) {
-		if (lstScripts->SelectedIndex != -1) {
-			scriptPaths->Remove(lstScripts->SelectedItem->ToString());
-			lstScripts->Items->RemoveAt(lstScripts->SelectedIndex);
-		}
+		if (lstScripts->SelectedIndex != -1) { scriptPaths->Remove(lstScripts->SelectedItem->ToString()); lstScripts->Items->RemoveAt(lstScripts->SelectedIndex); }
 	}
 
 	private: System::Void btnAbrirPasta_Click(System::Object^ sender, System::EventArgs^ e) {
-		String^ pastaDocumentos = Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments);
-		String^ pastaIA = Path::Combine(pastaDocumentos, "modelos de teste em IA");
-
-		if (Directory::Exists(pastaIA)) {
-			Process::Start("explorer.exe", pastaIA);
-		}
-		else {
-			MessageBox::Show("A pasta ainda não existe. Gere o seu primeiro script com a IA para a criar!", "Aviso", MessageBoxButtons::OK, MessageBoxIcon::Information);
-		}
+		String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
+		if (Directory::Exists(pastaIA)) Process::Start("explorer.exe", pastaIA);
+		else MessageBox::Show(L"A pasta ainda não existe.", L"Aviso");
 	}
 
 	private: System::Void btnStart_Click(System::Object^ sender, System::EventArgs^ e) {
-		if (lstScripts->SelectedIndex == -1) {
-			MessageBox::Show("Selecione um script!");
-			return;
-		}
-		if (txtUrl->Text->Length == 0) {
-			MessageBox::Show("Por favor, preencha o campo URL Alvo.");
-			return;
-		}
-		String^ nome = lstScripts->SelectedItem->ToString();
-		String^ caminho = scriptPaths[nome];
-		String^ urlAlvo = txtUrl->Text;
-		String^ tokenUsuario = txtToken->Text;
+		if (lstScripts->SelectedIndex == -1 || txtUrl->Text->Length == 0) { MessageBox::Show(L"Preencha a URL e selecione um script!"); return; }
+		String^ caminho = scriptPaths[lstScripts->SelectedItem->ToString()];
 
-		txtOutput->Clear();
-		txtOutput->AppendText(">>> INICIANDO TESTE DINÂMICO <<<\n");
-		txtOutput->AppendText(">>> ALVO: " + urlAlvo + "\n");
-		if (tokenUsuario->Length > 0) txtOutput->AppendText(">>> TOKEN: Carregado.\n");
-		else txtOutput->AppendText(">>> TOKEN: Nenhum token informado.\n");
-		txtOutput->AppendText("--------------------------------------------------\n");
-
+		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO TESTE DINÂMICO <<<\n");
 		ProcessStartInfo^ psi = gcnew ProcessStartInfo();
-		psi->FileName = "python";
-		psi->Arguments = "-u \"" + caminho + "\" \"" + urlAlvo + "\" \"" + tokenUsuario + "\"";
-		psi->UseShellExecute = false;
-		psi->RedirectStandardOutput = true;
-		psi->RedirectStandardError = true;
-		psi->CreateNoWindow = true;
-		psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
-		psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
-		psi->EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+		psi->FileName = "python"; psi->Arguments = "-u \"" + caminho + "\" \"" + txtUrl->Text + "\" \"" + txtToken->Text + "\"";
+		psi->UseShellExecute = false; psi->RedirectStandardOutput = true; psi->RedirectStandardError = true;
+		psi->CreateNoWindow = true; psi->StandardOutputEncoding = System::Text::Encoding::UTF8; psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
 
-		pythonProcess = gcnew Process();
-		pythonProcess->StartInfo = psi;
+		pythonProcess = gcnew Process(); pythonProcess->StartInfo = psi;
 		pythonProcess->OutputDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::OnDataReceived);
 		pythonProcess->ErrorDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::OnDataReceived);
-		pythonProcess->EnableRaisingEvents = true;
-		pythonProcess->Exited += gcnew EventHandler(this, &MyForm::OnProcessExited);
+		pythonProcess->EnableRaisingEvents = true; pythonProcess->Exited += gcnew EventHandler(this, &MyForm::OnProcessExited);
 
 		try {
-			pythonProcess->Start();
-			pythonProcess->BeginOutputReadLine();
-			pythonProcess->BeginErrorReadLine();
-			btnStart->Enabled = false;
-			btnStop->Enabled = true;
-			txtUrl->Enabled = false;
-			txtToken->Enabled = false;
+			pythonProcess->Start(); pythonProcess->BeginOutputReadLine(); pythonProcess->BeginErrorReadLine();
+			btnStart->Enabled = false; btnStop->Enabled = true;
 		}
-		catch (Exception^ ex) {
-			MessageBox::Show("Erro Python: " + ex->Message);
-		}
+		catch (Exception^ ex) { MessageBox::Show(L"Erro: " + ex->Message); }
 	}
 
 	private: void OnDataReceived(System::Object^ sender, DataReceivedEventArgs^ e) {
-		if (!String::IsNullOrEmpty(e->Data)) {
-			this->Invoke(gcnew Action<String^>(this, &MyForm::AppendLog), e->Data);
-		}
+		if (!String::IsNullOrEmpty(e->Data)) this->Invoke(gcnew Action<String^>(this, &MyForm::AppendLog), e->Data);
 	}
-	private: void AppendLog(String^ text) {
-		txtOutput->AppendText(text + Environment::NewLine);
-		txtOutput->ScrollToCaret();
-	}
-	private: void OnProcessExited(System::Object^ sender, EventArgs^ e) {
-		this->Invoke(gcnew Action(this, &MyForm::ResetButtons));
-	}
-	private: void ResetButtons() {
-		btnStart->Enabled = true;
-		btnStop->Enabled = false;
-		txtUrl->Enabled = true;
-		txtToken->Enabled = true;
-		txtOutput->AppendText("\n>>> FIM.");
-	}
-	private: System::Void btnStop_Click(System::Object^ sender, System::EventArgs^ e) {
-		if (pythonProcess != nullptr && !pythonProcess->HasExited) {
-			try { pythonProcess->Kill(); }
-			catch (...) {}
-		}
-	}
+	private: void AppendLog(String^ text) { txtOutput->AppendText(text + Environment::NewLine); txtOutput->ScrollToCaret(); }
+	private: void OnProcessExited(System::Object^ sender, EventArgs^ e) { this->Invoke(gcnew Action(this, &MyForm::ResetButtons)); }
+	private: void ResetButtons() { btnStart->Enabled = true; btnStop->Enabled = false; txtOutput->AppendText("\n>>> FIM."); }
+	private: System::Void btnStop_Click(System::Object^ sender, System::EventArgs^ e) { if (pythonProcess != nullptr && !pythonProcess->HasExited) { try { pythonProcess->Kill(); } catch (...) {} } }
 	private: System::Void btnExport_Click(System::Object^ sender, System::EventArgs^ e) {
-		SaveFileDialog^ save = gcnew SaveFileDialog();
-		save->Filter = "Log (*.txt)|*.txt";
-		if (save->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
-			File::WriteAllText(save->FileName, txtOutput->Text);
-		}
+		SaveFileDialog^ save = gcnew SaveFileDialog(); save->Filter = "Log (*.txt)|*.txt";
+		if (save->ShowDialog() == System::Windows::Forms::DialogResult::OK) File::WriteAllText(save->FileName, txtOutput->Text);
 	}
 
 	private: void CarregarDropdownAPI(ComboBox^ combo) {
 		combo->Items->Clear();
-
-		List<String^>^ chavesValidas = gcnew List<String^>();
 		if (File::Exists("api_keys_ia.txt")) {
 			array<String^>^ linhas = File::ReadAllLines("api_keys_ia.txt");
 			for each (String ^ linha in linhas) {
-				if (!String::IsNullOrWhiteSpace(linha)) {
-					chavesValidas->Add(linha->Trim());
+				if (!String::IsNullOrWhiteSpace(linha)) combo->Items->Add(linha->Substring(0, 6) + "****************" + linha->Substring(linha->Length - 4));
+			}
+		}
+		if (combo->Items->Count == 0) combo->Items->Add(L" Nenhuma chave ");
+		combo->Items->Add("-------------------------"); combo->Items->Add(L"➕ Adicionar Nova API Key...");
+		combo->SelectedIndex = 0;
+	}
+		   // =========================================================================
+		// --- O NOVO MOTOR DE CHAT COPILOT E MCP ---
+		// =========================================================================
+
+	private: String^ ChamarAgentePython(String^ apiKey, String^ prompt, String^ url) {
+		ProcessStartInfo^ psi = gcnew ProcessStartInfo();
+		psi->FileName = "python";
+		psi->Arguments = "-u \"gerador_ia.py\" \"" + apiKey + "\" \"" + prompt + "\" \"" + url + "\"";
+		psi->UseShellExecute = false;
+		psi->RedirectStandardOutput = true;
+		psi->CreateNoWindow = true;
+		psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
+
+		Process^ p = gcnew Process();
+		p->StartInfo = psi;
+		p->Start();
+
+		String^ output = p->StandardOutput->ReadToEnd();
+		p->WaitForExit();
+
+		int startIdx = output->IndexOf("CHAT_MSG_INICIO");
+		int endIdx = output->IndexOf("CHAT_MSG_FIM");
+
+		if (startIdx != -1 && endIdx != -1) {
+			startIdx += 15;
+			return output->Substring(startIdx, endIdx - startIdx)->Trim();
+		}
+		return L"Erro de comunicação com a IA:\n" + output;
+	}
+
+	private: String^ ObterChaveReal() {
+		int idx = comboModeloChat->SelectedIndex;
+		if (File::Exists("api_keys_ia.txt")) {
+			array<String^>^ linhas = File::ReadAllLines("api_keys_ia.txt");
+			List<String^>^ chaves = gcnew List<String^>();
+			for each (String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(linha->Trim());
+			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
+		}
+		return "";
+	}
+
+		   // NOVA FUNÇÃO: Janela para adicionar chave
+	private: System::Void comboModeloChat_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
+		if (comboModeloChat->SelectedItem != nullptr && comboModeloChat->SelectedItem->ToString() == L"➕ Adicionar Nova API Key...") {
+			Form^ formAdd = gcnew Form();
+			formAdd->Text = L"Adicionar API Key";
+			formAdd->Size = System::Drawing::Size(450, 150);
+			formAdd->StartPosition = FormStartPosition::CenterParent;
+			formAdd->BackColor = System::Drawing::Color::WhiteSmoke;
+
+			Label^ lbl = gcnew Label();
+			lbl->Text = L"Cole sua chave completa do Gemini (AIza...) ou OpenAI (sk-...):";
+			lbl->Location = System::Drawing::Point(20, 20);
+			lbl->AutoSize = true;
+			formAdd->Controls->Add(lbl);
+
+			TextBox^ txtNovaChave = gcnew TextBox();
+			txtNovaChave->Location = System::Drawing::Point(20, 45);
+			txtNovaChave->Size = System::Drawing::Size(390, 25);
+			formAdd->Controls->Add(txtNovaChave);
+
+			Button^ btnSalvar = gcnew Button();
+			btnSalvar->Text = L"Salvar Chave";
+			btnSalvar->Location = System::Drawing::Point(310, 75);
+			btnSalvar->Size = System::Drawing::Size(100, 30);
+			btnSalvar->BackColor = System::Drawing::Color::MediumSeaGreen;
+			btnSalvar->ForeColor = System::Drawing::Color::White;
+			btnSalvar->FlatStyle = FlatStyle::Flat;
+			btnSalvar->DialogResult = System::Windows::Forms::DialogResult::OK;
+			formAdd->Controls->Add(btnSalvar);
+
+			if (formAdd->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+				String^ novaChave = txtNovaChave->Text->Trim();
+				if (novaChave != "") {
+					StreamWriter^ sw = gcnew StreamWriter("api_keys_ia.txt", true);
+					sw->WriteLine(novaChave);
+					sw->Close();
+					MessageBox::Show(L"Chave salva com sucesso!", L"T2M Copilot");
+				}
+			}
+			CarregarDropdownAPI(comboModeloChat);
+		}
+	}
+
+		   // NOVA FUNÇÃO: Botão de excluir chave
+	private: System::Void btnRemoverChave_Click(System::Object^ sender, System::EventArgs^ e) {
+		int idx = comboModeloChat->SelectedIndex;
+		if (idx >= 0 && comboModeloChat->SelectedItem->ToString() != L"➕ Adicionar Nova API Key..." && comboModeloChat->SelectedItem->ToString() != "-------------------------") {
+			if (MessageBox::Show(L"Tem certeza que deseja excluir esta chave?", L"Confirmar Exclusão", MessageBoxButtons::YesNo, MessageBoxIcon::Warning) == System::Windows::Forms::DialogResult::Yes) {
+				if (File::Exists("api_keys_ia.txt")) {
+					array<String^>^ linhas = File::ReadAllLines("api_keys_ia.txt");
+					List<String^>^ novasLinhas = gcnew List<String^>();
+					int cont = 0;
+					for each (String ^ linha in linhas) {
+						if (!String::IsNullOrWhiteSpace(linha)) {
+							if (cont != idx) novasLinhas->Add(linha);
+							cont++;
+						}
+					}
+					File::WriteAllLines("api_keys_ia.txt", novasLinhas->ToArray());
+					CarregarDropdownAPI(comboModeloChat);
+					MessageBox::Show(L"Chave excluída!", L"T2M Copilot");
 				}
 			}
 		}
-
-		if (chavesValidas->Count > 0) {
-			for each (String ^ chave in chavesValidas) {
-				String^ chaveMascarada = chave;
-				if (chave->Length > 15) {
-					chaveMascarada = chave->Substring(0, 6) + "****************" + chave->Substring(chave->Length - 4);
-				}
-				combo->Items->Add(chaveMascarada);
-			}
-		}
 		else {
-			combo->Items->Add(" Nenhuma chave configurada ");
-		}
-
-		combo->Items->Add("-------------------------");
-		combo->Items->Add("➕ Adicionar Nova API Key...");
-
-		String^ ultimoUsado = "0";
-		if (File::Exists("last_ai_key.txt")) {
-			ultimoUsado = File::ReadAllText("last_ai_key.txt")->Trim();
-		}
-
-		int idx = 0;
-		Int32::TryParse(ultimoUsado, idx);
-
-		if (idx >= 0 && idx < combo->Items->Count && !combo->Items[idx]->ToString()->StartsWith("-") && !combo->Items[idx]->ToString()->StartsWith("➕")) {
-			combo->SelectedIndex = idx;
-		}
-		else {
-			combo->SelectedIndex = 0;
+			MessageBox::Show(L"Selecione uma chave válida para excluir.", L"Aviso");
 		}
 	}
 
 	private: System::Void btnGerarIA_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (txtUrl->Text->Trim() == "") {
-			MessageBox::Show("Por favor, preencha a URL Alvo primeiro. A IA precisa saber qual site vai testar!", "Contexto Necessário", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			MessageBox::Show(L"Preencha a URL Alvo primeiro para a IA poder analisar a página!", L"Aviso");
 			return;
 		}
 
-		Form^ formIA = gcnew Form();
-		// <-- ATUALIZADO PARA MULTI-MODEL
-		formIA->Text = "Gerador de Scripts de Segurança - IA (Multi-Model)";
-		formIA->Size = System::Drawing::Size(450, 300);
+		formIA = gcnew Form();
+		formIA->Text = L"T2M Copilot - Assistente de Automação (MCP)";
+		formIA->Size = System::Drawing::Size(750, 650);
 		formIA->StartPosition = FormStartPosition::CenterParent;
-		formIA->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
-		formIA->MaximizeBox = false;
+		formIA->BackColor = System::Drawing::Color::WhiteSmoke;
 
-		ComboBox^ comboModelo = gcnew ComboBox();
-		comboModelo->Name = "comboModelo";
-		comboModelo->Location = System::Drawing::Point(20, 20);
-		comboModelo->Size = System::Drawing::Size(350, 25);
-		comboModelo->DropDownStyle = ComboBoxStyle::DropDownList;
-		comboModelo->Font = gcnew System::Drawing::Font("Arial", 10, System::Drawing::FontStyle::Bold);
-		CarregarDropdownAPI(comboModelo);
-		formIA->Controls->Add(comboModelo);
+		Label^ lblInfo = gcnew Label();
+		lblInfo->Text = L"1. Selecione a Chave API:";
+		lblInfo->Location = System::Drawing::Point(20, 20);
+		lblInfo->AutoSize = true;
+		formIA->Controls->Add(lblInfo);
 
-		Button^ btnLixeira = gcnew Button();
-		btnLixeira->Name = "btnLixeira";
-		btnLixeira->Text = "X";
-		btnLixeira->Font = gcnew System::Drawing::Font("Arial", 9, System::Drawing::FontStyle::Bold);
-		btnLixeira->Location = System::Drawing::Point(380, 19);
-		btnLixeira->Size = System::Drawing::Size(30, 27);
-		btnLixeira->BackColor = System::Drawing::Color::IndianRed;
-		btnLixeira->ForeColor = System::Drawing::Color::White;
-		btnLixeira->FlatStyle = FlatStyle::Flat;
-		btnLixeira->Enabled = (!comboModelo->Items[comboModelo->SelectedIndex]->ToString()->StartsWith(" Nenhuma"));
-		btnLixeira->Click += gcnew System::EventHandler(this, &MyForm::btnLixeira_Click);
-		formIA->Controls->Add(btnLixeira);
+		comboModeloChat = gcnew ComboBox();
+		comboModeloChat->Location = System::Drawing::Point(20, 40);
+		comboModeloChat->Size = System::Drawing::Size(260, 25);
+		comboModeloChat->DropDownStyle = ComboBoxStyle::DropDownList;
+		comboModeloChat->SelectedIndexChanged += gcnew System::EventHandler(this, &MyForm::comboModeloChat_SelectedIndexChanged);
+		CarregarDropdownAPI(comboModeloChat);
+		formIA->Controls->Add(comboModeloChat);
 
-		ToolTip^ dicaLixeira = gcnew ToolTip();
-		dicaLixeira->SetToolTip(btnLixeira, "Excluir a API Key selecionada");
+		Button^ btnRemoverChave = gcnew Button();
+		btnRemoverChave->Text = L"🗑️ Excluir";
+		btnRemoverChave->Location = System::Drawing::Point(290, 39);
+		btnRemoverChave->Size = System::Drawing::Size(80, 27);
+		btnRemoverChave->BackColor = System::Drawing::Color::LightCoral;
+		btnRemoverChave->FlatStyle = FlatStyle::Flat;
+		btnRemoverChave->Click += gcnew System::EventHandler(this, &MyForm::btnRemoverChave_Click);
+		formIA->Controls->Add(btnRemoverChave);
 
-		TextBox^ txtPrompt = gcnew TextBox();
-		txtPrompt->Name = "txtPrompt";
-		txtPrompt->Location = System::Drawing::Point(20, 60);
-		txtPrompt->Size = System::Drawing::Size(390, 130);
-		txtPrompt->Multiline = true;
-		txtPrompt->Font = gcnew System::Drawing::Font("Arial", 10);
-		txtPrompt->Text = "Descreva o teste que deseja fazer em poucas palavras...";
-		txtPrompt->ForeColor = System::Drawing::Color::Gray;
-		txtPrompt->GotFocus += gcnew System::EventHandler(this, &MyForm::Prompt_GotFocus);
-		txtPrompt->LostFocus += gcnew System::EventHandler(this, &MyForm::Prompt_LostFocus);
-		formIA->Controls->Add(txtPrompt);
+		btnMapearSite = gcnew Button();
+		btnMapearSite->Text = L"🔍 1. Mapear URL (MCP)";
+		btnMapearSite->Location = System::Drawing::Point(380, 38);
+		btnMapearSite->Size = System::Drawing::Size(330, 29);
+		btnMapearSite->BackColor = System::Drawing::Color::SteelBlue;
+		btnMapearSite->ForeColor = System::Drawing::Color::White;
+		btnMapearSite->FlatStyle = FlatStyle::Flat;
+		btnMapearSite->Click += gcnew System::EventHandler(this, &MyForm::btnMapearSite_Click);
+		formIA->Controls->Add(btnMapearSite);
 
-		Button^ btnGerar = gcnew Button();
-		btnGerar->Text = "Gerar Script";
-		btnGerar->Location = System::Drawing::Point(20, 210);
-		btnGerar->Size = System::Drawing::Size(190, 35);
-		btnGerar->BackColor = System::Drawing::Color::MediumSeaGreen;
-		btnGerar->ForeColor = System::Drawing::Color::White;
-		btnGerar->FlatStyle = FlatStyle::Flat;
-		btnGerar->Click += gcnew System::EventHandler(this, &MyForm::btnExecutarGeracaoIA_Click);
-		formIA->Controls->Add(btnGerar);
+		rtbChat = gcnew RichTextBox();
+		rtbChat->Location = System::Drawing::Point(20, 85);
+		rtbChat->Size = System::Drawing::Size(690, 380);
+		rtbChat->ReadOnly = true;
+		rtbChat->BackColor = System::Drawing::Color::White;
+		rtbChat->Font = gcnew System::Drawing::Font("Segoe UI", 10);
+		formIA->Controls->Add(rtbChat);
 
-		Button^ btnCancelar = gcnew Button();
-		btnCancelar->Text = "Cancelar";
-		btnCancelar->Location = System::Drawing::Point(220, 210);
-		btnCancelar->Size = System::Drawing::Size(190, 35);
-		btnCancelar->BackColor = System::Drawing::Color::IndianRed;
-		btnCancelar->ForeColor = System::Drawing::Color::White;
-		btnCancelar->FlatStyle = FlatStyle::Flat;
-		btnCancelar->DialogResult = System::Windows::Forms::DialogResult::Cancel;
-		formIA->Controls->Add(btnCancelar);
+		txtChatInput = gcnew TextBox();
+		txtChatInput->Location = System::Drawing::Point(20, 480);
+		txtChatInput->Size = System::Drawing::Size(580, 60);
+		txtChatInput->Multiline = true;
+		txtChatInput->Font = gcnew System::Drawing::Font("Segoe UI", 10);
+		formIA->Controls->Add(txtChatInput);
 
-		comboModelo->SelectedIndexChanged += gcnew System::EventHandler(this, &MyForm::ComboModelo_Changed);
+		btnSendChat = gcnew Button();
+		btnSendChat->Text = L"Enviar";
+		btnSendChat->Location = System::Drawing::Point(610, 480);
+		btnSendChat->Size = System::Drawing::Size(100, 60);
+		btnSendChat->BackColor = System::Drawing::Color::MediumSeaGreen;
+		btnSendChat->ForeColor = System::Drawing::Color::White;
+		btnSendChat->FlatStyle = FlatStyle::Flat;
+		btnSendChat->Click += gcnew System::EventHandler(this, &MyForm::btnSendChat_Click);
+		formIA->Controls->Add(btnSendChat);
+
+		btnSaveScript = gcnew Button();
+		btnSaveScript->Text = L"💾 2. Extrair e Salvar Código Final";
+		btnSaveScript->Location = System::Drawing::Point(20, 555);
+		btnSaveScript->Size = System::Drawing::Size(690, 40);
+		btnSaveScript->BackColor = System::Drawing::Color::Indigo;
+		btnSaveScript->ForeColor = System::Drawing::Color::White;
+		btnSaveScript->FlatStyle = FlatStyle::Flat;
+		btnSaveScript->Font = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		btnSaveScript->Click += gcnew System::EventHandler(this, &MyForm::btnSaveScript_Click);
+		formIA->Controls->Add(btnSaveScript);
 
 		formIA->ShowDialog();
 	}
 
-	private: System::Void ComboModelo_Changed(System::Object^ sender, System::EventArgs^ e) {
-		ComboBox^ combo = (ComboBox^)sender;
-		Form^ parentForm = combo->FindForm();
-		Button^ btnLixeira = nullptr;
+	private: System::Void btnMapearSite_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ apiKey = ObterChaveReal();
+		if (apiKey == "") { MessageBox::Show(L"Selecione uma API Key válida primeiro!"); return; }
 
-		if (parentForm != nullptr) {
-			array<Control^>^ controls = parentForm->Controls->Find("btnLixeira", true);
-			if (controls->Length > 0) btnLixeira = (Button^)controls[0];
+		rtbChat->SelectionColor = System::Drawing::Color::Gray;
+		rtbChat->AppendText(L">>> Sistema: Iniciando varredura MCP na URL: " + txtUrl->Text + L"...\n");
+		formIA->Cursor = Cursors::WaitCursor;
+		btnMapearSite->Enabled = false;
+		Application::DoEvents();
+
+		String^ resposta = ChamarAgentePython(apiKey, "--INICIAR_NOVO_CHAT--", txtUrl->Text);
+
+		rtbChat->SelectionColor = System::Drawing::Color::DarkGreen;
+		rtbChat->AppendText(L"\nT2M Copilot:\n" + resposta + L"\n\n");
+		rtbChat->ScrollToCaret();
+		formIA->Cursor = Cursors::Default;
+	}
+
+	private: System::Void btnSendChat_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ prompt = txtChatInput->Text->Trim();
+		if (prompt == "") return;
+		String^ apiKey = ObterChaveReal();
+		if (apiKey == "") { MessageBox::Show(L"Selecione a API Key!"); return; }
+
+		rtbChat->SelectionColor = System::Drawing::Color::DarkBlue;
+		rtbChat->AppendText(L"Utilizador:\n" + prompt + L"\n\n");
+		txtChatInput->Clear();
+
+		formIA->Cursor = Cursors::WaitCursor;
+		btnSendChat->Enabled = false;
+		Application::DoEvents();
+
+		String^ resposta = ChamarAgentePython(apiKey, prompt, txtUrl->Text);
+
+		rtbChat->SelectionColor = System::Drawing::Color::DarkGreen;
+		rtbChat->AppendText(L"T2M Copilot:\n" + resposta + L"\n\n");
+		rtbChat->ScrollToCaret();
+
+		btnSendChat->Enabled = true;
+		formIA->Cursor = Cursors::Default;
+	}
+
+	private: System::Void btnSaveScript_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ textoCompleto = rtbChat->Text;
+		int idxStart = textoCompleto->LastIndexOf("```python");
+		int offset = 9;
+
+		if (idxStart == -1) {
+			idxStart = textoCompleto->LastIndexOf("```");
+			offset = 3;
 		}
 
-		if (combo->SelectedItem != nullptr && combo->SelectedItem->ToString()->StartsWith("---")) {
-			combo->SelectedIndex = 0;
-			return;
-		}
+		if (idxStart != -1) {
+			int idxEnd = textoCompleto->IndexOf("```", idxStart + offset);
+			if (idxEnd != -1) {
+				String^ codigo = textoCompleto->Substring(idxStart + offset, idxEnd - (idxStart + offset))->Trim();
 
-		if (!combo->SelectedItem->ToString()->StartsWith(" Nenhuma") && !combo->SelectedItem->ToString()->StartsWith("➕")) {
-			File::WriteAllText("last_ai_key.txt", combo->SelectedIndex.ToString());
-		}
+				String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
+				Directory::CreateDirectory(pastaIA);
 
-		if (btnLixeira != nullptr) {
-			if (combo->SelectedIndex >= 0 && !combo->SelectedItem->ToString()->StartsWith("-") && !combo->SelectedItem->ToString()->StartsWith("➕") && !combo->SelectedItem->ToString()->StartsWith(" Nenhuma")) {
-				btnLixeira->Enabled = true;
-				btnLixeira->BackColor = System::Drawing::Color::IndianRed;
+				String^ nomeArq = "script_copilot_" + DateTime::Now.ToString("yyyyMMdd_HHmmss") + ".py";
+				String^ caminho = Path::Combine(pastaIA, nomeArq);
+
+				File::WriteAllText(caminho, codigo);
+
+				if (!scriptPaths->ContainsKey(nomeArq)) {
+					scriptPaths->Add(nomeArq, caminho);
+					lstScripts->Items->Add(nomeArq);
+				}
+				MessageBox::Show(L"Script extraído e salvo com sucesso:\n" + nomeArq, L"Copilot");
+				formIA->Close();
 			}
 			else {
-				btnLixeira->Enabled = false;
-				btnLixeira->BackColor = System::Drawing::Color::Gray;
+				MessageBox::Show(L"A IA não finalizou o bloco de código corretamente.", L"Aviso");
 			}
 		}
-
-		if (combo->SelectedItem != nullptr && combo->SelectedItem->ToString()->StartsWith("➕")) {
-			Form^ formApi = gcnew Form();
-			// <-- ATUALIZADO TÍTULO PARA EXPLICAR OPÇÕES
-			formApi->Text = "Nova API Key (Gemini ou OpenAI)";
-			formApi->Size = System::Drawing::Size(350, 150);
-			formApi->StartPosition = FormStartPosition::CenterParent;
-			formApi->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedToolWindow;
-
-			TextBox^ txtApi = gcnew TextBox();
-			txtApi->Name = "txtApi";
-			txtApi->Location = System::Drawing::Point(20, 20);
-			txtApi->Size = System::Drawing::Size(290, 25);
-			txtApi->PasswordChar = '*';
-			formApi->Controls->Add(txtApi);
-
-			Button^ btnSalvarApi = gcnew Button();
-			btnSalvarApi->Text = "Salvar API";
-			btnSalvarApi->Location = System::Drawing::Point(20, 60);
-			btnSalvarApi->BackColor = System::Drawing::Color::MediumSeaGreen;
-			btnSalvarApi->ForeColor = System::Drawing::Color::White;
-			btnSalvarApi->FlatStyle = FlatStyle::Flat;
-
-			btnSalvarApi->Tag = combo;
-			btnSalvarApi->Click += gcnew System::EventHandler(this, &MyForm::btnSalvarApi_Click);
-			formApi->Controls->Add(btnSalvarApi);
-
-			Button^ btnCancApi = gcnew Button();
-			btnCancApi->Text = "Cancelar";
-			btnCancApi->Location = System::Drawing::Point(180, 60);
-			btnCancApi->BackColor = System::Drawing::Color::IndianRed;
-			btnCancApi->ForeColor = System::Drawing::Color::White;
-			btnCancApi->FlatStyle = FlatStyle::Flat;
-			btnCancApi->DialogResult = System::Windows::Forms::DialogResult::Cancel;
-			formApi->Controls->Add(btnCancApi);
-
-			formApi->ShowDialog();
-
-			if (combo->SelectedItem->ToString()->StartsWith("➕")) {
-				combo->SelectedIndex = 0;
-			}
-		}
-	}
-
-	private: System::Void btnLixeira_Click(System::Object^ sender, System::EventArgs^ e) {
-		Button^ btnLixeira = (Button^)sender;
-		Form^ parentForm = btnLixeira->FindForm();
-		ComboBox^ combo = (ComboBox^)parentForm->Controls->Find("comboModelo", true)[0];
-
-		if (MessageBox::Show("Deseja realmente excluir esta API Key do seu computador?", "Excluir Cofre", MessageBoxButtons::YesNo, MessageBoxIcon::Warning) == System::Windows::Forms::DialogResult::Yes) {
-			int idxParaRemover = combo->SelectedIndex;
-
-			if (File::Exists("api_keys_ia.txt")) {
-				array<String^>^ linhas = File::ReadAllLines("api_keys_ia.txt");
-				List<String^>^ chavesRestantes = gcnew List<String^>();
-				int indexAtual = 0;
-				for each (String ^ linha in linhas) {
-					if (!String::IsNullOrWhiteSpace(linha)) {
-						if (indexAtual != idxParaRemover) {
-							chavesRestantes->Add(linha->Trim());
-						}
-						indexAtual++;
-					}
-				}
-				File::WriteAllLines("api_keys_ia.txt", chavesRestantes->ToArray());
-				CarregarDropdownAPI(combo);
-			}
-		}
-	}
-
-	private: System::Void btnSalvarApi_Click(System::Object^ sender, System::EventArgs^ e) {
-		Button^ btn = (Button^)sender;
-		TextBox^ txtApi = (TextBox^)btn->FindForm()->Controls->Find("txtApi", true)[0];
-		ComboBox^ combo = (ComboBox^)btn->Tag;
-
-		if (txtApi->Text->Length > 0) {
-			StreamWriter^ sw = File::AppendText("api_keys_ia.txt");
-			sw->WriteLine(txtApi->Text->Trim());
-			sw->Close();
-
-			MessageBox::Show("API Key adicionada ao Cofre com sucesso!", "Sucesso");
-			btn->FindForm()->Close();
-
-			CarregarDropdownAPI(combo);
-			combo->SelectedIndex = combo->Items->Count - 3;
-		}
-	}
-
-	private: System::Void Prompt_GotFocus(System::Object^ sender, System::EventArgs^ e) {
-		TextBox^ txt = safe_cast<TextBox^>(sender);
-		if (txt->Text == "Descreva o teste que deseja fazer em poucas palavras...") {
-			txt->Text = "";
-			txt->ForeColor = System::Drawing::Color::Black;
-		}
-	}
-
-	private: System::Void Prompt_LostFocus(System::Object^ sender, System::EventArgs^ e) {
-		TextBox^ txt = safe_cast<TextBox^>(sender);
-		if (String::IsNullOrWhiteSpace(txt->Text)) {
-			txt->Text = "Descreva o teste que deseja fazer em poucas palavras...";
-			txt->ForeColor = System::Drawing::Color::Gray;
-		}
-	}
-
-	private: System::Void btnExecutarGeracaoIA_Click(System::Object^ sender, System::EventArgs^ e) {
-		Button^ btn = (Button^)sender;
-		Form^ parentForm = btn->FindForm();
-		TextBox^ txtPrompt = (TextBox^)parentForm->Controls->Find("txtPrompt", true)[0];
-		ComboBox^ comboModelo = (ComboBox^)parentForm->Controls->Find("comboModelo", true)[0];
-
-		String^ prompt = txtPrompt->Text;
-		if (prompt == "Descreva o teste que deseja fazer em poucas palavras..." || prompt->Trim() == "") {
-			MessageBox::Show("Por favor, digite um prompt válido.", "Aviso");
-			return;
-		}
-
-		String^ apiKeyReal = "";
-		int idx = comboModelo->SelectedIndex;
-		if (File::Exists("api_keys_ia.txt") && !comboModelo->SelectedItem->ToString()->StartsWith(" Nenhuma")) {
-			array<String^>^ linhas = File::ReadAllLines("api_keys_ia.txt");
-			List<String^>^ chaves = gcnew List<String^>();
-			for each (String ^ linha in linhas) {
-				if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(linha->Trim());
-			}
-			if (idx >= 0 && idx < chaves->Count) {
-				apiKeyReal = chaves[idx];
-			}
-		}
-
-		if (apiKeyReal == "" || apiKeyReal->Length < 10) {
-			MessageBox::Show("Você precisa adicionar uma API Key válida do Gemini (AIza...) ou OpenAI (sk-...) no menu antes de gerar o script.\n\nEla ficará salva apenas no seu computador de forma segura.", "Cofre Vazio", MessageBoxButtons::OK, MessageBoxIcon::Warning);
-			return;
-		}
-
-		String^ urlContexto = txtUrl->Text;
-
-		btn->Text = "⏳ Pensando...";
-		btn->Enabled = false;
-
-		ProcessStartInfo^ psi = gcnew ProcessStartInfo();
-		psi->FileName = "python";
-		psi->Arguments = "-u \"gerador_ia.py\" \"" + apiKeyReal + "\" \"" + prompt + "\" \"" + urlContexto + "\"";
-		psi->UseShellExecute = false;
-		psi->RedirectStandardOutput = true;
-		psi->CreateNoWindow = true;
-		psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
-
-		Process^ pIA = gcnew Process();
-		pIA->StartInfo = psi;
-
-		try {
-			pIA->Start();
-			String^ output = pIA->StandardOutput->ReadToEnd();
-			pIA->WaitForExit();
-
-			if (output->Contains("SUCESSO_IA:")) {
-				array<String^>^ partes = output->Split(gcnew array<String^>{"SUCESSO_IA:"}, StringSplitOptions::None);
-				if (partes->Length > 1) {
-					String^ caminhoCompleto = partes[1]->Trim();
-					String^ nomeArquivo = Path::GetFileName(caminhoCompleto);
-
-					MessageBox::Show("Sucesso! Novo script criado e salvo em Documentos:\n" + nomeArquivo, "IA Concluída");
-
-					if (!scriptPaths->ContainsKey(nomeArquivo)) {
-						scriptPaths->Add(nomeArquivo, caminhoCompleto);
-						lstScripts->Items->Add(nomeArquivo);
-					}
-				}
-				parentForm->Close();
-			}
-			else {
-				MessageBox::Show("Erro ao gerar:\n" + output, "Aviso/Erro");
-				btn->Text = "Gerar Script";
-				btn->Enabled = true;
-			}
-		}
-		catch (Exception^ ex) {
-			MessageBox::Show("Erro ao conectar com o script Python: " + ex->Message);
-			btn->Text = "Gerar Script";
-			btn->Enabled = true;
+		else {
+			MessageBox::Show(L"Nenhum código Python encontrado na conversa. Peça à IA para gerar o código primeiro!", L"Aviso");
 		}
 	}
 
