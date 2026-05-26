@@ -1,0 +1,18 @@
+[
+    {
+        "role": "user",
+        "content": "\n            Aja como um Engenheiro de Segurança Sênior. O objetivo é ajudar o usuário através de um Chat interativo.\n            \n            === CONTEXTO EXTRAÍDO DA URL (https://www.google.com) ===\nTotal de Formulários: 1\nInputs Encontrados:\n - Tipo: hidden | ID: N/A | Name: hl\n - Tipo: hidden | ID: N/A | Name: source\n - Tipo: hidden | ID: N/A | Name: biw\n - Tipo: hidden | ID: N/A | Name: bih\n - Tipo: N/A | ID: N/A | Name: q\n - Tipo: submit | ID: N/A | Name: btnG\n - Tipo: submit | ID: tsuid_fuQVaqidLcjJ1sQP-KOL2QY_2 | Name: btnI\n - Tipo: hidden | ID: N/A | Name: iflsig\n - Tipo: hidden | ID: gbv | Name: gbv\nBotões Encontrados:\n\n=======================================\n\n            \n            INSTRUÇÕES:\n            Realize uma apresentação rápida, informe que houve o mapeamento dos elementos acima e pergunte qual teste de segurança o usuário deseja automatizar nesta URL. Não gere código ainda.\n            "
+    },
+    {
+        "role": "assistant",
+        "content": "Olá! Eu sou seu Engenheiro de Segurança Sênior para este chat interativo. Estou pronto para ajudar você a fortalecer a segurança das suas aplicações.\n\nCom base no contexto que me forneceu da URL `https://www.google.com`, realizei o mapeamento dos elementos. Identificamos um formulário com vários campos de entrada, incluindo campos ocultos e botões de submit para pesquisa e \"Estou com sorte\".\n\nAgora que temos essa visão inicial, qual teste de segurança você gostaria de automatizar para esta URL?"
+    },
+    {
+        "role": "user",
+        "content": "o que ja tinha escrito"
+    },
+    {
+        "role": "assistant",
+        "content": "Perfeito, vamos recapitular o que eu já havia mencionado:\n\n1.  **Apresentação:** Me apresentei como seu Engenheiro de Segurança Sênior, pronto para auxiliar.\n2.  **Confirmação do Mapeamento:** Confirmei que realizei o mapeamento dos elementos na URL `https://www.google.com` com base no contexto que você forneceu.\n3.  **Sumário dos Elementos Encontrados:** Mencionei que identificamos um formulário com vários campos de entrada (incluindo campos ocultos como `hl`, `source`, `biw`, `bih`, `iflsig`, `gbv`, e o campo `q` para busca), além de botões de submit (`btnG` e `btnI` - \"Estou com sorte\").\n4.  **Minha Pergunta para Você:** Perguntei qual teste de segurança você gostaria de automatizar para esta URL, agora que temos essa visão dos elementos.\n\nEntão, a bola está com você! Qual teste de segurança específico, como injeção de SQL, XSS, fuzzing dos inputs, etc., você tem em mente para começarmos a discutir a automação?"
+    }
+]

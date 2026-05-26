@@ -23,5 +23,28 @@
     <ClInclude Include="MyForm.h">
       <Filter>Arquivos de Cabeçalho</Filter>
     </ClInclude>
+    <ClInclude Include="resource1.h">
+      <Filter>Arquivos de Cabeçalho</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="T2M_Security_Manager1.rc">
+      <Filter>Arquivos de Recurso</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\..\..\..\Downloads\ChatGPT Image 27 de jan. de 2026, 17_33_38.png">
+      <Filter>Arquivos de Recurso</Filter>
+    </Image>
+    <Image Include="icon2.ico">
+      <Filter>Arquivos de Recurso</Filter>
+    </Image>
+    <Image Include="T2M_logo-03.png">
+      <Filter>Arquivos de Recurso</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="gerador_ia.py" />
+    <None Include="get_token.py" />
   </ItemGroup>
 </Project>
