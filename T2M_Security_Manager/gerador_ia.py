@@ -126,16 +126,15 @@ def extrair_contexto_dom(url):
 # --- 4. LEITURA DA ENTRADA (STDIN JSON) ---
 # ==============================================================================
 def ler_entrada():
-    """Le o payload JSON enviado pelo C++ via stdin."""
+    """Le 3 linhas de texto via stdin: linha1=chave, linha2=url, linha3+=prompt."""
     raw = sys.stdin.read()
     if not raw or not raw.strip():
         raise ValueError("Nenhum dado recebido via stdin.")
-    dados = json.loads(raw)
-    return (
-        (dados.get("api_key") or "").strip(),
-        dados.get("prompt") or "",
-        dados.get("url") or "",
-    )
+    partes = raw.split(chr(10), 2)
+    api_key = partes[0].strip() if len(partes) > 0 else ""
+    url = partes[1].strip() if len(partes) > 1 else ""
+    prompt = partes[2] if len(partes) > 2 else ""
+    return (api_key, prompt, url)
 
 
 # ==============================================================================
