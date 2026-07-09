@@ -23,6 +23,11 @@ import os
 import json
 import subprocess
 
+# Memoria COMPARTILHADA com o agente MCP (agente_mcp.py). Mesmo caminho nos dois
+# (diretorio do script) para que chat e automacao ao vivo vejam a mesma conversa.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ARQUIVO_MEMORIA = os.path.join(SCRIPT_DIR, "memoria_chat.json")
+
 
 # ==============================================================================
 # --- 1. AUTO-INSTALACAO SILENCIOSA DE DEPENDENCIAS ---
@@ -126,15 +131,16 @@ def extrair_contexto_dom(url):
 # --- 4. LEITURA DA ENTRADA (STDIN JSON) ---
 # ==============================================================================
 def ler_entrada():
-    """Le 3 linhas de texto via stdin: linha1=chave, linha2=url, linha3+=prompt."""
+    """Le o payload JSON enviado pelo C++ via stdin."""
     raw = sys.stdin.read()
     if not raw or not raw.strip():
         raise ValueError("Nenhum dado recebido via stdin.")
-    partes = raw.split(chr(10), 2)
-    api_key = partes[0].strip() if len(partes) > 0 else ""
-    url = partes[1].strip() if len(partes) > 1 else ""
-    prompt = partes[2] if len(partes) > 2 else ""
-    return (api_key, prompt, url)
+    dados = json.loads(raw)
+    return (
+        (dados.get("api_key") or "").strip(),
+        dados.get("prompt") or "",
+        dados.get("url") or "",
+    )
 
 
 # ==============================================================================
@@ -154,7 +160,7 @@ def main():
             print("ERRO PYTHON: API Key nao informada.")
             return
 
-        arquivo_memoria = "memoria_chat.json"
+        arquivo_memoria = ARQUIVO_MEMORIA
         memoria = []
 
         # --- NOVO CHAT + CONTROLE DO SCANNER DE INTERFACE ---

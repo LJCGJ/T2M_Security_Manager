@@ -42,19 +42,6 @@ namespace T2MSecurityManager {
 			this->btnGerarIA->Click += gcnew System::EventHandler(this, &MyForm::btnGerarIA_Click);
 			this->Controls->Add(this->btnGerarIA);
 
-			// --- BOTAO AUTOMACAO MCP AO VIVO ---
-			Button^ btnMcpLive = gcnew Button();
-			btnMcpLive->Name = L"btnMcpLive";
-			btnMcpLive->Text = L"Automacao MCP (Ao Vivo)";
-			btnMcpLive->Location = System::Drawing::Point(240, 660);
-			btnMcpLive->Size = System::Drawing::Size(220, 35);
-			btnMcpLive->BackColor = System::Drawing::Color::DarkSlateBlue;
-			btnMcpLive->ForeColor = System::Drawing::Color::White;
-			btnMcpLive->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			btnMcpLive->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
-			btnMcpLive->Click += gcnew System::EventHandler(this, &MyForm::btnMcpLive_Click);
-			this->Controls->Add(btnMcpLive);
-
 			scriptPaths = gcnew Dictionary<String^, String^>();
 
 			// Logo (runtime) + icone unificado para todas as janelas
@@ -89,6 +76,17 @@ namespace T2MSecurityManager {
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
 		ComboBox^ comboModeloChat;
+
+		// Botoes de acao dentro da janela do chat (hierarquia: MCP em destaque, DOM discreto)
+		Button^ btnChatMcp;      // Automacao MCP ao vivo (destaque)
+		Button^ btnChatDom;      // Scan de DOM rapido (secundario)
+		Label^ lblChatStatus;    // Indicador "processando..."
+
+		// Execucao NAO-BLOQUEANTE: o Python roda numa thread separada via BackgroundWorker,
+		// para a janela nao congelar durante o chat ou o MCP ao vivo.
+		System::ComponentModel::BackgroundWorker^ workerChat;
+		int modoWorker;          // 0 = chat normal, 1 = scan DOM, 2 = MCP ao vivo
+		String^ payloadWorker;   // texto que sera enviado ao Python (montado antes de rodar)
 
 		System::Windows::Forms::PictureBox^ picLogo;
 		System::Windows::Forms::ListBox^ lstScripts;
@@ -658,41 +656,6 @@ namespace T2MSecurityManager {
 		finally { p->Close(); }
 	}
 
-	private: System::Void btnMcpLive_Click(System::Object^ sender, System::EventArgs^ e) {
-		if (String::IsNullOrWhiteSpace(txtUrl->Text)) {
-			MessageBox::Show(L"Preencha a URL Alvo primeiro!", L"Aviso");
-			return;
-		}
-
-		array<String^>^ chaves = File::Exists(CaminhoApp("api_keys_ia.txt"))
-			? File::ReadAllLines(CaminhoApp("api_keys_ia.txt")) : gcnew array<String^>(0);
-		String^ apiKey = "";
-		for each (String ^ l in chaves) {
-			if (!String::IsNullOrWhiteSpace(l)) { apiKey = DesprotegerTexto(l->Trim()); break; }
-		}
-		if (apiKey == "") {
-			MessageBox::Show(L"Nenhuma chave de API cadastrada. Use o T2M Copilot (IA) para adicionar uma.", L"Aviso");
-			return;
-		}
-
-		String^ objetivo = Microsoft::VisualBasic::Interaction::InputBox(
-			L"Descreva o objetivo do teste (a IA vai executar no navegador de verdade):",
-			L"Automacao MCP Ao Vivo",
-			L"Navegue ate a pagina e verifique se o formulario de login existe e valide o comportamento com credenciais invalidas.", -1, -1);
-		if (String::IsNullOrWhiteSpace(objetivo)) return;
-
-		txtOutput->Clear();
-		txtOutput->AppendText(">>> INICIANDO AGENTE MCP (Playwright ao vivo)...\n");
-		txtOutput->AppendText(">>> Isso pode levar alguns minutos. Uma janela do Chrome vai abrir.\n\n");
-		this->Cursor = Cursors::WaitCursor;
-		Application::DoEvents();
-
-		String^ resposta = ChamarAgenteMcp(apiKey, objetivo, txtUrl->Text);
-
-		txtOutput->AppendText(resposta + "\n");
-		this->Cursor = Cursors::Default;
-	}
-
 	private: String^ ObterChaveReal() {
 		int idx = comboModeloChat->SelectedIndex;
 		if (idx < 0) return "";
@@ -782,12 +745,18 @@ namespace T2MSecurityManager {
 
 		formIA = gcnew Form();
 		formIA->Text = L"T2M Copilot - Arquiteto de Automacao e Qualidade";
-		formIA->Size = System::Drawing::Size(750, 650);
+		formIA->Size = System::Drawing::Size(750, 720);   // mais alta: cabe os botoes novos + status
 		formIA->StartPosition = FormStartPosition::CenterParent;
 		formIA->BackColor = System::Drawing::Color::WhiteSmoke;
 		AplicarIcone(formIA);
 
 		formIA->Shown += gcnew System::EventHandler(this, &MyForm::formIA_Shown);
+
+		// ToolTip compartilhado da janela (mostra o custo/uso ao passar o mouse)
+		ToolTip^ dica = gcnew ToolTip();
+		dica->AutoPopDelay = 8000;
+		dica->InitialDelay = 400;
+		dica->ReshowDelay = 200;
 
 		Label^ lblInfo = gcnew Label();
 		lblInfo->Text = L"1. Selecione a Chave API:";
@@ -812,44 +781,76 @@ namespace T2MSecurityManager {
 		btnRemoverChave->Click += gcnew System::EventHandler(this, &MyForm::btnRemoverChave_Click);
 		formIA->Controls->Add(btnRemoverChave);
 
-		CheckBox^ chkMcp = gcnew CheckBox();
-		chkMcp->Name = "chkMcpAtivo";
-		chkMcp->Text = L"Habilitar Escaner de Interface (URL/DOM)";
-		chkMcp->Location = System::Drawing::Point(380, 40);
-		chkMcp->Size = System::Drawing::Size(340, 25);
-		chkMcp->Checked = true;
-		chkMcp->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
-		chkMcp->ForeColor = System::Drawing::Color::DarkSlateBlue;
-		formIA->Controls->Add(chkMcp);
+		// Label de status (fica ao lado dos botoes de acao; some quando ocioso)
+		lblChatStatus = gcnew Label();
+		lblChatStatus->Text = L"";
+		lblChatStatus->Location = System::Drawing::Point(385, 45);
+		lblChatStatus->Size = System::Drawing::Size(330, 20);
+		lblChatStatus->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Italic);
+		lblChatStatus->ForeColor = System::Drawing::Color::DarkSlateBlue;
+		formIA->Controls->Add(lblChatStatus);
 
 		rtbChat = gcnew RichTextBox();
 		rtbChat->Location = System::Drawing::Point(20, 85);
-		rtbChat->Size = System::Drawing::Size(690, 380);
+		rtbChat->Size = System::Drawing::Size(690, 360);
 		rtbChat->ReadOnly = true;
 		rtbChat->BackColor = System::Drawing::Color::White;
 		rtbChat->Font = gcnew System::Drawing::Font("Segoe UI", 10);
 		formIA->Controls->Add(rtbChat);
 
 		txtChatInput = gcnew TextBox();
-		txtChatInput->Location = System::Drawing::Point(20, 480);
-		txtChatInput->Size = System::Drawing::Size(580, 60);
+		txtChatInput->Location = System::Drawing::Point(20, 455);
+		txtChatInput->Size = System::Drawing::Size(580, 55);
 		txtChatInput->Multiline = true;
 		txtChatInput->Font = gcnew System::Drawing::Font("Segoe UI", 10);
 		formIA->Controls->Add(txtChatInput);
 
 		btnSendChat = gcnew Button();
 		btnSendChat->Text = L"Enviar";
-		btnSendChat->Location = System::Drawing::Point(610, 480);
-		btnSendChat->Size = System::Drawing::Size(100, 60);
+		btnSendChat->Location = System::Drawing::Point(610, 455);
+		btnSendChat->Size = System::Drawing::Size(100, 55);
 		btnSendChat->BackColor = System::Drawing::Color::MediumSeaGreen;
 		btnSendChat->ForeColor = System::Drawing::Color::White;
 		btnSendChat->FlatStyle = FlatStyle::Flat;
 		btnSendChat->Click += gcnew System::EventHandler(this, &MyForm::btnSendChat_Click);
 		formIA->Controls->Add(btnSendChat);
+		dica->SetToolTip(btnSendChat, L"Envia sua mensagem ao agente (conversa em texto, custo baixo).");
+
+		// --- BOTAO MCP AO VIVO (destaque: maior, cor forte) ---
+		btnChatMcp = gcnew Button();
+		btnChatMcp->Text = L"Automacao MCP (Ao Vivo)";
+		btnChatMcp->Location = System::Drawing::Point(20, 525);
+		btnChatMcp->Size = System::Drawing::Size(470, 40);
+		btnChatMcp->BackColor = System::Drawing::Color::DarkSlateBlue;
+		btnChatMcp->ForeColor = System::Drawing::Color::White;
+		btnChatMcp->FlatStyle = FlatStyle::Flat;
+		btnChatMcp->Font = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		btnChatMcp->Click += gcnew System::EventHandler(this, &MyForm::btnChatMcp_Click);
+		formIA->Controls->Add(btnChatMcp);
+		dica->SetToolTip(btnChatMcp,
+			L"Abre um navegador real e a IA executa o teste ao vivo (Playwright MCP).\n"
+			L"Preciso e poderoso, mas consome MAIS tokens (~100k+ por tarefa).\n"
+			L"O que a IA descobrir entra no contexto desta conversa.");
+
+		// --- BOTAO SCAN DOM (secundario: menor, discreto) ---
+		btnChatDom = gcnew Button();
+		btnChatDom->Text = L"Scan DOM (rapido)";
+		btnChatDom->Location = System::Drawing::Point(500, 525);
+		btnChatDom->Size = System::Drawing::Size(210, 40);
+		btnChatDom->BackColor = System::Drawing::Color::Gainsboro;
+		btnChatDom->ForeColor = System::Drawing::Color::Black;
+		btnChatDom->FlatStyle = FlatStyle::Flat;
+		btnChatDom->Font = gcnew System::Drawing::Font("Segoe UI", 9);
+		btnChatDom->Click += gcnew System::EventHandler(this, &MyForm::btnChatDom_Click);
+		formIA->Controls->Add(btnChatDom);
+		dica->SetToolTip(btnChatDom,
+			L"Varredura estatica da pagina (le inputs/botoes/forms via HTML).\n"
+			L"Rapido e barato: bom para o agente ter contexto inicial da tela.\n"
+			L"Nao abre navegador nem executa acoes.");
 
 		btnSaveScript = gcnew Button();
 		btnSaveScript->Text = L"2. Extrair e Salvar Codigo Final";
-		btnSaveScript->Location = System::Drawing::Point(20, 555);
+		btnSaveScript->Location = System::Drawing::Point(20, 575);
 		btnSaveScript->Size = System::Drawing::Size(690, 40);
 		btnSaveScript->BackColor = System::Drawing::Color::Indigo;
 		btnSaveScript->ForeColor = System::Drawing::Color::White;
@@ -857,8 +858,79 @@ namespace T2MSecurityManager {
 		btnSaveScript->Font = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
 		btnSaveScript->Click += gcnew System::EventHandler(this, &MyForm::btnSaveScript_Click);
 		formIA->Controls->Add(btnSaveScript);
+		dica->SetToolTip(btnSaveScript,
+			L"Extrai o ultimo bloco de codigo da conversa e salva como script (.py/.robot/.sql).");
+
+		// Configura o BackgroundWorker (execucao em thread separada = janela nao congela)
+		workerChat = gcnew System::ComponentModel::BackgroundWorker();
+		workerChat->DoWork += gcnew System::ComponentModel::DoWorkEventHandler(this, &MyForm::workerChat_DoWork);
+		workerChat->RunWorkerCompleted += gcnew System::ComponentModel::RunWorkerCompletedEventHandler(this, &MyForm::workerChat_Completed);
 
 		formIA->ShowDialog();
+	}
+
+		   // ==========================================================================
+		   // --- EXECUCAO NAO-BLOQUEANTE (BackgroundWorker) ---
+		   // ==========================================================================
+
+		   // Habilita/desabilita os controles enquanto o Python roda, e mostra status.
+	private: void DefinirOcupado(bool ocupado, String^ msgStatus) {
+		btnSendChat->Enabled = !ocupado;
+		btnChatMcp->Enabled = !ocupado;
+		btnChatDom->Enabled = !ocupado;
+		btnSaveScript->Enabled = !ocupado;
+		txtChatInput->Enabled = !ocupado;
+		lblChatStatus->Text = ocupado ? msgStatus : L"";
+		formIA->Cursor = ocupado ? Cursors::WaitCursor : Cursors::Default;
+	}
+
+		   // Campos capturados na thread da UI antes de rodar o worker (evita acesso cross-thread)
+	private:
+		String^ workerApiKey;
+		String^ workerUrl;
+
+		// Dispara o Python em background. modo: 0=chat, 1=DOM, 2=MCP. payload ja montado.
+	private: void RodarWorker(int modo, String^ payload, String^ statusMsg) {
+		if (workerChat->IsBusy) return;   // ja tem algo rodando
+
+		// Captura tudo que vem da UI AGORA (thread principal), pois o DoWork roda
+		// em outra thread e nao pode tocar em controles com seguranca.
+		workerApiKey = ObterChaveReal();
+		workerUrl = txtUrl->Text;
+		if (workerApiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
+
+		modoWorker = modo;
+		payloadWorker = payload;
+		DefinirOcupado(true, statusMsg);
+		workerChat->RunWorkerAsync();
+	}
+
+		   // Roda na THREAD SEPARADA. Nao pode tocar na UI aqui; usa os valores capturados.
+	private: System::Void workerChat_DoWork(System::Object^ sender, System::ComponentModel::DoWorkEventArgs^ e) {
+		if (modoWorker == 2) {
+			// MCP ao vivo: payloadWorker contem o objetivo do teste
+			e->Result = ChamarAgenteMcp(workerApiKey, payloadWorker, workerUrl);
+		}
+		else {
+			// Chat normal (0) ou scan DOM (1): ambos via gerador_ia.py.
+			e->Result = ChamarAgentePython(workerApiKey, payloadWorker, workerUrl);
+		}
+	}
+
+		   // Volta para a THREAD DA UI quando o Python termina. Aqui pode atualizar a tela.
+	private: System::Void workerChat_Completed(System::Object^ sender, System::ComponentModel::RunWorkerCompletedEventArgs^ e) {
+		String^ resposta = (e->Error != nullptr)
+			? (L"ERRO interno: " + e->Error->Message)
+			: safe_cast<String^>(e->Result);
+
+		rtbChat->SelectionColor = (modoWorker == 2)
+			? System::Drawing::Color::DarkSlateBlue
+			: System::Drawing::Color::DarkGreen;
+		String^ prefixo = (modoWorker == 2) ? L"T2M Copilot (MCP ao vivo):\n" : L"T2M Copilot Arquiteto:\n";
+		rtbChat->AppendText(L"\n" + prefixo + resposta + L"\n\n");
+		rtbChat->ScrollToCaret();
+
+		DefinirOcupado(false, L"");
 	}
 
 	private: System::Void formIA_Shown(System::Object^ sender, System::EventArgs^ e) {
@@ -870,21 +942,10 @@ namespace T2MSecurityManager {
 
 		rtbChat->SelectionColor = System::Drawing::Color::Gray;
 		rtbChat->AppendText(L">>> Sistema: Inicializando motor de Inteligencia Artificial...\n");
-		formIA->Cursor = Cursors::WaitCursor;
-		btnSendChat->Enabled = false;
-		Application::DoEvents();
 
-		CheckBox^ chk = (CheckBox^)formIA->Controls["chkMcpAtivo"];
-		String^ comando = L"--INICIAR_NOVO_CHAT--";
-		if (chk != nullptr && !chk->Checked) comando += L"MCP_OFF";
-
-		String^ resposta = ChamarAgentePython(apiKey, comando, txtUrl->Text);
-
-		rtbChat->SelectionColor = System::Drawing::Color::DarkGreen;
-		rtbChat->AppendText(L"\nT2M Copilot Arquiteto:\n" + resposta + L"\n\n");
-		rtbChat->ScrollToCaret();
-		btnSendChat->Enabled = true;
-		formIA->Cursor = Cursors::Default;
+		// Inicia o chat SEM escaner por padrao (rapido). O usuario usa os botoes
+		// dedicados (Scan DOM / MCP) quando quiser varredura ou automacao real.
+		RodarWorker(0, L"--INICIAR_NOVO_CHAT--MCP_OFF", L"Inicializando o agente...");
 	}
 
 	private: System::Void btnSendChat_Click(System::Object^ sender, System::EventArgs^ e) {
@@ -897,18 +958,41 @@ namespace T2MSecurityManager {
 		rtbChat->AppendText(L"Operador:\n" + prompt + L"\n\n");
 		txtChatInput->Clear();
 
-		formIA->Cursor = Cursors::WaitCursor;
-		btnSendChat->Enabled = false;
-		Application::DoEvents();
+		RodarWorker(0, prompt, L"O agente esta pensando...");
+	}
 
-		String^ resposta = ChamarAgentePython(apiKey, prompt, txtUrl->Text);
+		   // Botao SCAN DOM: varredura estatica rapida, injeta contexto na conversa.
+	private: System::Void btnChatDom_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ apiKey = ObterChaveReal();
+		if (apiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
+		if (String::IsNullOrWhiteSpace(txtUrl->Text)) { MessageBox::Show(L"Preencha a URL Alvo!", L"Aviso"); return; }
 
-		rtbChat->SelectionColor = System::Drawing::Color::DarkGreen;
-		rtbChat->AppendText(L"T2M Copilot Arquiteto:\n" + resposta + L"\n\n");
-		rtbChat->ScrollToCaret();
+		rtbChat->SelectionColor = System::Drawing::Color::DimGray;
+		rtbChat->AppendText(L">>> Operador solicitou um Scan de DOM (rapido) em " + txtUrl->Text + L"\n\n");
 
-		btnSendChat->Enabled = true;
-		formIA->Cursor = Cursors::Default;
+		// Reinicia o contexto pedindo o escaner ativo (sem MCP_OFF = scanner liga)
+		RodarWorker(1, L"--INICIAR_NOVO_CHAT--", L"Escaneando a pagina (DOM)...");
+	}
+
+		   // Botao MCP AO VIVO: abre navegador real, IA executa e grava na memoria compartilhada.
+	private: System::Void btnChatMcp_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ apiKey = ObterChaveReal();
+		if (apiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
+		if (String::IsNullOrWhiteSpace(txtUrl->Text)) { MessageBox::Show(L"Preencha a URL Alvo!", L"Aviso"); return; }
+
+		String^ objetivo = Microsoft::VisualBasic::Interaction::InputBox(
+			L"Descreva o objetivo do teste (a IA vai executar no navegador de verdade):",
+			L"Automacao MCP Ao Vivo",
+			L"Navegue ate a pagina e verifique se o formulario de login existe e valide o comportamento com credenciais invalidas.",
+			-1, -1);
+		if (String::IsNullOrWhiteSpace(objetivo)) return;
+
+		rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
+		rtbChat->AppendText(L">>> Operador iniciou uma Automacao MCP ao vivo.\n");
+		rtbChat->AppendText(L">>> Objetivo: " + objetivo + L"\n");
+		rtbChat->AppendText(L">>> Uma janela do navegador vai abrir. Aguarde (pode levar alguns minutos)...\n\n");
+
+		RodarWorker(2, objetivo, L"Automacao ao vivo em andamento (navegador aberto)...");
 	}
 
 	private: System::Void btnSaveScript_Click(System::Object^ sender, System::EventArgs^ e) {
