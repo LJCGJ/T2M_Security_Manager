@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 T2M Copilot - Motor de IA (roteador multi-provedor)
 
@@ -258,7 +258,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                 for m in memoria
             ]
             modelos = ['gemini-2.5-flash', 'gemini-2.0-flash',
-                       'gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-pro']
+                       'gemini-flash-latest', 'gemini-2.5-flash-lite']
             sucesso, ultimo_erro = False, ""
             for nome_modelo in modelos:
                 try:
