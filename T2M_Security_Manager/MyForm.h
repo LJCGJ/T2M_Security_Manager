@@ -742,7 +742,7 @@ namespace T2MSecurityManager {
 
 		formIA = gcnew Form();
 		formIA->Text = L"T2M Copilot - Arquiteto de Automacao e Qualidade";
-		formIA->Size = System::Drawing::Size(750, 720);   // mais alta: cabe os botoes novos + status
+		formIA->Size = System::Drawing::Size(750, 640);   // botoes de acao subiram para o topo
 		formIA->StartPosition = FormStartPosition::CenterParent;
 		formIA->BackColor = System::Drawing::Color::WhiteSmoke;
 		AplicarIcone(formIA);
@@ -781,22 +781,22 @@ namespace T2MSecurityManager {
 		// Label de status (fica ao lado dos botoes de acao; some quando ocioso)
 		lblChatStatus = gcnew Label();
 		lblChatStatus->Text = L"";
-		lblChatStatus->Location = System::Drawing::Point(385, 45);
-		lblChatStatus->Size = System::Drawing::Size(330, 20);
+		lblChatStatus->Location = System::Drawing::Point(20, 452);
+		lblChatStatus->Size = System::Drawing::Size(690, 18);
 		lblChatStatus->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Italic);
 		lblChatStatus->ForeColor = System::Drawing::Color::DarkSlateBlue;
 		formIA->Controls->Add(lblChatStatus);
 
 		rtbChat = gcnew RichTextBox();
-		rtbChat->Location = System::Drawing::Point(20, 85);
-		rtbChat->Size = System::Drawing::Size(690, 360);
+		rtbChat->Location = System::Drawing::Point(20, 78);
+		rtbChat->Size = System::Drawing::Size(690, 368);
 		rtbChat->ReadOnly = true;
 		rtbChat->BackColor = System::Drawing::Color::White;
 		rtbChat->Font = gcnew System::Drawing::Font("Segoe UI", 10);
 		formIA->Controls->Add(rtbChat);
 
 		txtChatInput = gcnew TextBox();
-		txtChatInput->Location = System::Drawing::Point(20, 455);
+		txtChatInput->Location = System::Drawing::Point(20, 475);
 		txtChatInput->Size = System::Drawing::Size(580, 55);
 		txtChatInput->Multiline = true;
 		txtChatInput->Font = gcnew System::Drawing::Font("Segoe UI", 10);
@@ -804,7 +804,7 @@ namespace T2MSecurityManager {
 
 		btnSendChat = gcnew Button();
 		btnSendChat->Text = L"➤ Enviar";
-		btnSendChat->Location = System::Drawing::Point(610, 455);
+		btnSendChat->Location = System::Drawing::Point(610, 475);
 		btnSendChat->Size = System::Drawing::Size(100, 55);
 		btnSendChat->BackColor = System::Drawing::Color::MediumSeaGreen;
 		btnSendChat->ForeColor = System::Drawing::Color::White;
@@ -816,12 +816,12 @@ namespace T2MSecurityManager {
 		// --- BOTAO MCP AO VIVO (destaque: maior, cor forte) ---
 		btnChatMcp = gcnew Button();
 		btnChatMcp->Text = L"🎯 Automacao MCP (Ao Vivo)";
-		btnChatMcp->Location = System::Drawing::Point(20, 525);
-		btnChatMcp->Size = System::Drawing::Size(470, 40);
+		btnChatMcp->Location = System::Drawing::Point(380, 38);
+		btnChatMcp->Size = System::Drawing::Size(210, 29);
 		btnChatMcp->BackColor = System::Drawing::Color::DarkSlateBlue;
 		btnChatMcp->ForeColor = System::Drawing::Color::White;
 		btnChatMcp->FlatStyle = FlatStyle::Flat;
-		btnChatMcp->Font = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		btnChatMcp->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
 		btnChatMcp->Click += gcnew System::EventHandler(this, &MyForm::btnChatMcp_Click);
 		formIA->Controls->Add(btnChatMcp);
 		dica->SetToolTip(btnChatMcp,
@@ -832,12 +832,12 @@ namespace T2MSecurityManager {
 		// --- BOTAO SCAN DOM (secundario: menor, discreto) ---
 		btnChatDom = gcnew Button();
 		btnChatDom->Text = L"🔍 Scan DOM (rapido)";
-		btnChatDom->Location = System::Drawing::Point(500, 525);
-		btnChatDom->Size = System::Drawing::Size(210, 40);
+		btnChatDom->Location = System::Drawing::Point(600, 38);
+		btnChatDom->Size = System::Drawing::Size(110, 29);
 		btnChatDom->BackColor = System::Drawing::Color::SteelBlue;
 		btnChatDom->ForeColor = System::Drawing::Color::White;
 		btnChatDom->FlatStyle = FlatStyle::Flat;
-		btnChatDom->Font = gcnew System::Drawing::Font("Segoe UI", 9);
+		btnChatDom->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		btnChatDom->Click += gcnew System::EventHandler(this, &MyForm::btnChatDom_Click);
 		formIA->Controls->Add(btnChatDom);
 		dica->SetToolTip(btnChatDom,
@@ -847,7 +847,7 @@ namespace T2MSecurityManager {
 
 		btnSaveScript = gcnew Button();
 		btnSaveScript->Text = L"💾 2. Extrair e Salvar Codigo Final";
-		btnSaveScript->Location = System::Drawing::Point(20, 575);
+		btnSaveScript->Location = System::Drawing::Point(20, 545);
 		btnSaveScript->Size = System::Drawing::Size(690, 40);
 		btnSaveScript->BackColor = System::Drawing::Color::Indigo;
 		btnSaveScript->ForeColor = System::Drawing::Color::White;
