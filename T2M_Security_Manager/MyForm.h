@@ -13,9 +13,12 @@ using namespace System::IO;
 using namespace System::Collections::Generic;
 using namespace System::Text;
 using namespace System::Security::Cryptography;
+
+// Referencias de assembly necessarias:
+//  - System.Security.dll      -> ProtectedData / DPAPI (cifra chaves e token)
+//  - Microsoft.VisualBasic.dll -> InputBox (usado no botao MCP ao vivo)
 #using <System.Security.dll>
 #using <Microsoft.VisualBasic.dll>
-
 
 namespace T2MSecurityManager {
 
@@ -26,10 +29,10 @@ namespace T2MSecurityManager {
 		{
 			InitializeComponent();
 
-			// --- BOTÃO GERAR IA ---
+			// --- BOTAO GERAR IA ---
 			this->btnGerarIA = (gcnew System::Windows::Forms::Button());
 			this->btnGerarIA->Name = L"btnGerarIA";
-			this->btnGerarIA->Text = L"✨ T2M Copilot (IA)";
+			this->btnGerarIA->Text = L"T2M Copilot (IA)";
 			this->btnGerarIA->Location = System::Drawing::Point(20, 660);
 			this->btnGerarIA->Size = System::Drawing::Size(200, 35);
 			this->btnGerarIA->BackColor = System::Drawing::Color::Indigo;
@@ -39,9 +42,22 @@ namespace T2MSecurityManager {
 			this->btnGerarIA->Click += gcnew System::EventHandler(this, &MyForm::btnGerarIA_Click);
 			this->Controls->Add(this->btnGerarIA);
 
+			// --- BOTAO AUTOMACAO MCP AO VIVO ---
+			Button^ btnMcpLive = gcnew Button();
+			btnMcpLive->Name = L"btnMcpLive";
+			btnMcpLive->Text = L"Automacao MCP (Ao Vivo)";
+			btnMcpLive->Location = System::Drawing::Point(240, 660);
+			btnMcpLive->Size = System::Drawing::Size(220, 35);
+			btnMcpLive->BackColor = System::Drawing::Color::DarkSlateBlue;
+			btnMcpLive->ForeColor = System::Drawing::Color::White;
+			btnMcpLive->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			btnMcpLive->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			btnMcpLive->Click += gcnew System::EventHandler(this, &MyForm::btnMcpLive_Click);
+			this->Controls->Add(btnMcpLive);
+
 			scriptPaths = gcnew Dictionary<String^, String^>();
 
-			// Logo (runtime) + ícone unificado para todas as janelas
+			// Logo (runtime) + icone unificado para todas as janelas
 			try {
 				if (File::Exists(CaminhoApp("T2M_logo-03.png")))
 					this->picLogo->Image = System::Drawing::Image::FromFile(CaminhoApp("T2M_logo-03.png"));
@@ -65,7 +81,7 @@ namespace T2MSecurityManager {
 		Process^ pythonProcess;
 		System::Drawing::Icon^ appIcon;
 
-		// --- Variáveis do Chat Copilot ---
+		// --- Variaveis do Chat Copilot ---
 		Form^ formIA;
 		RichTextBox^ rtbChat;
 		TextBox^ txtChatInput;
@@ -93,12 +109,12 @@ namespace T2MSecurityManager {
 		System::Windows::Forms::Button^ btnExport;
 		System::ComponentModel::Container^ components;
 
-		// P/Invoke para liberar handle de ícone gerado a partir de bitmap
+		// P/Invoke para liberar handle de icone gerado a partir de bitmap
 		[System::Runtime::InteropServices::DllImport("user32.dll", SetLastError = true)]
 			static bool DestroyIcon(System::IntPtr handle);
 
 		// =====================================================================
-		// --- HELPERS DE CAMINHO, ÍCONE E CRIPTOGRAFIA ---
+		// --- HELPERS DE CAMINHO, ICONE E CRIPTOGRAFIA ---
 		// =====================================================================
 	private: String^ CaminhoApp(String^ arquivo) {
 		return Path::Combine(Application::StartupPath, arquivo);
@@ -148,7 +164,7 @@ namespace T2MSecurityManager {
 			return System::Text::Encoding::UTF8->GetString(dados);
 		}
 		catch (...) {
-			return base64; // legado em texto puro: usa como está (será re-cifrado no próximo save)
+			return base64; // legado em texto puro: usa como esta (sera re-cifrado no proximo save)
 		}
 	}
 
@@ -215,7 +231,7 @@ namespace T2MSecurityManager {
 			   this->btnAbrirPasta->Name = L"btnAbrirPasta";
 			   this->btnAbrirPasta->Size = System::Drawing::Size(35, 35);
 			   this->btnAbrirPasta->TabIndex = 4;
-			   this->btnAbrirPasta->Text = L"📂";
+			   this->btnAbrirPasta->Text = L"Abrir";
 			   this->btnAbrirPasta->UseVisualStyleBackColor = false;
 			   this->btnAbrirPasta->Click += gcnew System::EventHandler(this, &MyForm::btnAbrirPasta_Click);
 
@@ -256,7 +272,7 @@ namespace T2MSecurityManager {
 			   this->txtToken->Location = System::Drawing::Point(240, 535);
 			   this->txtToken->Name = L"txtToken";
 			   this->txtToken->Size = System::Drawing::Size(660, 25);
-			   this->txtToken->UseSystemPasswordChar = true; // não expõe o JWT na tela
+			   this->txtToken->UseSystemPasswordChar = true; // nao expoe o JWT na tela
 			   this->txtToken->TabIndex = 11;
 
 			   this->btnLoginAuto->BackColor = System::Drawing::Color::Silver;
@@ -267,7 +283,7 @@ namespace T2MSecurityManager {
 			   this->btnLoginAuto->Name = L"btnLoginAuto";
 			   this->btnLoginAuto->Size = System::Drawing::Size(160, 25);
 			   this->btnLoginAuto->TabIndex = 10;
-			   this->btnLoginAuto->Text = L"🔑 Login Automático";
+			   this->btnLoginAuto->Text = L"Login Automatico";
 			   this->btnLoginAuto->UseVisualStyleBackColor = false;
 			   this->btnLoginAuto->Click += gcnew System::EventHandler(this, &MyForm::btnLoginAuto_Click);
 
@@ -286,7 +302,7 @@ namespace T2MSecurityManager {
 			   this->chkSalvar->Name = L"chkSalvar";
 			   this->chkSalvar->Size = System::Drawing::Size(300, 25);
 			   this->chkSalvar->TabIndex = 12;
-			   this->chkSalvar->Text = L"Salvar configurações ao sair";
+			   this->chkSalvar->Text = L"Salvar configuracoes ao sair";
 
 			   this->btnStart->BackColor = System::Drawing::Color::YellowGreen;
 			   this->btnStart->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
@@ -294,7 +310,7 @@ namespace T2MSecurityManager {
 			   this->btnStart->Name = L"btnStart";
 			   this->btnStart->Size = System::Drawing::Size(180, 45);
 			   this->btnStart->TabIndex = 13;
-			   this->btnStart->Text = L"▶ INICIAR TESTE";
+			   this->btnStart->Text = L"INICIAR TESTE";
 			   this->btnStart->UseVisualStyleBackColor = false;
 			   this->btnStart->Click += gcnew System::EventHandler(this, &MyForm::btnStart_Click);
 
@@ -305,7 +321,7 @@ namespace T2MSecurityManager {
 			   this->btnStop->Name = L"btnStop";
 			   this->btnStop->Size = System::Drawing::Size(180, 45);
 			   this->btnStop->TabIndex = 14;
-			   this->btnStop->Text = L"⏹ PARAR";
+			   this->btnStop->Text = L"PARAR";
 			   this->btnStop->UseVisualStyleBackColor = false;
 			   this->btnStop->Click += gcnew System::EventHandler(this, &MyForm::btnStop_Click);
 
@@ -315,7 +331,7 @@ namespace T2MSecurityManager {
 			   this->btnExport->Name = L"btnExport";
 			   this->btnExport->Size = System::Drawing::Size(180, 45);
 			   this->btnExport->TabIndex = 15;
-			   this->btnExport->Text = L"💾 Exportar Log";
+			   this->btnExport->Text = L"Exportar Log";
 			   this->btnExport->UseVisualStyleBackColor = false;
 			   this->btnExport->Click += gcnew System::EventHandler(this, &MyForm::btnExport_Click);
 
@@ -347,7 +363,7 @@ namespace T2MSecurityManager {
 		   }
 #pragma endregion
 
-		   // --- FUNÇÕES BÁSICAS DA INTERFACE ---
+		   // --- FUNCOES BASICAS DA INTERFACE ---
 	private: System::Void chkHabilitarLogin_CheckedChanged(System::Object^ sender, System::EventArgs^ e) {
 		if (chkHabilitarLogin->Checked) {
 			btnLoginAuto->Enabled = true;
@@ -367,8 +383,8 @@ namespace T2MSecurityManager {
 		}
 		txtUrl->Enabled = false; txtToken->Enabled = false;
 		chkHabilitarLogin->Enabled = false; btnLoginAuto->Enabled = false;
-		btnLoginAuto->Text = L"⏳ Aguarde...";
-		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO LOGIN AUTOMÁTICO...\n");
+		btnLoginAuto->Text = L"Aguarde...";
+		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO LOGIN AUTOMATICO...\n");
 
 		Process^ pLogin = gcnew Process();
 		try {
@@ -384,7 +400,7 @@ namespace T2MSecurityManager {
 
 			try { pLogin->Start(); }
 			catch (System::ComponentModel::Win32Exception^) {
-				txtOutput->AppendText("\n>>> ERRO: 'python' não encontrado no PATH.\n");
+				txtOutput->AppendText("\n>>> ERRO: 'python' nao encontrado no PATH.\n");
 				return;
 			}
 
@@ -392,7 +408,7 @@ namespace T2MSecurityManager {
 			pLogin->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
 			pLogin->StandardInput->Close();
 
-			// Login pode levar até ~60s (script espera o usuário logar). Teto de 180s.
+			// Login pode levar ate ~60s (script espera o usuario logar). Teto de 180s.
 			if (!pLogin->WaitForExit(180000)) {
 				try { pLogin->Kill(); }
 				catch (...) {}
@@ -408,13 +424,13 @@ namespace T2MSecurityManager {
 					txtOutput->AppendText("\n>>> SUCESSO! Token capturado.\n");
 				}
 			}
-			else { txtOutput->AppendText("\n>>> AVISO: Token não encontrado.\n"); }
+			else { txtOutput->AppendText("\n>>> AVISO: Token nao encontrado.\n"); }
 		}
 		catch (Exception^ ex) { MessageBox::Show(L"Erro: " + ex->Message); }
 		finally {
 			pLogin->Close();
 			txtUrl->Enabled = true; txtToken->Enabled = true; chkHabilitarLogin->Enabled = true;
-			btnLoginAuto->Enabled = true; btnLoginAuto->Text = L"🔑 Login Automático";
+			btnLoginAuto->Enabled = true; btnLoginAuto->Text = L"Login Automatico";
 		}
 	}
 
@@ -424,7 +440,7 @@ namespace T2MSecurityManager {
 			StreamWriter^ sw = gcnew StreamWriter(CaminhoApp("config.txt"));
 			sw->WriteLine(txtUrl->Text);
 			sw->WriteLine(ProtegerTexto(txtToken->Text)); // token cifrado (DPAPI)
-			for each(KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
+			for each (KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
 			sw->Close();
 		}
 		catch (...) {}
@@ -452,7 +468,7 @@ namespace T2MSecurityManager {
 			String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
 			if (Directory::Exists(pastaIA)) {
 				array<String^>^ arquivos = Directory::GetFiles(pastaIA, "*.py");
-				for each(String ^ arquivo in arquivos) {
+				for each (String ^ arquivo in arquivos) {
 					String^ nome = Path::GetFileName(arquivo);
 					if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, arquivo); lstScripts->Items->Add(nome); }
 				}
@@ -478,17 +494,17 @@ namespace T2MSecurityManager {
 	private: System::Void btnAbrirPasta_Click(System::Object^ sender, System::EventArgs^ e) {
 		String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
 		if (Directory::Exists(pastaIA)) Process::Start("explorer.exe", pastaIA);
-		else MessageBox::Show(L"A pasta ainda não existe.", L"Aviso");
+		else MessageBox::Show(L"A pasta ainda nao existe.", L"Aviso");
 	}
 
 	private: System::Void btnStart_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (lstScripts->SelectedIndex == -1 || txtUrl->Text->Length == 0) { MessageBox::Show(L"Preencha a URL e selecione um script!"); return; }
 		String^ caminho = scriptPaths[lstScripts->SelectedItem->ToString()];
 
-		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO TESTE DINÂMICO <<<\n");
+		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO TESTE DINAMICO <<<\n");
 		ProcessStartInfo^ psi = gcnew ProcessStartInfo();
 		psi->FileName = "python";
-		// URL vai por argv[1]; TOKEN vai por variável de ambiente (fora da linha de comando)
+		// URL vai por argv[1]; TOKEN vai por variavel de ambiente (fora da linha de comando)
 		psi->Arguments = "-u \"" + caminho + "\" \"" + txtUrl->Text + "\"";
 		psi->EnvironmentVariables["T2M_AUTH_TOKEN"] = txtToken->Text;
 		psi->UseShellExecute = false; psi->RedirectStandardOutput = true; psi->RedirectStandardError = true;
@@ -504,7 +520,7 @@ namespace T2MSecurityManager {
 			btnStart->Enabled = false; btnStop->Enabled = true;
 		}
 		catch (System::ComponentModel::Win32Exception^) {
-			MessageBox::Show(L"'python' não encontrado no PATH. Instale o Python marcando 'Add to PATH'.", L"Erro");
+			MessageBox::Show(L"'python' nao encontrado no PATH. Instale o Python marcando 'Add to PATH'.", L"Erro");
 			ResetButtons();
 		}
 		catch (Exception^ ex) { MessageBox::Show(L"Erro: " + ex->Message); ResetButtons(); }
@@ -539,7 +555,7 @@ namespace T2MSecurityManager {
 		combo->Items->Clear();
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
-			for each(String ^ linha in linhas) {
+			for each (String ^ linha in linhas) {
 				if (!String::IsNullOrWhiteSpace(linha)) {
 					String^ real = DesprotegerTexto(linha->Trim());
 					if (real->Length >= 10)
@@ -550,7 +566,7 @@ namespace T2MSecurityManager {
 			}
 		}
 		if (combo->Items->Count == 0) combo->Items->Add(L" Nenhuma chave ");
-		combo->Items->Add("-------------------------"); combo->Items->Add(L"➕ Adicionar Nova API Key...");
+		combo->Items->Add("-------------------------"); combo->Items->Add(L"+ Adicionar Nova API Key...");
 		combo->SelectedIndex = 0;
 	}
 
@@ -573,7 +589,7 @@ namespace T2MSecurityManager {
 
 			try { p->Start(); }
 			catch (System::ComponentModel::Win32Exception^) {
-				return L"Erro: 'python' não encontrado no PATH. Instale o Python marcando 'Add to PATH'.";
+				return L"Erro: 'python' nao encontrado no PATH. Instale o Python marcando 'Add to PATH'.";
 			}
 
 			// linha 1 = chave | linha 2 = url | resto = prompt (pode ser multilinha)
@@ -585,7 +601,7 @@ namespace T2MSecurityManager {
 			if (!p->WaitForExit(120000)) { // teto de 120s: nunca congela para sempre
 				try { p->Kill(); }
 				catch (...) {}
-				return L"Tempo esgotado (120s) aguardando a IA. Verifique a conexão ou a chave.";
+				return L"Tempo esgotado (120s) aguardando a IA. Verifique a conexao ou a chave.";
 			}
 
 			String^ output = p->StandardOutput->ReadToEnd();
@@ -595,11 +611,86 @@ namespace T2MSecurityManager {
 				startIdx += 15;
 				return output->Substring(startIdx, endIdx - startIdx)->Trim();
 			}
-			return L"Erro de comunicação com a IA:\n" + output;
+			return L"Erro de comunicacao com a IA:\n" + output;
 		}
 		finally {
 			p->Close();
 		}
+	}
+
+		   // --- AGENTE MCP AO VIVO (Playwright) ---
+	private: String^ ChamarAgenteMcp(String^ apiKey, String^ objetivo, String^ url) {
+		Process^ p = gcnew Process();
+		try {
+			ProcessStartInfo^ psi = gcnew ProcessStartInfo();
+			psi->FileName = "python";
+			psi->Arguments = "-u \"" + CaminhoApp("agente_mcp.py") + "\"";
+			psi->UseShellExecute = false;
+			psi->RedirectStandardInput = true;
+			psi->RedirectStandardOutput = true;
+			psi->CreateNoWindow = true;
+			psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
+			p->StartInfo = psi;
+
+			try { p->Start(); }
+			catch (System::ComponentModel::Win32Exception^) {
+				return L"Erro: 'python' nao encontrado no PATH.";
+			}
+
+			String^ payload = apiKey + "\n" + url + "\n" + objetivo;
+			array<System::Byte>^ bytes = System::Text::Encoding::UTF8->GetBytes(payload);
+			p->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
+			p->StandardInput->Close();
+
+			// Loop ao vivo e lento: teto de 5 minutos
+			if (!p->WaitForExit(300000)) {
+				try { p->Kill(); }
+				catch (...) {}
+				return L"Tempo esgotado (5 min) no agente MCP.";
+			}
+
+			String^ output = p->StandardOutput->ReadToEnd();
+			int i = output->IndexOf("CHAT_MSG_INICIO");
+			int f = output->IndexOf("CHAT_MSG_FIM");
+			if (i != -1 && f != -1) return output->Substring(i + 15, f - (i + 15))->Trim();
+			return L"Erro de comunicacao com o agente:\n" + output;
+		}
+		finally { p->Close(); }
+	}
+
+	private: System::Void btnMcpLive_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (String::IsNullOrWhiteSpace(txtUrl->Text)) {
+			MessageBox::Show(L"Preencha a URL Alvo primeiro!", L"Aviso");
+			return;
+		}
+
+		array<String^>^ chaves = File::Exists(CaminhoApp("api_keys_ia.txt"))
+			? File::ReadAllLines(CaminhoApp("api_keys_ia.txt")) : gcnew array<String^>(0);
+		String^ apiKey = "";
+		for each (String ^ l in chaves) {
+			if (!String::IsNullOrWhiteSpace(l)) { apiKey = DesprotegerTexto(l->Trim()); break; }
+		}
+		if (apiKey == "") {
+			MessageBox::Show(L"Nenhuma chave de API cadastrada. Use o T2M Copilot (IA) para adicionar uma.", L"Aviso");
+			return;
+		}
+
+		String^ objetivo = Microsoft::VisualBasic::Interaction::InputBox(
+			L"Descreva o objetivo do teste (a IA vai executar no navegador de verdade):",
+			L"Automacao MCP Ao Vivo",
+			L"Navegue ate a pagina e verifique se o formulario de login existe e valide o comportamento com credenciais invalidas.");
+		if (String::IsNullOrWhiteSpace(objetivo)) return;
+
+		txtOutput->Clear();
+		txtOutput->AppendText(">>> INICIANDO AGENTE MCP (Playwright ao vivo)...\n");
+		txtOutput->AppendText(">>> Isso pode levar alguns minutos. Uma janela do Chrome vai abrir.\n\n");
+		this->Cursor = Cursors::WaitCursor;
+		Application::DoEvents();
+
+		String^ resposta = ChamarAgenteMcp(apiKey, objetivo, txtUrl->Text);
+
+		txtOutput->AppendText(resposta + "\n");
+		this->Cursor = Cursors::Default;
 	}
 
 	private: String^ ObterChaveReal() {
@@ -608,14 +699,14 @@ namespace T2MSecurityManager {
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 			List<String^>^ chaves = gcnew List<String^>();
-			for each(String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
+			for each (String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
 			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
 		}
 		return "";
 	}
 
 	private: System::Void comboModeloChat_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
-		if (comboModeloChat->SelectedItem != nullptr && comboModeloChat->SelectedItem->ToString() == L"➕ Adicionar Nova API Key...") {
+		if (comboModeloChat->SelectedItem != nullptr && comboModeloChat->SelectedItem->ToString() == L"+ Adicionar Nova API Key...") {
 			Form^ formAdd = gcnew Form();
 			formAdd->Text = L"Adicionar API Key";
 			formAdd->Size = System::Drawing::Size(450, 150);
@@ -660,13 +751,13 @@ namespace T2MSecurityManager {
 
 	private: System::Void btnRemoverChave_Click(System::Object^ sender, System::EventArgs^ e) {
 		int idx = comboModeloChat->SelectedIndex;
-		if (idx >= 0 && comboModeloChat->SelectedItem->ToString() != L"➕ Adicionar Nova API Key..." && comboModeloChat->SelectedItem->ToString() != "-------------------------" && comboModeloChat->SelectedItem->ToString() != L" Nenhuma chave ") {
-			if (MessageBox::Show(L"Tem certeza que deseja excluir esta chave?", L"Confirmar Exclusão", MessageBoxButtons::YesNo, MessageBoxIcon::Warning) == System::Windows::Forms::DialogResult::Yes) {
+		if (idx >= 0 && comboModeloChat->SelectedItem->ToString() != L"+ Adicionar Nova API Key..." && comboModeloChat->SelectedItem->ToString() != "-------------------------" && comboModeloChat->SelectedItem->ToString() != L" Nenhuma chave ") {
+			if (MessageBox::Show(L"Tem certeza que deseja excluir esta chave?", L"Confirmar Exclusao", MessageBoxButtons::YesNo, MessageBoxIcon::Warning) == System::Windows::Forms::DialogResult::Yes) {
 				if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 					array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 					List<String^>^ novasLinhas = gcnew List<String^>();
 					int cont = 0;
-					for each(String ^ linha in linhas) {
+					for each (String ^ linha in linhas) {
 						if (!String::IsNullOrWhiteSpace(linha)) {
 							if (cont != idx) novasLinhas->Add(linha);
 							cont++;
@@ -674,12 +765,12 @@ namespace T2MSecurityManager {
 					}
 					File::WriteAllLines(CaminhoApp("api_keys_ia.txt"), novasLinhas->ToArray());
 					CarregarDropdownAPI(comboModeloChat);
-					MessageBox::Show(L"Chave excluída!", L"T2M Copilot");
+					MessageBox::Show(L"Chave excluida!", L"T2M Copilot");
 				}
 			}
 		}
 		else {
-			MessageBox::Show(L"Selecione uma chave válida para excluir.", L"Aviso");
+			MessageBox::Show(L"Selecione uma chave valida para excluir.", L"Aviso");
 		}
 	}
 
@@ -690,7 +781,7 @@ namespace T2MSecurityManager {
 		}
 
 		formIA = gcnew Form();
-		formIA->Text = L"T2M Copilot - Arquiteto de Automação e Qualidade";
+		formIA->Text = L"T2M Copilot - Arquiteto de Automacao e Qualidade";
 		formIA->Size = System::Drawing::Size(750, 650);
 		formIA->StartPosition = FormStartPosition::CenterParent;
 		formIA->BackColor = System::Drawing::Color::WhiteSmoke;
@@ -713,7 +804,7 @@ namespace T2MSecurityManager {
 		formIA->Controls->Add(comboModeloChat);
 
 		Button^ btnRemoverChave = gcnew Button();
-		btnRemoverChave->Text = L"🗑️ Excluir";
+		btnRemoverChave->Text = L"Excluir";
 		btnRemoverChave->Location = System::Drawing::Point(290, 39);
 		btnRemoverChave->Size = System::Drawing::Size(80, 27);
 		btnRemoverChave->BackColor = System::Drawing::Color::LightCoral;
@@ -723,7 +814,7 @@ namespace T2MSecurityManager {
 
 		CheckBox^ chkMcp = gcnew CheckBox();
 		chkMcp->Name = "chkMcpAtivo";
-		chkMcp->Text = L"🤖 Habilitar Escâner de Interface (URL/DOM)";
+		chkMcp->Text = L"Habilitar Escaner de Interface (URL/DOM)";
 		chkMcp->Location = System::Drawing::Point(380, 40);
 		chkMcp->Size = System::Drawing::Size(340, 25);
 		chkMcp->Checked = true;
@@ -757,7 +848,7 @@ namespace T2MSecurityManager {
 		formIA->Controls->Add(btnSendChat);
 
 		btnSaveScript = gcnew Button();
-		btnSaveScript->Text = L"💾 2. Extrair e Salvar Código Final";
+		btnSaveScript->Text = L"2. Extrair e Salvar Codigo Final";
 		btnSaveScript->Location = System::Drawing::Point(20, 555);
 		btnSaveScript->Size = System::Drawing::Size(690, 40);
 		btnSaveScript->BackColor = System::Drawing::Color::Indigo;
@@ -773,12 +864,12 @@ namespace T2MSecurityManager {
 	private: System::Void formIA_Shown(System::Object^ sender, System::EventArgs^ e) {
 		String^ apiKey = ObterChaveReal();
 		if (apiKey == "") {
-			rtbChat->AppendText(L">>> Aviso: Nenhuma API Key selecionada. Selecione uma chave válida e feche/abra esta janela para iniciar.\n");
+			rtbChat->AppendText(L">>> Aviso: Nenhuma API Key selecionada. Selecione uma chave valida e feche/abra esta janela para iniciar.\n");
 			return;
 		}
 
 		rtbChat->SelectionColor = System::Drawing::Color::Gray;
-		rtbChat->AppendText(L">>> Sistema: Inicializando motor de Inteligência Artificial...\n");
+		rtbChat->AppendText(L">>> Sistema: Inicializando motor de Inteligencia Artificial...\n");
 		formIA->Cursor = Cursors::WaitCursor;
 		btnSendChat->Enabled = false;
 		Application::DoEvents();
@@ -860,15 +951,15 @@ namespace T2MSecurityManager {
 					scriptPaths->Add(nomeArq, caminho);
 					lstScripts->Items->Add(nomeArq);
 				}
-				MessageBox::Show(L"Automação extraída e salva com sucesso:\n" + nomeArq, L"Copilot Integrado");
+				MessageBox::Show(L"Automacao extraida e salva com sucesso:\n" + nomeArq, L"Copilot Integrado");
 				formIA->Close();
 			}
 			else {
-				MessageBox::Show(L"A IA não finalizou o bloco de código corretamente.", L"Aviso de Estrutura");
+				MessageBox::Show(L"A IA nao finalizou o bloco de codigo corretamente.", L"Aviso de Estrutura");
 			}
 		}
 		else {
-			MessageBox::Show(L"Nenhum código estruturado encontrado na conversa. Peça à IA para gerar o script primeiro!", L"Aviso de Extração");
+			MessageBox::Show(L"Nenhum codigo estruturado encontrado na conversa. Peca a IA para gerar o script primeiro!", L"Aviso de Extracao");
 		}
 	}
 
