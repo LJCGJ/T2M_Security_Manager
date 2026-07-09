@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <iostream>
 #include <string>
 
@@ -678,7 +678,7 @@ namespace T2MSecurityManager {
 		String^ objetivo = Microsoft::VisualBasic::Interaction::InputBox(
 			L"Descreva o objetivo do teste (a IA vai executar no navegador de verdade):",
 			L"Automacao MCP Ao Vivo",
-			L"Navegue ate a pagina e verifique se o formulario de login existe e valide o comportamento com credenciais invalidas.");
+			L"Navegue ate a pagina e verifique se o formulario de login existe e valide o comportamento com credenciais invalidas.", -1, -1);
 		if (String::IsNullOrWhiteSpace(objetivo)) return;
 
 		txtOutput->Clear();
