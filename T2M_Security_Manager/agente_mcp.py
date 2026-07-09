@@ -31,12 +31,6 @@ import json
 import asyncio
 import platform
 
-# Arquivo de memoria COMPARTILHADO com o chat (gerador_ia.py). Ambos usam o
-# mesmo caminho (diretorio do proprio script) para que o agente MCP e o chat
-# enxerguem a mesma conversa. E assim o agente "lembra" do que viu ao vivo.
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARQUIVO_MEMORIA = os.path.join(SCRIPT_DIR, "memoria_chat.json")
-
 # ------------------------------------------------------------------ #
 # Constantes de seguranca (guardrails de custo - recomendacao 2026)  #
 # ------------------------------------------------------------------ #
@@ -251,7 +245,7 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     tools_gemini = [{"function_declarations": declaracoes}]
     try:
         model = genai.GenerativeModel(
-            "gemini-2.0-flash",
+            "gemini-2.5-flash",
             tools=tools_gemini,
             system_instruction=(
                 "Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas de "
@@ -348,27 +342,9 @@ async def executar(api_key, url_alvo, objetivo):
                         return
                     resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
-                # --- INTEGRACAO COM O CHAT: grava o resultado na memoria compartilhada ---
-                # Assim o proximo turno do chat (gerador_ia.py) "lembra" do que o MCP fez.
-                # O relatorio entra como uma fala do assistente, precedida de uma nota
-                # de contexto (como se o operador tivesse pedido a automacao ao vivo).
-                try:
-                    memoria = []
-                    if os.path.exists(ARQUIVO_MEMORIA):
-                        with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
-                            memoria = json.load(f)
-                    memoria.append({
-                        "role": "user",
-                        "content": f"[AUTOMACAO MCP AO VIVO] Executei uma automacao real no "
-                                   f"navegador sobre {url_alvo} com o objetivo: {objetivo}"
-                    })
-                    memoria.append({"role": "assistant", "content": resultado})
-                    with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
-                        json.dump(memoria, f, ensure_ascii=False, indent=4)
-                except Exception as e:
-                    log(f">>> Aviso: nao foi possivel gravar na memoria do chat: {e}")
-
                 responder(resultado)
+
+    except FileNotFoundError:
         responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
     except BaseException as e:
         # ExceptionGroup (TaskGroup) esconde a causa real; desempacota para mostrar.

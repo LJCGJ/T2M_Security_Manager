@@ -131,16 +131,17 @@ def extrair_contexto_dom(url):
 # --- 4. LEITURA DA ENTRADA (STDIN JSON) ---
 # ==============================================================================
 def ler_entrada():
-    """Le o payload JSON enviado pelo C++ via stdin."""
+    """Le 3 linhas de texto via stdin: linha1=chave, linha2=url, linha3+=prompt.
+    Mesmo contrato usado pelo C++ (MyForm.h) e pelo agente_mcp.py."""
     raw = sys.stdin.read()
     if not raw or not raw.strip():
         raise ValueError("Nenhum dado recebido via stdin.")
-    dados = json.loads(raw)
-    return (
-        (dados.get("api_key") or "").strip(),
-        dados.get("prompt") or "",
-        dados.get("url") or "",
-    )
+    partes = raw.split("\n", 2)
+    api_key = partes[0].strip() if len(partes) > 0 else ""
+    url = partes[1].strip() if len(partes) > 1 else ""
+    prompt = partes[2] if len(partes) > 2 else ""
+    # Retorna na ordem que o main() espera: (api_key, prompt, url)
+    return (api_key, prompt, url)
 
 
 # ==============================================================================
@@ -257,9 +258,11 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                  "parts": [m["content"]]}
                 for m in memoria
             ]
-            modelos = ['gemini-2.5-flash', 'gemini-2.0-flash',
-                       'gemini-flash-latest', 'gemini-2.5-flash-lite']
-            sucesso, ultimo_erro = False, ""
+            # Modelos estaveis primeiro. gemini-flash-latest é um alias que o
+            # Google mantem sempre apontando para a versao flash atual (bom fallback).
+            modelos = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest']
+            sucesso = False
+            erros = []
             for nome_modelo in modelos:
                 try:
                     model = genai.GenerativeModel(nome_modelo)
@@ -268,11 +271,12 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                     sucesso = True
                     break
                 except Exception as e:
-                    ultimo_erro = str(e)
+                    # Guarda o erro de CADA modelo, para diagnostico (nao so o ultimo)
+                    erros.append(f"{nome_modelo}: {str(e)[:150]}")
                     continue
             if not sucesso:
-                print(f"ERRO PYTHON: nenhum modelo Gemini respondeu. "
-                      f"Ultimo erro: {ultimo_erro}")
+                detalhe = " || ".join(erros)
+                print(f"ERRO PYTHON: nenhum modelo Gemini respondeu. Detalhes: {detalhe}")
                 return
 
         # --- PERSISTE MEMORIA E RETORNA PARA A INTERFACE ---
