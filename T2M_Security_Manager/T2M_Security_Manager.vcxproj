@@ -138,6 +138,7 @@
     <Image Include="T2M_logo-03.png" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="agente_mcp.py" />
     <None Include="gerador_ia.py" />
     <None Include="get_token.py" />
   </ItemGroup>

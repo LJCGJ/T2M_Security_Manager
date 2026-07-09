@@ -13,7 +13,8 @@ using namespace System::IO;
 using namespace System::Collections::Generic;
 using namespace System::Text;
 using namespace System::Security::Cryptography;
-using <System.Security.dll>
+#using <System.Security.dll>
+#using <Microsoft.VisualBasic.dll>
 
 
 namespace T2MSecurityManager {
