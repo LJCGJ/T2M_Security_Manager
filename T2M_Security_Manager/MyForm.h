@@ -32,7 +32,7 @@ namespace T2MSecurityManager {
 			// --- BOTAO GERAR IA ---
 			this->btnGerarIA = (gcnew System::Windows::Forms::Button());
 			this->btnGerarIA->Name = L"btnGerarIA";
-			this->btnGerarIA->Text = L"T2M Copilot (IA)";
+			this->btnGerarIA->Text = L"? T2M Copilot (IA)";
 			this->btnGerarIA->Location = System::Drawing::Point(20, 660);
 			this->btnGerarIA->Size = System::Drawing::Size(200, 35);
 			this->btnGerarIA->BackColor = System::Drawing::Color::Indigo;
@@ -209,7 +209,7 @@ namespace T2MSecurityManager {
 			   this->btnAdd->Name = L"btnAdd";
 			   this->btnAdd->Size = System::Drawing::Size(80, 35);
 			   this->btnAdd->TabIndex = 2;
-			   this->btnAdd->Text = L"+ Add";
+			   this->btnAdd->Text = L"? Add";
 			   this->btnAdd->UseVisualStyleBackColor = false;
 			   this->btnAdd->Click += gcnew System::EventHandler(this, &MyForm::btnAdd_Click);
 
@@ -219,7 +219,7 @@ namespace T2MSecurityManager {
 			   this->btnRemove->Name = L"btnRemove";
 			   this->btnRemove->Size = System::Drawing::Size(75, 35);
 			   this->btnRemove->TabIndex = 3;
-			   this->btnRemove->Text = L"Remover";
+			   this->btnRemove->Text = L"?? Remover";
 			   this->btnRemove->UseVisualStyleBackColor = false;
 			   this->btnRemove->Click += gcnew System::EventHandler(this, &MyForm::btnRemove_Click);
 
@@ -229,7 +229,7 @@ namespace T2MSecurityManager {
 			   this->btnAbrirPasta->Name = L"btnAbrirPasta";
 			   this->btnAbrirPasta->Size = System::Drawing::Size(35, 35);
 			   this->btnAbrirPasta->TabIndex = 4;
-			   this->btnAbrirPasta->Text = L"Abrir";
+			   this->btnAbrirPasta->Text = L"??";
 			   this->btnAbrirPasta->UseVisualStyleBackColor = false;
 			   this->btnAbrirPasta->Click += gcnew System::EventHandler(this, &MyForm::btnAbrirPasta_Click);
 
@@ -273,7 +273,7 @@ namespace T2MSecurityManager {
 			   this->txtToken->UseSystemPasswordChar = true; // nao expoe o JWT na tela
 			   this->txtToken->TabIndex = 11;
 
-			   this->btnLoginAuto->BackColor = System::Drawing::Color::Silver;
+			   this->btnLoginAuto->BackColor = System::Drawing::Color::SteelBlue;
 			   this->btnLoginAuto->Enabled = false;
 			   this->btnLoginAuto->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
 			   this->btnLoginAuto->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
@@ -281,7 +281,7 @@ namespace T2MSecurityManager {
 			   this->btnLoginAuto->Name = L"btnLoginAuto";
 			   this->btnLoginAuto->Size = System::Drawing::Size(160, 25);
 			   this->btnLoginAuto->TabIndex = 10;
-			   this->btnLoginAuto->Text = L"Login Automatico";
+			   this->btnLoginAuto->Text = L"?? Login Automatico";
 			   this->btnLoginAuto->UseVisualStyleBackColor = false;
 			   this->btnLoginAuto->Click += gcnew System::EventHandler(this, &MyForm::btnLoginAuto_Click);
 
@@ -308,7 +308,7 @@ namespace T2MSecurityManager {
 			   this->btnStart->Name = L"btnStart";
 			   this->btnStart->Size = System::Drawing::Size(180, 45);
 			   this->btnStart->TabIndex = 13;
-			   this->btnStart->Text = L"INICIAR TESTE";
+			   this->btnStart->Text = L"? INICIAR TESTE";
 			   this->btnStart->UseVisualStyleBackColor = false;
 			   this->btnStart->Click += gcnew System::EventHandler(this, &MyForm::btnStart_Click);
 
@@ -319,17 +319,17 @@ namespace T2MSecurityManager {
 			   this->btnStop->Name = L"btnStop";
 			   this->btnStop->Size = System::Drawing::Size(180, 45);
 			   this->btnStop->TabIndex = 14;
-			   this->btnStop->Text = L"PARAR";
+			   this->btnStop->Text = L"? PARAR";
 			   this->btnStop->UseVisualStyleBackColor = false;
 			   this->btnStop->Click += gcnew System::EventHandler(this, &MyForm::btnStop_Click);
 
-			   this->btnExport->BackColor = System::Drawing::Color::LightGray;
+			   this->btnExport->BackColor = System::Drawing::Color::SteelBlue;
 			   this->btnExport->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
 			   this->btnExport->Location = System::Drawing::Point(720, 600);
 			   this->btnExport->Name = L"btnExport";
 			   this->btnExport->Size = System::Drawing::Size(180, 45);
 			   this->btnExport->TabIndex = 15;
-			   this->btnExport->Text = L"Exportar Log";
+			   this->btnExport->Text = L"?? Exportar Log";
 			   this->btnExport->UseVisualStyleBackColor = false;
 			   this->btnExport->Click += gcnew System::EventHandler(this, &MyForm::btnExport_Click);
 
@@ -381,7 +381,7 @@ namespace T2MSecurityManager {
 		}
 		txtUrl->Enabled = false; txtToken->Enabled = false;
 		chkHabilitarLogin->Enabled = false; btnLoginAuto->Enabled = false;
-		btnLoginAuto->Text = L"Aguarde...";
+		btnLoginAuto->Text = L"? Aguarde...";
 		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO LOGIN AUTOMATICO...\n");
 
 		Process^ pLogin = gcnew Process();
@@ -428,7 +428,7 @@ namespace T2MSecurityManager {
 		finally {
 			pLogin->Close();
 			txtUrl->Enabled = true; txtToken->Enabled = true; chkHabilitarLogin->Enabled = true;
-			btnLoginAuto->Enabled = true; btnLoginAuto->Text = L"Login Automatico";
+			btnLoginAuto->Enabled = true; btnLoginAuto->Text = L"?? Login Automatico";
 		}
 	}
 
@@ -690,7 +690,7 @@ namespace T2MSecurityManager {
 			formAdd->Controls->Add(txtNovaChave);
 
 			Button^ btnSalvar = gcnew Button();
-			btnSalvar->Text = L"Salvar Chave";
+			btnSalvar->Text = L"?? Salvar Chave";
 			btnSalvar->Location = System::Drawing::Point(310, 75);
 			btnSalvar->Size = System::Drawing::Size(100, 30);
 			btnSalvar->BackColor = System::Drawing::Color::MediumSeaGreen;
@@ -773,7 +773,7 @@ namespace T2MSecurityManager {
 		formIA->Controls->Add(comboModeloChat);
 
 		Button^ btnRemoverChave = gcnew Button();
-		btnRemoverChave->Text = L"Excluir";
+		btnRemoverChave->Text = L"?? Excluir";
 		btnRemoverChave->Location = System::Drawing::Point(290, 39);
 		btnRemoverChave->Size = System::Drawing::Size(80, 27);
 		btnRemoverChave->BackColor = System::Drawing::Color::LightCoral;
@@ -806,7 +806,7 @@ namespace T2MSecurityManager {
 		formIA->Controls->Add(txtChatInput);
 
 		btnSendChat = gcnew Button();
-		btnSendChat->Text = L"Enviar";
+		btnSendChat->Text = L"? Enviar";
 		btnSendChat->Location = System::Drawing::Point(610, 455);
 		btnSendChat->Size = System::Drawing::Size(100, 55);
 		btnSendChat->BackColor = System::Drawing::Color::MediumSeaGreen;
@@ -818,7 +818,7 @@ namespace T2MSecurityManager {
 
 		// --- BOTAO MCP AO VIVO (destaque: maior, cor forte) ---
 		btnChatMcp = gcnew Button();
-		btnChatMcp->Text = L"Automacao MCP (Ao Vivo)";
+		btnChatMcp->Text = L"?? Automacao MCP (Ao Vivo)";
 		btnChatMcp->Location = System::Drawing::Point(20, 525);
 		btnChatMcp->Size = System::Drawing::Size(470, 40);
 		btnChatMcp->BackColor = System::Drawing::Color::DarkSlateBlue;
@@ -834,11 +834,11 @@ namespace T2MSecurityManager {
 
 		// --- BOTAO SCAN DOM (secundario: menor, discreto) ---
 		btnChatDom = gcnew Button();
-		btnChatDom->Text = L"Scan DOM (rapido)";
+		btnChatDom->Text = L"?? Scan DOM (rapido)";
 		btnChatDom->Location = System::Drawing::Point(500, 525);
 		btnChatDom->Size = System::Drawing::Size(210, 40);
-		btnChatDom->BackColor = System::Drawing::Color::Gainsboro;
-		btnChatDom->ForeColor = System::Drawing::Color::Black;
+		btnChatDom->BackColor = System::Drawing::Color::SteelBlue;
+		btnChatDom->ForeColor = System::Drawing::Color::White;
 		btnChatDom->FlatStyle = FlatStyle::Flat;
 		btnChatDom->Font = gcnew System::Drawing::Font("Segoe UI", 9);
 		btnChatDom->Click += gcnew System::EventHandler(this, &MyForm::btnChatDom_Click);
@@ -849,7 +849,7 @@ namespace T2MSecurityManager {
 			L"Nao abre navegador nem executa acoes.");
 
 		btnSaveScript = gcnew Button();
-		btnSaveScript->Text = L"2. Extrair e Salvar Codigo Final";
+		btnSaveScript->Text = L"?? 2. Extrair e Salvar Codigo Final";
 		btnSaveScript->Location = System::Drawing::Point(20, 575);
 		btnSaveScript->Size = System::Drawing::Size(690, 40);
 		btnSaveScript->BackColor = System::Drawing::Color::Indigo;
