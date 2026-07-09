@@ -66,8 +66,13 @@ def tem_lib(modulo):
 def limpar_schema_gemini(schema):
     if not isinstance(schema, dict):
         return schema
+    # O SDK antigo google.generativeai rejeita varios campos de JSON Schema.
+    # Removemos tudo que nao seja o subconjunto que ele aceita.
     proibidas = {"$schema", "additionalProperties", "additional_properties",
-                 "title", "default", "examples", "$ref", "definitions"}
+                 "title", "default", "examples", "$ref", "definitions", "$defs",
+                 "anyOf", "oneOf", "allOf", "not", "format", "pattern",
+                 "minimum", "maximum", "minItems", "maxItems", "minLength",
+                 "maxLength", "const", "multipleOf", "uniqueItems"}
     limpo = {}
     for k, v in schema.items():
         if k in proibidas:
@@ -321,8 +326,24 @@ async def executar(api_key, url_alvo, objetivo):
 
     except FileNotFoundError:
         responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
-    except Exception as e:
-        responder(f"ERRO no agente MCP: {e}")
+    except BaseException as e:
+        # ExceptionGroup (TaskGroup) esconde a causa real; desempacota para mostrar.
+        import traceback
+        reais = []
+
+        def _coletar(exc):
+            sub = getattr(exc, "exceptions", None)
+            if sub:
+                for x in sub:
+                    _coletar(x)
+            else:
+                reais.append(f"{type(exc).__name__}: {exc}")
+
+        _coletar(e)
+        detalhe = " | ".join(reais) if reais else f"{type(e).__name__}: {e}"
+        log("=== TRACEBACK COMPLETO ===")
+        log(traceback.format_exc())
+        responder(f"ERRO no agente MCP: {detalhe}")
 
 
 def main():
