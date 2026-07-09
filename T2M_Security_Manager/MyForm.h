@@ -118,6 +118,37 @@ namespace T2MSecurityManager {
 		return Path::Combine(Application::StartupPath, arquivo);
 	}
 
+		   // Nome completo da conta do Windows (ex.: "LeonardoJoseCordeiro").
+	private: String^ NomeUsuarioWindows() {
+		String^ nome = Environment::UserName;
+		if (String::IsNullOrWhiteSpace(nome)) return L"Operador";
+		return nome->Trim();
+	}
+
+		   // Primeiro nome "amigavel" para a saudacao. Tenta separar nomes grudados em
+		   // CamelCase (LeonardoJoseCordeiro -> Leonardo) ou por espaco/ponto.
+	private: String^ PrimeiroNomeUsuario() {
+		String^ nome = NomeUsuarioWindows();
+		// separadores comuns
+		array<Char>^ seps = { ' ', '.', '_', '-' };
+		array<String^>^ partes = nome->Split(seps, StringSplitOptions::RemoveEmptyEntries);
+		if (partes->Length > 0 && partes[0]->Length > 1) nome = partes[0];
+
+		// Se ainda estiver "grudado" em CamelCase (ex.: LeonardoJose), corta no 2o maiusculo
+		if (nome->Length > 3) {
+			for (int i = 1; i < nome->Length; i++) {
+				if (System::Char::IsUpper(nome[i])) {
+					nome = nome->Substring(0, i);
+					break;
+				}
+			}
+		}
+		// Capitaliza a inicial, deixa o resto como esta
+		if (nome->Length >= 1)
+			nome = System::Char::ToUpper(nome[0]) + nome->Substring(1);
+		return nome;
+	}
+
 	private: void CarregarIcone() {
 		try {
 			String^ ico = CaminhoApp("icon2.ico");
@@ -966,7 +997,7 @@ namespace T2MSecurityManager {
 
 		rtbChat->SelectionColor = System::Drawing::Color::Indigo;
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
-		rtbChat->AppendText(L"Qual e a tarefa de hoje?\n\n");
+		rtbChat->AppendText(L"Ola, " + PrimeiroNomeUsuario() + L"! Qual e a tarefa de hoje?\n\n");
 
 		// Volta a fonte/cor padrao para as proximas mensagens
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
@@ -988,7 +1019,7 @@ namespace T2MSecurityManager {
 		if (apiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
 
 		rtbChat->SelectionColor = System::Drawing::Color::DarkBlue;
-		rtbChat->AppendText(L"Operador:\n" + prompt + L"\n\n");
+		rtbChat->AppendText(NomeUsuarioWindows() + L":\n" + prompt + L"\n\n");
 		txtChatInput->Clear();
 
 		RodarWorker(0, prompt, L"O agente esta pensando...");
@@ -1001,7 +1032,7 @@ namespace T2MSecurityManager {
 		if (String::IsNullOrWhiteSpace(txtUrl->Text)) { MessageBox::Show(L"Preencha a URL Alvo!", L"Aviso"); return; }
 
 		rtbChat->SelectionColor = System::Drawing::Color::DimGray;
-		rtbChat->AppendText(L">>> Operador solicitou um Scan de DOM (rapido) em " + txtUrl->Text + L"\n\n");
+		rtbChat->AppendText(L">>> " + NomeUsuarioWindows() + L" solicitou um Scan de DOM (rapido) em " + txtUrl->Text + L"\n\n");
 
 		// Reinicia o contexto pedindo o escaner ativo (sem MCP_OFF = scanner liga)
 		RodarWorker(1, L"--INICIAR_NOVO_CHAT--", L"Escaneando a pagina (DOM)...");
@@ -1021,7 +1052,7 @@ namespace T2MSecurityManager {
 		if (String::IsNullOrWhiteSpace(objetivo)) return;
 
 		rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
-		rtbChat->AppendText(L">>> Operador iniciou uma Automacao MCP ao vivo.\n");
+		rtbChat->AppendText(L">>> " + NomeUsuarioWindows() + L" iniciou uma Automacao MCP ao vivo.\n");
 		rtbChat->AppendText(L">>> Objetivo: " + objetivo + L"\n");
 		rtbChat->AppendText(L">>> Uma janela do navegador vai abrir. Aguarde (pode levar alguns minutos)...\n\n");
 
