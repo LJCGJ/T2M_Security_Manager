@@ -245,7 +245,7 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     tools_gemini = [{"function_declarations": declaracoes}]
     try:
         model = genai.GenerativeModel(
-            "gemini-2.0-flash",
+            "gemini-2.5-flash",
             tools=tools_gemini,
             system_instruction=(
                 "Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas de "
