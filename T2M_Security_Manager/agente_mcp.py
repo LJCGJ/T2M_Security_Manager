@@ -64,25 +64,35 @@ def tem_lib(modulo):
 # Gemini nao aceita algumas chaves do JSON Schema.                    #
 # ------------------------------------------------------------------ #
 def limpar_schema_gemini(schema):
+    """
+    O SDK antigo google.generativeai so aceita um subconjunto pequeno do JSON
+    Schema. Em vez de listar campos proibidos (e descobrir um novo a cada erro),
+    usamos uma WHITELIST: so passam os campos que o Gemini reconhece. Qualquer
+    campo exotico (propertyNames, anyOf, $ref, etc.) e removido automaticamente.
+    """
     if not isinstance(schema, dict):
         return schema
-    # O SDK antigo google.generativeai rejeita varios campos de JSON Schema.
-    # Removemos tudo que nao seja o subconjunto que ele aceita.
-    proibidas = {"$schema", "additionalProperties", "additional_properties",
-                 "title", "default", "examples", "$ref", "definitions", "$defs",
-                 "anyOf", "oneOf", "allOf", "not", "format", "pattern",
-                 "minimum", "maximum", "minItems", "maxItems", "minLength",
-                 "maxLength", "const", "multipleOf", "uniqueItems"}
+
+    permitidas = {"type", "description", "properties", "items",
+                  "required", "enum", "nullable"}
+
     limpo = {}
     for k, v in schema.items():
-        if k in proibidas:
+        if k not in permitidas:
             continue
-        if isinstance(v, dict):
+        if k == "properties" and isinstance(v, dict):
+            # Limpa recursivamente cada propriedade
+            limpo[k] = {nome: limpar_schema_gemini(sub) for nome, sub in v.items()}
+        elif isinstance(v, dict):
             limpo[k] = limpar_schema_gemini(v)
         elif isinstance(v, list):
             limpo[k] = [limpar_schema_gemini(i) if isinstance(i, dict) else i for i in v]
         else:
             limpo[k] = v
+
+    # Se sobrou um 'properties' vazio de type object, mantem coerencia
+    if limpo.get("type") == "object" and "properties" not in limpo:
+        limpo["properties"] = {}
     return limpo
 
 
@@ -217,9 +227,15 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
 
     declaracoes = []
     for t in mcp_tools:
-        params = limpar_schema_gemini(t.inputSchema or {"type": "object", "properties": {}})
+        esquema = t.inputSchema or {"type": "object", "properties": {}}
+        params = limpar_schema_gemini(esquema)
+        if not isinstance(params, dict):
+            params = {"type": "object", "properties": {}}
         if "type" not in params:
             params["type"] = "object"
+        # Gemini exige 'properties' quando type=object; se ficou vazio, garante o campo.
+        if params.get("type") == "object" and "properties" not in params:
+            params["properties"] = {}
         declaracoes.append({
             "name": t.name,
             "description": (t.description or "")[:1024],
@@ -227,14 +243,18 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
         })
 
     tools_gemini = [{"function_declarations": declaracoes}]
-    model = genai.GenerativeModel(
-        "gemini-2.0-flash",
-        tools=tools_gemini,
-        system_instruction=(
-            "Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas de "
-            "navegador para cumprir o objetivo, observando o estado real da pagina. Ao "
-            "final, escreva um relatorio e um esboco de script em blocos ```linguagem ```."),
-    )
+    try:
+        model = genai.GenerativeModel(
+            "gemini-2.0-flash",
+            tools=tools_gemini,
+            system_instruction=(
+                "Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas de "
+                "navegador para cumprir o objetivo, observando o estado real da pagina. Ao "
+                "final, escreva um relatorio e um esboco de script em blocos ```linguagem ```."),
+        )
+    except Exception as e:
+        return (f"Falha ao registrar as ferramentas no Gemini (SDK antigo e restritivo "
+                f"com os schemas do Playwright): {type(e).__name__}: {e}")
     chat = model.start_chat()
     proxima_mensagem = objetivo
 
