@@ -109,7 +109,7 @@ namespace T2MSecurityManager {
 
 		// P/Invoke para liberar handle de icone gerado a partir de bitmap
 		[System::Runtime::InteropServices::DllImport("user32.dll", SetLastError = true)]
-			static bool DestroyIcon(System::IntPtr handle);
+		static bool DestroyIcon(System::IntPtr handle);
 
 		// =====================================================================
 		// --- HELPERS DE CAMINHO, ICONE E CRIPTOGRAFIA ---
@@ -118,15 +118,15 @@ namespace T2MSecurityManager {
 		return Path::Combine(Application::StartupPath, arquivo);
 	}
 
-		   // Nome completo da conta do Windows (ex.: "LeonardoJoseCordeiro").
+	// Nome completo da conta do Windows (ex.: "LeonardoJoseCordeiro").
 	private: String^ NomeUsuarioWindows() {
 		String^ nome = Environment::UserName;
 		if (String::IsNullOrWhiteSpace(nome)) return L"Operador";
 		return nome->Trim();
 	}
 
-		   // Primeiro nome "amigavel" para a saudacao. Tenta separar nomes grudados em
-		   // CamelCase (LeonardoJoseCordeiro -> Leonardo) ou por espaco/ponto.
+	// Primeiro nome "amigavel" para a saudacao. Tenta separar nomes grudados em
+	// CamelCase (LeonardoJoseCordeiro -> Leonardo) ou por espaco/ponto.
 	private: String^ PrimeiroNomeUsuario() {
 		String^ nome = NomeUsuarioWindows();
 		// separadores comuns
@@ -198,201 +198,201 @@ namespace T2MSecurityManager {
 	}
 
 #pragma region Windows Form Designer generated code
-		   void InitializeComponent(void)
-		   {
-			   this->picLogo = (gcnew System::Windows::Forms::PictureBox());
-			   this->lstScripts = (gcnew System::Windows::Forms::ListBox());
-			   this->btnAdd = (gcnew System::Windows::Forms::Button());
-			   this->btnRemove = (gcnew System::Windows::Forms::Button());
-			   this->btnAbrirPasta = (gcnew System::Windows::Forms::Button());
-			   this->txtOutput = (gcnew System::Windows::Forms::RichTextBox());
-			   this->lblUrl = (gcnew System::Windows::Forms::Label());
-			   this->txtUrl = (gcnew System::Windows::Forms::TextBox());
-			   this->lblToken = (gcnew System::Windows::Forms::Label());
-			   this->txtToken = (gcnew System::Windows::Forms::TextBox());
-			   this->btnLoginAuto = (gcnew System::Windows::Forms::Button());
-			   this->chkHabilitarLogin = (gcnew System::Windows::Forms::CheckBox());
-			   this->chkSalvar = (gcnew System::Windows::Forms::CheckBox());
-			   this->btnStart = (gcnew System::Windows::Forms::Button());
-			   this->btnStop = (gcnew System::Windows::Forms::Button());
-			   this->btnExport = (gcnew System::Windows::Forms::Button());
-			   (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->BeginInit();
-			   this->SuspendLayout();
+		void InitializeComponent(void)
+		{
+			this->picLogo = (gcnew System::Windows::Forms::PictureBox());
+			this->lstScripts = (gcnew System::Windows::Forms::ListBox());
+			this->btnAdd = (gcnew System::Windows::Forms::Button());
+			this->btnRemove = (gcnew System::Windows::Forms::Button());
+			this->btnAbrirPasta = (gcnew System::Windows::Forms::Button());
+			this->txtOutput = (gcnew System::Windows::Forms::RichTextBox());
+			this->lblUrl = (gcnew System::Windows::Forms::Label());
+			this->txtUrl = (gcnew System::Windows::Forms::TextBox());
+			this->lblToken = (gcnew System::Windows::Forms::Label());
+			this->txtToken = (gcnew System::Windows::Forms::TextBox());
+			this->btnLoginAuto = (gcnew System::Windows::Forms::Button());
+			this->chkHabilitarLogin = (gcnew System::Windows::Forms::CheckBox());
+			this->chkSalvar = (gcnew System::Windows::Forms::CheckBox());
+			this->btnStart = (gcnew System::Windows::Forms::Button());
+			this->btnStop = (gcnew System::Windows::Forms::Button());
+			this->btnExport = (gcnew System::Windows::Forms::Button());
+			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->BeginInit();
+			this->SuspendLayout();
 
-			   this->picLogo->BackColor = System::Drawing::Color::Transparent;
-			   this->picLogo->Location = System::Drawing::Point(20, 15);
-			   this->picLogo->Name = L"picLogo";
-			   this->picLogo->Size = System::Drawing::Size(200, 60);
-			   this->picLogo->SizeMode = System::Windows::Forms::PictureBoxSizeMode::Zoom;
-			   this->picLogo->TabIndex = 0;
-			   this->picLogo->TabStop = false;
+			this->picLogo->BackColor = System::Drawing::Color::Transparent;
+			this->picLogo->Location = System::Drawing::Point(20, 15);
+			this->picLogo->Name = L"picLogo";
+			this->picLogo->Size = System::Drawing::Size(200, 60);
+			this->picLogo->SizeMode = System::Windows::Forms::PictureBoxSizeMode::Zoom;
+			this->picLogo->TabIndex = 0;
+			this->picLogo->TabStop = false;
 
-			   this->lstScripts->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			   this->lstScripts->ItemHeight = 17;
-			   this->lstScripts->Location = System::Drawing::Point(20, 140);
-			   this->lstScripts->Name = L"lstScripts";
-			   this->lstScripts->Size = System::Drawing::Size(200, 514);
-			   this->lstScripts->TabIndex = 1;
+			this->lstScripts->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
+			this->lstScripts->ItemHeight = 17;
+			this->lstScripts->Location = System::Drawing::Point(20, 140);
+			this->lstScripts->Name = L"lstScripts";
+			this->lstScripts->Size = System::Drawing::Size(200, 514);
+			this->lstScripts->TabIndex = 1;
 
-			   this->btnAdd->BackColor = System::Drawing::Color::LightGreen;
-			   this->btnAdd->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnAdd->Location = System::Drawing::Point(20, 90);
-			   this->btnAdd->Name = L"btnAdd";
-			   this->btnAdd->Size = System::Drawing::Size(80, 35);
-			   this->btnAdd->TabIndex = 2;
-			   this->btnAdd->Text = L"➕ Add";
-			   this->btnAdd->UseVisualStyleBackColor = false;
-			   this->btnAdd->Click += gcnew System::EventHandler(this, &MyForm::btnAdd_Click);
+			this->btnAdd->BackColor = System::Drawing::Color::LightGreen;
+			this->btnAdd->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnAdd->Location = System::Drawing::Point(20, 90);
+			this->btnAdd->Name = L"btnAdd";
+			this->btnAdd->Size = System::Drawing::Size(80, 35);
+			this->btnAdd->TabIndex = 2;
+			this->btnAdd->Text = L"➕ Add";
+			this->btnAdd->UseVisualStyleBackColor = false;
+			this->btnAdd->Click += gcnew System::EventHandler(this, &MyForm::btnAdd_Click);
 
-			   this->btnRemove->BackColor = System::Drawing::Color::LightCoral;
-			   this->btnRemove->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnRemove->Location = System::Drawing::Point(105, 90);
-			   this->btnRemove->Name = L"btnRemove";
-			   this->btnRemove->Size = System::Drawing::Size(75, 35);
-			   this->btnRemove->TabIndex = 3;
-			   this->btnRemove->Text = L"🗑 Remover";
-			   this->btnRemove->UseVisualStyleBackColor = false;
-			   this->btnRemove->Click += gcnew System::EventHandler(this, &MyForm::btnRemove_Click);
+			this->btnRemove->BackColor = System::Drawing::Color::LightCoral;
+			this->btnRemove->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnRemove->Location = System::Drawing::Point(105, 90);
+			this->btnRemove->Name = L"btnRemove";
+			this->btnRemove->Size = System::Drawing::Size(75, 35);
+			this->btnRemove->TabIndex = 3;
+			this->btnRemove->Text = L"🗑 Remover";
+			this->btnRemove->UseVisualStyleBackColor = false;
+			this->btnRemove->Click += gcnew System::EventHandler(this, &MyForm::btnRemove_Click);
 
-			   this->btnAbrirPasta->BackColor = System::Drawing::Color::LightSkyBlue;
-			   this->btnAbrirPasta->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnAbrirPasta->Location = System::Drawing::Point(185, 90);
-			   this->btnAbrirPasta->Name = L"btnAbrirPasta";
-			   this->btnAbrirPasta->Size = System::Drawing::Size(35, 35);
-			   this->btnAbrirPasta->TabIndex = 4;
-			   this->btnAbrirPasta->Text = L"📂";
-			   this->btnAbrirPasta->UseVisualStyleBackColor = false;
-			   this->btnAbrirPasta->Click += gcnew System::EventHandler(this, &MyForm::btnAbrirPasta_Click);
+			this->btnAbrirPasta->BackColor = System::Drawing::Color::LightSkyBlue;
+			this->btnAbrirPasta->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnAbrirPasta->Location = System::Drawing::Point(185, 90);
+			this->btnAbrirPasta->Name = L"btnAbrirPasta";
+			this->btnAbrirPasta->Size = System::Drawing::Size(35, 35);
+			this->btnAbrirPasta->TabIndex = 4;
+			this->btnAbrirPasta->Text = L"📂";
+			this->btnAbrirPasta->UseVisualStyleBackColor = false;
+			this->btnAbrirPasta->Click += gcnew System::EventHandler(this, &MyForm::btnAbrirPasta_Click);
 
-			   this->txtOutput->BackColor = System::Drawing::Color::FromArgb(static_cast<System::Int32>(static_cast<System::Byte>(30)), static_cast<System::Int32>(static_cast<System::Byte>(30)),
-				   static_cast<System::Int32>(static_cast<System::Byte>(30)));
-			   this->txtOutput->Font = (gcnew System::Drawing::Font(L"Consolas", 10));
-			   this->txtOutput->ForeColor = System::Drawing::Color::LimeGreen;
-			   this->txtOutput->Location = System::Drawing::Point(240, 90);
-			   this->txtOutput->Name = L"txtOutput";
-			   this->txtOutput->ReadOnly = true;
-			   this->txtOutput->Size = System::Drawing::Size(660, 360);
-			   this->txtOutput->TabIndex = 5;
-			   this->txtOutput->Text = L"";
+			this->txtOutput->BackColor = System::Drawing::Color::FromArgb(static_cast<System::Int32>(static_cast<System::Byte>(30)), static_cast<System::Int32>(static_cast<System::Byte>(30)),
+				static_cast<System::Int32>(static_cast<System::Byte>(30)));
+			this->txtOutput->Font = (gcnew System::Drawing::Font(L"Consolas", 10));
+			this->txtOutput->ForeColor = System::Drawing::Color::LimeGreen;
+			this->txtOutput->Location = System::Drawing::Point(240, 90);
+			this->txtOutput->Name = L"txtOutput";
+			this->txtOutput->ReadOnly = true;
+			this->txtOutput->Size = System::Drawing::Size(660, 360);
+			this->txtOutput->TabIndex = 5;
+			this->txtOutput->Text = L"";
 
-			   this->lblUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
-			   this->lblUrl->ForeColor = System::Drawing::Color::DarkRed;
-			   this->lblUrl->Location = System::Drawing::Point(240, 460);
-			   this->lblUrl->Name = L"lblUrl";
-			   this->lblUrl->Size = System::Drawing::Size(100, 20);
-			   this->lblUrl->TabIndex = 6;
-			   this->lblUrl->Text = L"URL Alvo:";
+			this->lblUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			this->lblUrl->ForeColor = System::Drawing::Color::DarkRed;
+			this->lblUrl->Location = System::Drawing::Point(240, 460);
+			this->lblUrl->Name = L"lblUrl";
+			this->lblUrl->Size = System::Drawing::Size(100, 20);
+			this->lblUrl->TabIndex = 6;
+			this->lblUrl->Text = L"URL Alvo:";
 
-			   this->txtUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			   this->txtUrl->Location = System::Drawing::Point(240, 480);
-			   this->txtUrl->Name = L"txtUrl";
-			   this->txtUrl->Size = System::Drawing::Size(660, 25);
-			   this->txtUrl->TabIndex = 7;
+			this->txtUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
+			this->txtUrl->Location = System::Drawing::Point(240, 480);
+			this->txtUrl->Name = L"txtUrl";
+			this->txtUrl->Size = System::Drawing::Size(660, 25);
+			this->txtUrl->TabIndex = 7;
 
-			   this->lblToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
-			   this->lblToken->ForeColor = System::Drawing::Color::DarkBlue;
-			   this->lblToken->Location = System::Drawing::Point(240, 515);
-			   this->lblToken->Name = L"lblToken";
-			   this->lblToken->Size = System::Drawing::Size(100, 20);
-			   this->lblToken->TabIndex = 8;
-			   this->lblToken->Text = L"Token JWT:";
+			this->lblToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			this->lblToken->ForeColor = System::Drawing::Color::DarkBlue;
+			this->lblToken->Location = System::Drawing::Point(240, 515);
+			this->lblToken->Name = L"lblToken";
+			this->lblToken->Size = System::Drawing::Size(100, 20);
+			this->lblToken->TabIndex = 8;
+			this->lblToken->Text = L"Token JWT:";
 
-			   this->txtToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			   this->txtToken->Location = System::Drawing::Point(240, 535);
-			   this->txtToken->Name = L"txtToken";
-			   this->txtToken->Size = System::Drawing::Size(660, 25);
-			   this->txtToken->UseSystemPasswordChar = true; // nao expoe o JWT na tela
-			   this->txtToken->TabIndex = 11;
+			this->txtToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
+			this->txtToken->Location = System::Drawing::Point(240, 535);
+			this->txtToken->Name = L"txtToken";
+			this->txtToken->Size = System::Drawing::Size(660, 25);
+			this->txtToken->UseSystemPasswordChar = true; // nao expoe o JWT na tela
+			this->txtToken->TabIndex = 11;
 
-			   this->btnLoginAuto->BackColor = System::Drawing::Color::SteelBlue;
-			   this->btnLoginAuto->Enabled = false;
-			   this->btnLoginAuto->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnLoginAuto->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
-			   this->btnLoginAuto->Location = System::Drawing::Point(740, 510);
-			   this->btnLoginAuto->Name = L"btnLoginAuto";
-			   this->btnLoginAuto->Size = System::Drawing::Size(160, 25);
-			   this->btnLoginAuto->TabIndex = 10;
-			   this->btnLoginAuto->Text = L"🔑 Login Automatico";
-			   this->btnLoginAuto->UseVisualStyleBackColor = false;
-			   this->btnLoginAuto->Click += gcnew System::EventHandler(this, &MyForm::btnLoginAuto_Click);
+			this->btnLoginAuto->BackColor = System::Drawing::Color::SteelBlue;
+			this->btnLoginAuto->Enabled = false;
+			this->btnLoginAuto->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnLoginAuto->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			this->btnLoginAuto->Location = System::Drawing::Point(740, 510);
+			this->btnLoginAuto->Name = L"btnLoginAuto";
+			this->btnLoginAuto->Size = System::Drawing::Size(160, 25);
+			this->btnLoginAuto->TabIndex = 10;
+			this->btnLoginAuto->Text = L"🔑 Login Automatico";
+			this->btnLoginAuto->UseVisualStyleBackColor = false;
+			this->btnLoginAuto->Click += gcnew System::EventHandler(this, &MyForm::btnLoginAuto_Click);
 
-			   this->chkHabilitarLogin->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
-			   this->chkHabilitarLogin->Location = System::Drawing::Point(660, 513);
-			   this->chkHabilitarLogin->Name = L"chkHabilitarLogin";
-			   this->chkHabilitarLogin->Size = System::Drawing::Size(80, 20);
-			   this->chkHabilitarLogin->TabIndex = 9;
-			   this->chkHabilitarLogin->Text = L"Ativar";
-			   this->chkHabilitarLogin->CheckedChanged += gcnew System::EventHandler(this, &MyForm::chkHabilitarLogin_CheckedChanged);
+			this->chkHabilitarLogin->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
+			this->chkHabilitarLogin->Location = System::Drawing::Point(660, 513);
+			this->chkHabilitarLogin->Name = L"chkHabilitarLogin";
+			this->chkHabilitarLogin->Size = System::Drawing::Size(80, 20);
+			this->chkHabilitarLogin->TabIndex = 9;
+			this->chkHabilitarLogin->Text = L"Ativar";
+			this->chkHabilitarLogin->CheckedChanged += gcnew System::EventHandler(this, &MyForm::chkHabilitarLogin_CheckedChanged);
 
-			   this->chkSalvar->Checked = true;
-			   this->chkSalvar->CheckState = System::Windows::Forms::CheckState::Checked;
-			   this->chkSalvar->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9));
-			   this->chkSalvar->Location = System::Drawing::Point(240, 570);
-			   this->chkSalvar->Name = L"chkSalvar";
-			   this->chkSalvar->Size = System::Drawing::Size(300, 25);
-			   this->chkSalvar->TabIndex = 12;
-			   this->chkSalvar->Text = L"Salvar configuracoes ao sair";
+			this->chkSalvar->Checked = true;
+			this->chkSalvar->CheckState = System::Windows::Forms::CheckState::Checked;
+			this->chkSalvar->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9));
+			this->chkSalvar->Location = System::Drawing::Point(240, 570);
+			this->chkSalvar->Name = L"chkSalvar";
+			this->chkSalvar->Size = System::Drawing::Size(300, 25);
+			this->chkSalvar->TabIndex = 12;
+			this->chkSalvar->Text = L"Salvar configuracoes ao sair";
 
-			   this->btnStart->BackColor = System::Drawing::Color::YellowGreen;
-			   this->btnStart->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnStart->Location = System::Drawing::Point(240, 600);
-			   this->btnStart->Name = L"btnStart";
-			   this->btnStart->Size = System::Drawing::Size(180, 45);
-			   this->btnStart->TabIndex = 13;
-			   this->btnStart->Text = L"▶ INICIAR TESTE";
-			   this->btnStart->UseVisualStyleBackColor = false;
-			   this->btnStart->Click += gcnew System::EventHandler(this, &MyForm::btnStart_Click);
+			this->btnStart->BackColor = System::Drawing::Color::YellowGreen;
+			this->btnStart->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnStart->Location = System::Drawing::Point(240, 600);
+			this->btnStart->Name = L"btnStart";
+			this->btnStart->Size = System::Drawing::Size(180, 45);
+			this->btnStart->TabIndex = 13;
+			this->btnStart->Text = L"▶ INICIAR TESTE";
+			this->btnStart->UseVisualStyleBackColor = false;
+			this->btnStart->Click += gcnew System::EventHandler(this, &MyForm::btnStart_Click);
 
-			   this->btnStop->BackColor = System::Drawing::Color::IndianRed;
-			   this->btnStop->Enabled = false;
-			   this->btnStop->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnStop->Location = System::Drawing::Point(480, 600);
-			   this->btnStop->Name = L"btnStop";
-			   this->btnStop->Size = System::Drawing::Size(180, 45);
-			   this->btnStop->TabIndex = 14;
-			   this->btnStop->Text = L"⏹ PARAR";
-			   this->btnStop->UseVisualStyleBackColor = false;
-			   this->btnStop->Click += gcnew System::EventHandler(this, &MyForm::btnStop_Click);
+			this->btnStop->BackColor = System::Drawing::Color::IndianRed;
+			this->btnStop->Enabled = false;
+			this->btnStop->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnStop->Location = System::Drawing::Point(480, 600);
+			this->btnStop->Name = L"btnStop";
+			this->btnStop->Size = System::Drawing::Size(180, 45);
+			this->btnStop->TabIndex = 14;
+			this->btnStop->Text = L"⏹ PARAR";
+			this->btnStop->UseVisualStyleBackColor = false;
+			this->btnStop->Click += gcnew System::EventHandler(this, &MyForm::btnStop_Click);
 
-			   this->btnExport->BackColor = System::Drawing::Color::SteelBlue;
-			   this->btnExport->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnExport->Location = System::Drawing::Point(720, 600);
-			   this->btnExport->Name = L"btnExport";
-			   this->btnExport->Size = System::Drawing::Size(180, 45);
-			   this->btnExport->TabIndex = 15;
-			   this->btnExport->Text = L"💾 Exportar Log";
-			   this->btnExport->UseVisualStyleBackColor = false;
-			   this->btnExport->Click += gcnew System::EventHandler(this, &MyForm::btnExport_Click);
+			this->btnExport->BackColor = System::Drawing::Color::SteelBlue;
+			this->btnExport->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnExport->Location = System::Drawing::Point(720, 600);
+			this->btnExport->Name = L"btnExport";
+			this->btnExport->Size = System::Drawing::Size(180, 45);
+			this->btnExport->TabIndex = 15;
+			this->btnExport->Text = L"💾 Exportar Log";
+			this->btnExport->UseVisualStyleBackColor = false;
+			this->btnExport->Click += gcnew System::EventHandler(this, &MyForm::btnExport_Click);
 
-			   this->BackColor = System::Drawing::Color::WhiteSmoke;
-			   this->ClientSize = System::Drawing::Size(924, 711);
-			   this->Controls->Add(this->picLogo);
-			   this->Controls->Add(this->lstScripts);
-			   this->Controls->Add(this->btnAdd);
-			   this->Controls->Add(this->btnRemove);
-			   this->Controls->Add(this->btnAbrirPasta);
-			   this->Controls->Add(this->txtOutput);
-			   this->Controls->Add(this->lblUrl);
-			   this->Controls->Add(this->txtUrl);
-			   this->Controls->Add(this->lblToken);
-			   this->Controls->Add(this->chkHabilitarLogin);
-			   this->Controls->Add(this->btnLoginAuto);
-			   this->Controls->Add(this->txtToken);
-			   this->Controls->Add(this->chkSalvar);
-			   this->Controls->Add(this->btnStart);
-			   this->Controls->Add(this->btnStop);
-			   this->Controls->Add(this->btnExport);
-			   this->Name = L"MyForm";
-			   this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
-			   this->Text = L"T2M Security Manager v4.0 (MCP Edition)";
-			   this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
-			   (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->EndInit();
-			   this->ResumeLayout(false);
-			   this->PerformLayout();
-		   }
+			this->BackColor = System::Drawing::Color::WhiteSmoke;
+			this->ClientSize = System::Drawing::Size(924, 711);
+			this->Controls->Add(this->picLogo);
+			this->Controls->Add(this->lstScripts);
+			this->Controls->Add(this->btnAdd);
+			this->Controls->Add(this->btnRemove);
+			this->Controls->Add(this->btnAbrirPasta);
+			this->Controls->Add(this->txtOutput);
+			this->Controls->Add(this->lblUrl);
+			this->Controls->Add(this->txtUrl);
+			this->Controls->Add(this->lblToken);
+			this->Controls->Add(this->chkHabilitarLogin);
+			this->Controls->Add(this->btnLoginAuto);
+			this->Controls->Add(this->txtToken);
+			this->Controls->Add(this->chkSalvar);
+			this->Controls->Add(this->btnStart);
+			this->Controls->Add(this->btnStop);
+			this->Controls->Add(this->btnExport);
+			this->Name = L"MyForm";
+			this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
+			this->Text = L"T2M Security Manager v4.0 (MCP Edition)";
+			this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
+			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->EndInit();
+			this->ResumeLayout(false);
+			this->PerformLayout();
+		}
 #pragma endregion
 
-		   // --- FUNCOES BASICAS DA INTERFACE ---
+		// --- FUNCOES BASICAS DA INTERFACE ---
 	private: System::Void chkHabilitarLogin_CheckedChanged(System::Object^ sender, System::EventArgs^ e) {
 		if (chkHabilitarLogin->Checked) {
 			btnLoginAuto->Enabled = true;
@@ -439,8 +439,7 @@ namespace T2MSecurityManager {
 
 			// Login pode levar ate ~60s (script espera o usuario logar). Teto de 180s.
 			if (!pLogin->WaitForExit(180000)) {
-				try { pLogin->Kill(); }
-				catch (...) {}
+				try { pLogin->Kill(); } catch (...) {}
 				txtOutput->AppendText("\n>>> Tempo esgotado no login.\n");
 				return;
 			}
@@ -469,7 +468,7 @@ namespace T2MSecurityManager {
 			StreamWriter^ sw = gcnew StreamWriter(CaminhoApp("config.txt"));
 			sw->WriteLine(txtUrl->Text);
 			sw->WriteLine(ProtegerTexto(txtToken->Text)); // token cifrado (DPAPI)
-			for each (KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
+			for each(KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
 			sw->Close();
 		}
 		catch (...) {}
@@ -497,7 +496,7 @@ namespace T2MSecurityManager {
 			String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
 			if (Directory::Exists(pastaIA)) {
 				array<String^>^ arquivos = Directory::GetFiles(pastaIA, "*.py");
-				for each (String ^ arquivo in arquivos) {
+				for each(String ^ arquivo in arquivos) {
 					String^ nome = Path::GetFileName(arquivo);
 					if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, arquivo); lstScripts->Items->Add(nome); }
 				}
@@ -584,7 +583,7 @@ namespace T2MSecurityManager {
 		combo->Items->Clear();
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
-			for each (String ^ linha in linhas) {
+			for each(String ^ linha in linhas) {
 				if (!String::IsNullOrWhiteSpace(linha)) {
 					String^ real = DesprotegerTexto(linha->Trim());
 					if (real->Length >= 10)
@@ -628,8 +627,7 @@ namespace T2MSecurityManager {
 			p->StandardInput->Close();
 
 			if (!p->WaitForExit(120000)) { // teto de 120s: nunca congela para sempre
-				try { p->Kill(); }
-				catch (...) {}
+				try { p->Kill(); } catch (...) {}
 				return L"Tempo esgotado (120s) aguardando a IA. Verifique a conexao ou a chave.";
 			}
 
@@ -647,7 +645,7 @@ namespace T2MSecurityManager {
 		}
 	}
 
-		   // --- AGENTE MCP AO VIVO (Playwright) ---
+	// --- AGENTE MCP AO VIVO (Playwright) ---
 	private: String^ ChamarAgenteMcp(String^ apiKey, String^ objetivo, String^ url) {
 		Process^ p = gcnew Process();
 		try {
@@ -673,8 +671,7 @@ namespace T2MSecurityManager {
 
 			// Loop ao vivo e lento: teto de 5 minutos
 			if (!p->WaitForExit(300000)) {
-				try { p->Kill(); }
-				catch (...) {}
+				try { p->Kill(); } catch (...) {}
 				return L"Tempo esgotado (5 min) no agente MCP.";
 			}
 
@@ -693,7 +690,7 @@ namespace T2MSecurityManager {
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 			List<String^>^ chaves = gcnew List<String^>();
-			for each (String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
+			for each(String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
 			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
 		}
 		return "";
@@ -751,7 +748,7 @@ namespace T2MSecurityManager {
 					array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 					List<String^>^ novasLinhas = gcnew List<String^>();
 					int cont = 0;
-					for each (String ^ linha in linhas) {
+					for each(String ^ linha in linhas) {
 						if (!String::IsNullOrWhiteSpace(linha)) {
 							if (cont != idx) novasLinhas->Add(linha);
 							cont++;
@@ -849,7 +846,8 @@ namespace T2MSecurityManager {
 
 		// --- BOTAO MCP AO VIVO (destaque: maior, cor forte) ---
 		btnChatMcp = gcnew Button();
-		btnChatMcp->Text = L"🎯 Automacao MCP (Ao Vivo)";
+		btnChatMcp->Text = L"🎯 Automacao MCP";
+		btnChatMcp->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
 		btnChatMcp->Location = System::Drawing::Point(380, 38);
 		btnChatMcp->Size = System::Drawing::Size(210, 29);
 		btnChatMcp->BackColor = System::Drawing::Color::DarkSlateBlue;
@@ -865,7 +863,8 @@ namespace T2MSecurityManager {
 
 		// --- BOTAO SCAN DOM (secundario: menor, discreto) ---
 		btnChatDom = gcnew Button();
-		btnChatDom->Text = L"🔍 Scan DOM (rapido)";
+		btnChatDom->Text = L"🔍 Scan DOM";
+		btnChatDom->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
 		btnChatDom->Location = System::Drawing::Point(600, 38);
 		btnChatDom->Size = System::Drawing::Size(110, 29);
 		btnChatDom->BackColor = System::Drawing::Color::SteelBlue;
@@ -900,11 +899,11 @@ namespace T2MSecurityManager {
 		formIA->ShowDialog();
 	}
 
-		   // ==========================================================================
-		   // --- EXECUCAO NAO-BLOQUEANTE (BackgroundWorker) ---
-		   // ==========================================================================
+	// ==========================================================================
+	// --- EXECUCAO NAO-BLOQUEANTE (BackgroundWorker) ---
+	// ==========================================================================
 
-		   // Habilita/desabilita os controles enquanto o Python roda, e mostra status.
+	// Habilita/desabilita os controles enquanto o Python roda, e mostra status.
 	private: void DefinirOcupado(bool ocupado, String^ msgStatus) {
 		btnSendChat->Enabled = !ocupado;
 		btnChatMcp->Enabled = !ocupado;
@@ -915,12 +914,12 @@ namespace T2MSecurityManager {
 		formIA->Cursor = ocupado ? Cursors::WaitCursor : Cursors::Default;
 	}
 
-		   // Campos capturados na thread da UI antes de rodar o worker (evita acesso cross-thread)
+	// Campos capturados na thread da UI antes de rodar o worker (evita acesso cross-thread)
 	private:
 		String^ workerApiKey;
 		String^ workerUrl;
 
-		// Dispara o Python em background. modo: 0=chat, 1=DOM, 2=MCP. payload ja montado.
+	// Dispara o Python em background. modo: 0=chat, 1=DOM, 2=MCP. payload ja montado.
 	private: void RodarWorker(int modo, String^ payload, String^ statusMsg) {
 		if (workerChat->IsBusy) return;   // ja tem algo rodando
 
@@ -936,7 +935,7 @@ namespace T2MSecurityManager {
 		workerChat->RunWorkerAsync();
 	}
 
-		   // Roda na THREAD SEPARADA. Nao pode tocar na UI aqui; usa os valores capturados.
+	// Roda na THREAD SEPARADA. Nao pode tocar na UI aqui; usa os valores capturados.
 	private: System::Void workerChat_DoWork(System::Object^ sender, System::ComponentModel::DoWorkEventArgs^ e) {
 		if (modoWorker == 2) {
 			// MCP ao vivo: payloadWorker contem o objetivo do teste
@@ -948,7 +947,7 @@ namespace T2MSecurityManager {
 		}
 	}
 
-		   // Volta para a THREAD DA UI quando o Python termina. Aqui pode atualizar a tela.
+	// Volta para a THREAD DA UI quando o Python termina. Aqui pode atualizar a tela.
 	private: System::Void workerChat_Completed(System::Object^ sender, System::ComponentModel::RunWorkerCompletedEventArgs^ e) {
 		String^ resposta = (e->Error != nullptr)
 			? (L"ERRO interno: " + e->Error->Message)
@@ -1025,7 +1024,7 @@ namespace T2MSecurityManager {
 		RodarWorker(0, prompt, L"O agente esta pensando...");
 	}
 
-		   // Botao SCAN DOM: varredura estatica rapida, injeta contexto na conversa.
+	// Botao SCAN DOM: varredura estatica rapida, injeta contexto na conversa.
 	private: System::Void btnChatDom_Click(System::Object^ sender, System::EventArgs^ e) {
 		String^ apiKey = ObterChaveReal();
 		if (apiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
@@ -1038,7 +1037,7 @@ namespace T2MSecurityManager {
 		RodarWorker(1, L"--INICIAR_NOVO_CHAT--", L"Escaneando a pagina (DOM)...");
 	}
 
-		   // Botao MCP AO VIVO: abre navegador real, IA executa e grava na memoria compartilhada.
+	// Botao MCP AO VIVO: abre navegador real, IA executa e grava na memoria compartilhada.
 	private: System::Void btnChatMcp_Click(System::Object^ sender, System::EventArgs^ e) {
 		String^ apiKey = ObterChaveReal();
 		if (apiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
