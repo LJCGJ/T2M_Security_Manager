@@ -295,12 +295,11 @@ async def executar(api_key, url_alvo, objetivo):
                     f"Comece navegando ate essa URL com a ferramenta de navegacao.\n"
                     f"Objetivo do teste: {objetivo}")
 
-                if api_key.startswith("AIza"):
-                    if not tem_lib("google.generativeai"):
-                        responder("Biblioteca ausente: google-generativeai.")
-                        return
-                    resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
-                elif api_key.startswith("sk-ant-"):
+                # Roteador por provedor. Ordem importa: prefixos mais especificos
+                # primeiro. Gemini fica como padrao porque o Google mudou o formato
+                # da chave (AIza -> AQ.) e pode mudar de novo; validar so "AIza"
+                # quebraria com chaves novas. Ver: prefixos AIza, AQ., AQ_ e afins.
+                if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
                         responder("Biblioteca ausente: anthropic.")
                         return
@@ -311,8 +310,12 @@ async def executar(api_key, url_alvo, objetivo):
                         return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
                 else:
-                    responder("Chave de API nao reconhecida (esperado AIza / sk-ant- / sk-).")
-                    return
+                    # Gemini: aceita AIza (classico), AQ./AQ_ (novo formato 2026)
+                    # e qualquer outro que nao seja Claude/OpenAI.
+                    if not tem_lib("google.generativeai"):
+                        responder("Biblioteca ausente: google-generativeai.")
+                        return
+                    resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
                 responder(resultado)
 
