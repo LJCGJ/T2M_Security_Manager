@@ -168,29 +168,35 @@ def main():
             usar_scanner = "MCP_OFF" not in prompt_usuario
 
             if usar_scanner and url_alvo:
-                mapa = extrair_contexto_dom(url_alvo)
-                status_visual = ("INFORME AO USUARIO: o Scanner de Interface esta "
-                                 "ATIVO e a URL foi mapeada com sucesso.")
+                # Quando o scan roda, injeta o contexto real da pagina (uso interno do
+                # modelo). Nao pedimos para o modelo "anunciar" que o scanner esta ativo.
+                mapa = ("CONTEXTO INTERNO (nao mencione que isso veio de um scanner; apenas "
+                        "use estas informacoes se forem uteis para responder):\n"
+                        + extrair_contexto_dom(url_alvo))
             else:
-                mapa = "--- SCANNER DE INTERFACE DESATIVADO ---"
-                status_visual = ("INFORME AO USUARIO: o Scanner de Interface esta "
-                                 "DESLIGADO a pedido do operador.")
+                mapa = ""
 
             prompt_mestre = f"""
-Aja como um Arquiteto Senior de Automacao, Qualidade (QA) e Engenharia de Seguranca.
-A missao e auxiliar na estruturacao de testes avancados, com capacidade de gerar
-scripts em Robot Framework (incluindo DatabaseLibrary e conexoes), Python, consultas
-SQL complexas e automacoes mobile/web.
+Voce e um assistente especialista em automacao de testes, qualidade de software (QA)
+e engenharia de seguranca, integrado a uma ferramenta de automacao chamada T2M Copilot.
 
 {mapa}
 
-INSTRUCOES OBRIGATORIAS:
-1. Faca uma apresentacao profissional e amigavel.
-2. {status_visual}
-3. Coloque seu conhecimento avancado de automacao a disposicao e pergunte qual e o
-   desafio tecnico atual.
-Atencao: NAO gere codigo nesta primeira resposta, apenas a apresentacao inicial.
-Sempre que gerar codigo, use blocos ```linguagem ... ``` para o sistema reconhecer.
+Escreva uma PRIMEIRA mensagem de apresentacao seguindo estas regras:
+- Tom profissional, direto e confiante, como um bom engenheiro senior falaria. Sem
+  exageros, sem linguagem de marketing, sem emojis, sem se alongar.
+- No maximo 3 ou 4 frases curtas.
+- Apresente-se em uma frase e deixe claro, de forma objetiva, no que voce pode ajudar:
+  planejar e escrever testes automatizados, analisar interfaces, validar comportamento
+  de aplicacoes web e apoiar tarefas de seguranca e QA.
+- NAO liste tecnologias ou ferramentas especificas por nome (nada de citar frameworks,
+  bibliotecas ou linguagens) a menos que o usuario pergunte. Fale de capacidades, nao de
+  stack.
+- NAO mencione "scanner", "URL mapeada", "operador" nem o estado interno do sistema.
+- Termine com UMA pergunta objetiva convidando o usuario a descrever o que precisa.
+- NAO gere codigo nesta primeira resposta.
+Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
+```linguagem ... ``` para o sistema reconhecer.
 """
             memoria = [{"role": "user", "content": prompt_mestre}]
         else:
@@ -203,9 +209,16 @@ Sempre que gerar codigo, use blocos ```linguagem ... ``` para o sistema reconhec
             memoria.append({"role": "user", "content": prompt_usuario})
 
         resposta_ia = ""
-        sistema = ("Aja como um Arquiteto de Automacao e Seguranca. Se houver codigo, "
-                   "coloque-o sempre dentro de blocos ```linguagem ``` para o sistema "
-                   "reconhecer.")
+        sistema = (
+            "Voce e o T2M Copilot, um assistente especialista em automacao de testes, "
+            "qualidade de software (QA) e engenharia de seguranca, integrado a uma "
+            "ferramenta desktop de automacao. Seja profissional, direto e pratico, como "
+            "um bom engenheiro senior. Evite linguagem de marketing e respostas longas "
+            "demais. Nao cite ferramentas, frameworks ou bibliotecas especificas por nome "
+            "a menos que o usuario pergunte ou o contexto exija; fale de capacidades. Nao "
+            "mencione detalhes internos do sistema (scanner, operador, memoria). Sempre "
+            "que gerar codigo, coloque-o dentro de blocos ```linguagem ... ``` para o "
+            "sistema conseguir extrair e salvar.")
 
         # Roteador por provedor. Ordem importa: prefixos mais especificos primeiro.
         # Gemini fica como padrao porque o Google mudou o formato da chave em 2026
