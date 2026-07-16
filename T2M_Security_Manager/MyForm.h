@@ -1060,6 +1060,9 @@ namespace T2MSecurityManager {
 		cbTipo->Location = System::Drawing::Point(x2, y); cbTipo->Size = System::Drawing::Size(larg, alt);
 		cbTipo->Items->Add(L"PostgreSQL"); cbTipo->Items->Add(L"MySQL");
 		cbTipo->Items->Add(L"MariaDB"); cbTipo->Items->Add(L"SQLite");
+		cbTipo->Items->Add(L"SQL Server");
+		cbTipo->Items->Add(L"Oracle (em breve)");
+		cbTipo->Items->Add(L"MongoDB (em breve)");
 		cbTipo->SelectedIndex = (dbTipo != nullptr && cbTipo->Items->Contains(dbTipo))
 			? cbTipo->Items->IndexOf(dbTipo) : 0;
 		f->Controls->Add(cbTipo);
@@ -1183,6 +1186,17 @@ namespace T2MSecurityManager {
 		// Validacao minima
 		if (String::IsNullOrWhiteSpace(txtHost->Text) && cbTipo->Text != "SQLite") {
 			MessageBox::Show(L"Informe o host do banco.", L"Aviso"); return;
+		}
+
+		// Oracle e MongoDB ainda nao tem servidor MCP configurado: avisa mas deixa salvar
+		// a conexao (a interface funciona; a execucao vira quando o suporte chegar).
+		if (cbTipo->Text->Contains("em breve")) {
+			MessageBox::Show(
+				cbTipo->Text->Replace(" (em breve)", "") + L" ainda nao tem conexao ativa "
+				L"(precisa de um servidor MCP proprio, que chega numa proxima versao).\n\n"
+				L"Voce pode salvar a conexao mesmo assim - ela ficara pronta para quando o "
+				L"suporte for habilitado.",
+				L"Banco em breve", MessageBoxButtons::OK, MessageBoxIcon::Information);
 		}
 
 		dbTipo = cbTipo->Text;

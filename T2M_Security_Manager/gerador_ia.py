@@ -164,13 +164,31 @@ def main():
         arquivo_memoria = ARQUIVO_MEMORIA
         memoria = []
 
-        # --- NOVO CHAT + CONTROLE DO SCANNER DE INTERFACE ---
-        if prompt_usuario.startswith("--INICIAR_NOVO_CHAT--"):
+        # --- COMANDOS DE CONTROLE (vindos do C++) ---
+        # --INICIAR_NOVO_CHAT-- : primeira mensagem (apresentacao). MCP_OFF = sem scanner.
+        # --SCAN_DOM--          : o usuario esta no modo Scan DOM; escaneia a pagina e
+        #                         responde a pergunta que vem depois do prefixo.
+        if prompt_usuario.startswith("--SCAN_DOM--"):
+            pergunta = prompt_usuario.replace("--SCAN_DOM--", "", 1).strip()
+            if os.path.exists(arquivo_memoria):
+                try:
+                    with open(arquivo_memoria, 'r', encoding='utf-8') as f:
+                        memoria = json.load(f)
+                except Exception:
+                    memoria = []
+            contexto = ""
+            if url_alvo:
+                contexto = ("CONTEXTO INTERNO (estrutura da pagina; nao mencione que veio de "
+                            "um scanner, apenas use se for util):\n" + extrair_contexto_dom(url_alvo))
+            entrada = (contexto + "\n\n" if contexto else "") + \
+                      ("Com base na estrutura acima, ajude o usuario. " if contexto else "") + \
+                      "Pergunta do usuario: " + (pergunta or "Analise a pagina e me diga o que da para automatizar.")
+            memoria.append({"role": "user", "content": entrada})
+
+        elif prompt_usuario.startswith("--INICIAR_NOVO_CHAT--"):
             usar_scanner = "MCP_OFF" not in prompt_usuario
 
             if usar_scanner and url_alvo:
-                # Quando o scan roda, injeta o contexto real da pagina (uso interno do
-                # modelo). Nao pedimos para o modelo "anunciar" que o scanner esta ativo.
                 mapa = ("CONTEXTO INTERNO (nao mencione que isso veio de um scanner; apenas "
                         "use estas informacoes se forem uteis para responder):\n"
                         + extrair_contexto_dom(url_alvo))
@@ -213,13 +231,21 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
         sistema = (
             "Voce e o T2M Copilot, um assistente especialista em automacao de testes, "
             "qualidade de software (QA) e engenharia de seguranca, integrado a uma "
-            "ferramenta desktop de automacao. Seja profissional, direto e pratico, como "
-            "um bom engenheiro senior. Evite linguagem de marketing e respostas longas "
-            "demais. Nao cite ferramentas, frameworks ou bibliotecas especificas por nome "
-            "a menos que o usuario pergunte ou o contexto exija; fale de capacidades. Nao "
-            "mencione detalhes internos do sistema (scanner, operador, memoria). Sempre "
-            "que gerar codigo, coloque-o dentro de blocos ```linguagem ... ``` para o "
-            "sistema conseguir extrair e salvar.")
+            "ferramenta desktop. Seja profissional, direto e pratico, como um bom "
+            "engenheiro senior. Evite marketing e respostas longas demais. Nao mencione "
+            "detalhes internos do sistema (scanner, operador, memoria).\n\n"
+            "SEU OBJETIVO e ajudar o usuario a TESTAR e CONSTRUIR automacoes. Depois de "
+            "analisar uma pagina ou entender o contexto, PERGUNTE objetivamente qual tipo "
+            "de automacao o usuario quer construir, oferecendo as opcoes:\n"
+            "  1) Automacao de NAVEGACAO web (interagir com paginas, formularios, fluxos);\n"
+            "  2) Automacao de API (testar endpoints; peca metodo, URL, headers, payload);\n"
+            "  3) Automacao de BANCO DE DADOS/SQL (peca o tipo de banco e as credenciais/"
+            "string de conexao ao usuario quando necessario, e alerte para nao expor senhas "
+            "reais se nao quiser).\n"
+            "Conduza a construcao passo a passo, fazendo as perguntas necessarias antes de "
+            "gerar o script. Escolha a linguagem mais adequada, preferindo Robot Framework "
+            "ou Python. Sempre que gerar codigo, coloque-o em blocos ```linguagem ... ``` "
+            "para o sistema conseguir extrair e salvar.")
 
         # Roteador por provedor. Ordem importa: prefixos mais especificos primeiro.
         # Gemini fica como padrao porque o Google mudou o formato da chave em 2026
