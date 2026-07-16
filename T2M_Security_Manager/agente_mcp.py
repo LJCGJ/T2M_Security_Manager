@@ -37,6 +37,16 @@ import platform
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_MEMORIA = os.path.join(SCRIPT_DIR, "memoria_chat.json")
 
+# Instrucao comum aos tres provedores sobre relatorio + escolha de linguagem do script.
+INSTRUCAO_LINGUAGEM = (
+    "Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer "
+    "sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao "
+    "caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra "
+    "linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos "
+    "```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), "
+    "diga isso com clareza em vez de inventar um teste."
+)
+
 # ------------------------------------------------------------------ #
 # Constantes de seguranca (guardrails de custo - recomendacao 2026)  #
 # ------------------------------------------------------------------ #
@@ -223,72 +233,54 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
 
 
 # ================================================================== #
-# LOOP GEMINI (google-generativeai, chaves AIza)                     #
+# LOOP GEMINI (SDK novo google-genai, com MCP nativo + AFC)          #
+# O SDK novo aceita a sessao MCP direto como ferramenta e faz o      #
+# function calling automaticamente. Isso resolve o                   #
+# MALFORMED_FUNCTION_CALL do SDK antigo e dispensa conversao manual  #
+# de schema. Requer: pip install google-genai                        #
 # ================================================================== #
 async def loop_gemini(session, api_key, objetivo, mcp_tools):
-    import google.generativeai as genai
-    genai.configure(api_key=api_key)
+    from google import genai
+    from google.genai import types
 
-    declaracoes = []
-    for t in mcp_tools:
-        esquema = t.inputSchema or {"type": "object", "properties": {}}
-        params = limpar_schema_gemini(esquema)
-        if not isinstance(params, dict):
-            params = {"type": "object", "properties": {}}
-        if "type" not in params:
-            params["type"] = "object"
-        # Gemini exige 'properties' quando type=object; se ficou vazio, garante o campo.
-        if params.get("type") == "object" and "properties" not in params:
-            params["properties"] = {}
-        declaracoes.append({
-            "name": t.name,
-            "description": (t.description or "")[:1024],
-            "parameters": params,
-        })
+    client = genai.Client(api_key=api_key)
 
-    tools_gemini = [{"function_declarations": declaracoes}]
-    try:
-        model = genai.GenerativeModel(
-            "gemini-2.0-flash",
-            tools=tools_gemini,
-            system_instruction=(
-                "Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas de "
-                "navegador para cumprir o objetivo, observando o estado real da pagina. Ao "
-                "Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos ```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), diga isso com clareza em vez de inventar um teste."),
-        )
-    except Exception as e:
-        return (f"Falha ao registrar as ferramentas no Gemini (SDK antigo e restritivo "
-                f"com os schemas do Playwright): {type(e).__name__}: {e}")
-    chat = model.start_chat()
-    proxima_mensagem = objetivo
+    system = ("Voce e um assistente de automacao de testes, QA e seguranca. Use as "
+              "ferramentas de navegador para cumprir o objetivo, observando o estado real "
+              "da pagina antes de cada acao. " + INSTRUCAO_LINGUAGEM)
 
-    for passo in range(MAX_ITERACOES):
-        resp = chat.send_message(proxima_mensagem)
-        chamadas = []
-        for cand in resp.candidates:
-            for parte in cand.content.parts:
-                fc = getattr(parte, "function_call", None)
-                if fc and fc.name:
-                    chamadas.append(fc)
+    # Modelos a tentar (todos existentes na conta; ordem por preferencia).
+    modelos = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
 
-        if not chamadas:
-            return (resp.text or "(sem resposta final)").strip()
+    ultimo_erro = ""
+    for nome_modelo in modelos:
+        try:
+            log(f">>> [Gemini/genai] Tentando modelo {nome_modelo} com MCP nativo...")
+            resp = await client.aio.models.generate_content(
+                model=nome_modelo,
+                contents=objetivo,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    temperature=0,
+                    # Passa a SESSAO MCP direto como ferramenta: o SDK descobre e
+                    # executa as ferramentas do Playwright automaticamente (AFC).
+                    tools=[session],
+                    # Teto de chamadas automaticas (guardrail de custo/loop).
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        maximum_remote_calls=MAX_ITERACOES
+                    ),
+                ),
+            )
+            texto = (resp.text or "").strip()
+            if texto:
+                return texto
+            return "(o modelo terminou sem texto final)"
+        except Exception as e:
+            ultimo_erro = f"{nome_modelo}: {type(e).__name__}: {str(e)[:160]}"
+            log(f">>> Falhou {ultimo_erro}")
+            continue
 
-        respostas_fc = []
-        for fc in chamadas:
-            args = dict(fc.args) if fc.args else {}
-            log(f">>> [Gemini] Ferramenta: {fc.name} {json.dumps(args)[:120]}")
-            try:
-                r = await session.call_tool(fc.name, args)
-                conteudo = texto_do_resultado_mcp(r)
-            except Exception as e:
-                conteudo = f"ERRO ao executar {fc.name}: {e}"
-            respostas_fc.append(genai.protos.Part(
-                function_response=genai.protos.FunctionResponse(
-                    name=fc.name, response={"resultado": conteudo})))
-        proxima_mensagem = respostas_fc
-
-    return "Limite de iteracoes atingido antes de concluir o objetivo."
+    return f"Nenhum modelo Gemini respondeu. Ultimo erro: {ultimo_erro}"
 
 
 # ================================================================== #
@@ -341,8 +333,8 @@ async def executar(api_key, url_alvo, objetivo):
                 else:
                     # Gemini: aceita AIza (classico), AQ./AQ_ (novo formato 2026)
                     # e qualquer outro que nao seja Claude/OpenAI.
-                    if not tem_lib("google.generativeai"):
-                        responder("Biblioteca ausente: google-generativeai.")
+                    if not tem_lib("google.genai"):
+                        responder("Biblioteca ausente: google-genai. Rode: pip install google-genai")
                         return
                     resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
