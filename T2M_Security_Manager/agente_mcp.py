@@ -30,6 +30,7 @@ import os
 import json
 import asyncio
 import platform
+import time
 
 # Arquivo de memoria COMPARTILHADO com o chat (gerador_ia.py). Ambos usam o
 # mesmo caminho (diretorio do proprio script) para que o agente MCP e o chat
@@ -264,14 +265,26 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
               "da pagina antes de cada acao. Chame UMA ferramenta por vez, com argumentos "
               "simples e validos. " + INSTRUCAO_LINGUAGEM)
 
-    try:
-        model = genai.GenerativeModel(
-            "gemini-2.0-flash",
-            tools=tools_gemini,
-            system_instruction=system,
-        )
-    except Exception as e:
-        return f"Falha ao registrar ferramentas no Gemini: {type(e).__name__}: {e}"
+    # No tier gratuito o limite por minuto e baixo (ex.: 5-10 req/min). Uma automacao
+    # MCP faz varias chamadas seguidas, entao: (1) preferimos modelos com mais folga,
+    # (2) pausamos entre passos, (3) tratamos ResourceExhausted com mensagem clara.
+    modelos_tentar = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    model = None
+    erro_modelo = ""
+    for nome_m in modelos_tentar:
+        try:
+            model = genai.GenerativeModel(
+                nome_m,
+                tools=tools_gemini,
+                system_instruction=system,
+            )
+            log(f">>> [Gemini] Usando modelo {nome_m}")
+            break
+        except Exception as e:
+            erro_modelo = f"{nome_m}: {type(e).__name__}: {e}"
+            continue
+    if model is None:
+        return f"Falha ao registrar ferramentas no Gemini: {erro_modelo}"
 
     chat = model.start_chat()
     proxima_mensagem = objetivo
@@ -279,19 +292,38 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     navegador_morto = False
 
     for passo in range(MAX_ITERACOES):
-        # --- Envia a mensagem, com RETRY em caso de MALFORMED_FUNCTION_CALL ---
+        # Pausa entre passos para respeitar o limite por minuto do tier gratuito
+        # (evita ResourceExhausted no meio da automacao). Nao pausa no 1o passo.
+        if passo > 0:
+            time.sleep(4)
+
+        # --- Envia a mensagem, com RETRY em caso de MALFORMED / cota ---
         resp = None
-        for tentativa in range(2):  # 1 tentativa + 1 retry
+        for tentativa in range(3):  # tentativas extras para cota (espera e refaz)
             try:
                 resp = chat.send_message(proxima_mensagem)
                 break
             except Exception as e:
                 nome_erro = type(e).__name__
                 msg = str(e)
+                # Cota por minuto estourada: espera e tenta de novo
+                if ("ResourceExhausted" in nome_erro or "429" in msg
+                        or "quota" in msg.lower() or "exhausted" in msg.lower()):
+                    if tentativa < 2:
+                        log(f">>> Limite por minuto atingido. Aguardando 30s para retomar (tentativa {tentativa+1})...")
+                        time.sleep(30)
+                        continue
+                    # Esgotou as tentativas de cota
+                    if ultimo_texto:
+                        return (ultimo_texto + "\n\n[Automacao interrompida: limite de uso "
+                                "da IA (cota gratuita por minuto) atingido. Aguarde 1 minuto "
+                                "e tente de novo, ou ative billing para limites maiores.]")
+                    return ("Limite de uso da IA atingido (cota gratuita: poucas requisicoes "
+                            "por minuto). Aguarde 1-2 minutos e tente de novo, ou ative billing "
+                            "no Google AI Studio para limites maiores.")
                 if "MALFORMED_FUNCTION_CALL" in msg or "finish_reason" in msg:
                     log(f">>> MALFORMED na tentativa {tentativa+1}, tentando de novo...")
-                    if tentativa == 0:
-                        # Reenvia pedindo para simplificar a proxima chamada
+                    if tentativa < 2:
                         proxima_mensagem = ("A ultima acao falhou por chamada malformada. "
                                             "Refaca chamando UMA ferramenta simples por vez.")
                         continue
@@ -390,7 +422,11 @@ async def executar(api_key, url_alvo, objetivo):
                 objetivo_completo = (
                     f"URL alvo: {url_alvo}\n"
                     f"Comece navegando ate essa URL com a ferramenta de navegacao.\n"
-                    f"Objetivo do teste: {objetivo}")
+                    f"Objetivo do teste: {objetivo}\n\n"
+                    f"Depois de executar e relatar o que encontrou, PERGUNTE ao usuario qual "
+                    f"tipo de automacao ele quer construir a partir disto: (1) navegacao web, "
+                    f"(2) API, ou (3) banco de dados/SQL (peca credenciais se necessario). "
+                    f"So gere o script final quando tiver as informacoes necessarias.")
 
                 # Roteador por provedor. Ordem importa: prefixos mais especificos
                 # primeiro. Gemini fica como padrao porque o Google mudou o formato
