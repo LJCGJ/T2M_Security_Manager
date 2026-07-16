@@ -233,60 +233,130 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
 
 
 # ================================================================== #
-# LOOP GEMINI (SDK novo google-genai, com MCP nativo + AFC)          #
-# O SDK novo aceita a sessao MCP direto como ferramenta e faz o      #
-# function calling automaticamente. Isso resolve o                   #
-# MALFORMED_FUNCTION_CALL do SDK antigo e dispensa conversao manual  #
-# de schema. Requer: pip install google-genai                        #
+# LOOP GEMINI (SDK google.generativeai - autentica chaves AQ./AIza)  #
+# O SDK novo (google.genai) rejeita chaves AQ. com 401, entao usamos #
+# o SDK classico aqui, com tratamento reforcado do                   #
+# MALFORMED_FUNCTION_CALL (retry) e deteccao de navegador fechado.   #
 # ================================================================== #
 async def loop_gemini(session, api_key, objetivo, mcp_tools):
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
 
-    # Forca a Gemini Developer API na versao ESTAVEL (v1). O padrao do SDK e v1beta,
-    # que tem tido 401 ACCESS_TOKEN_TYPE_UNSUPPORTED com as chaves novas "AQ.".
-    # http_options com api_version='v1' contorna isso.
-    client = genai.Client(
-        api_key=api_key,
-        http_options=types.HttpOptions(api_version="v1"),
-    )
+    # Converte as ferramentas MCP para o formato do Gemini (whitelist de schema).
+    declaracoes = []
+    for t in mcp_tools:
+        params = limpar_schema_gemini(t.inputSchema or {"type": "object", "properties": {}})
+        if not isinstance(params, dict):
+            params = {"type": "object", "properties": {}}
+        if "type" not in params:
+            params["type"] = "object"
+        if params.get("type") == "object" and "properties" not in params:
+            params["properties"] = {}
+        declaracoes.append({
+            "name": t.name,
+            "description": (t.description or "")[:1024],
+            "parameters": params,
+        })
+    tools_gemini = [{"function_declarations": declaracoes}]
 
     system = ("Voce e um assistente de automacao de testes, QA e seguranca. Use as "
               "ferramentas de navegador para cumprir o objetivo, observando o estado real "
-              "da pagina antes de cada acao. " + INSTRUCAO_LINGUAGEM)
+              "da pagina antes de cada acao. Chame UMA ferramenta por vez, com argumentos "
+              "simples e validos. " + INSTRUCAO_LINGUAGEM)
 
-    # Modelos a tentar (todos existentes na conta; ordem por preferencia).
-    modelos = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+    try:
+        model = genai.GenerativeModel(
+            "gemini-2.0-flash",
+            tools=tools_gemini,
+            system_instruction=system,
+        )
+    except Exception as e:
+        return f"Falha ao registrar ferramentas no Gemini: {type(e).__name__}: {e}"
 
-    ultimo_erro = ""
-    for nome_modelo in modelos:
+    chat = model.start_chat()
+    proxima_mensagem = objetivo
+    ultimo_texto = ""          # guarda o ultimo texto util, para devolver algo se travar
+    navegador_morto = False
+
+    for passo in range(MAX_ITERACOES):
+        # --- Envia a mensagem, com RETRY em caso de MALFORMED_FUNCTION_CALL ---
+        resp = None
+        for tentativa in range(2):  # 1 tentativa + 1 retry
+            try:
+                resp = chat.send_message(proxima_mensagem)
+                break
+            except Exception as e:
+                nome_erro = type(e).__name__
+                msg = str(e)
+                if "MALFORMED_FUNCTION_CALL" in msg or "finish_reason" in msg:
+                    log(f">>> MALFORMED na tentativa {tentativa+1}, tentando de novo...")
+                    if tentativa == 0:
+                        # Reenvia pedindo para simplificar a proxima chamada
+                        proxima_mensagem = ("A ultima acao falhou por chamada malformada. "
+                                            "Refaca chamando UMA ferramenta simples por vez.")
+                        continue
+                # Erro que nao da para recuperar
+                if ultimo_texto:
+                    return (ultimo_texto + "\n\n[Nota: a automacao foi interrompida por "
+                            f"instabilidade do modelo: {nome_erro}]")
+                return f"O modelo Gemini falhou ({nome_erro}). Tente de novo ou use outra chave/IA."
+        if resp is None:
+            break
+
+        # --- Coleta as chamadas de ferramenta pedidas ---
+        chamadas = []
         try:
-            log(f">>> [Gemini/genai] Tentando modelo {nome_modelo} com MCP nativo...")
-            resp = await client.aio.models.generate_content(
-                model=nome_modelo,
-                contents=objetivo,
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    temperature=0,
-                    # Passa a SESSAO MCP direto como ferramenta: o SDK descobre e
-                    # executa as ferramentas do Playwright automaticamente (AFC).
-                    tools=[session],
-                    # Teto de chamadas automaticas (guardrail de custo/loop).
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        maximum_remote_calls=MAX_ITERACOES
-                    ),
-                ),
-            )
-            texto = (resp.text or "").strip()
-            if texto:
-                return texto
-            return "(o modelo terminou sem texto final)"
-        except Exception as e:
-            ultimo_erro = f"{nome_modelo}: {type(e).__name__}: {str(e)[:160]}"
-            log(f">>> Falhou {ultimo_erro}")
-            continue
+            for cand in resp.candidates:
+                for parte in cand.content.parts:
+                    fc = getattr(parte, "function_call", None)
+                    if fc and fc.name:
+                        chamadas.append(fc)
+        except Exception:
+            pass
 
-    return f"Nenhum modelo Gemini respondeu. Ultimo erro: {ultimo_erro}"
+        # Sem chamadas = resposta final em texto
+        if not chamadas:
+            try:
+                return (resp.text or ultimo_texto or "(sem resposta final)").strip()
+            except Exception:
+                return ultimo_texto or "(sem resposta final)"
+
+        # --- Executa cada ferramenta no navegador via MCP ---
+        respostas_fc = []
+        for fc in chamadas:
+            args = dict(fc.args) if fc.args else {}
+            log(f">>> [Gemini] Ferramenta: {fc.name} {json.dumps(args)[:120]}")
+            try:
+                r = await session.call_tool(fc.name, args)
+                conteudo = texto_do_resultado_mcp(r)
+                if conteudo and len(conteudo) > 40:
+                    ultimo_texto = conteudo  # guarda progresso util
+            except Exception as e:
+                # Navegador fechado / MCP caiu: nao adianta continuar
+                emsg = str(e)
+                conteudo = f"ERRO ao executar {fc.name}: {emsg}"
+                if ("closed" in emsg.lower() or "target" in emsg.lower()
+                        or "connection" in emsg.lower() or "browser" in emsg.lower()):
+                    navegador_morto = True
+                    log(f">>> Navegador parece ter sido fechado: {emsg[:100]}")
+            respostas_fc.append(genai.protos.Part(
+                function_response=genai.protos.FunctionResponse(
+                    name=fc.name, response={"resultado": conteudo})))
+
+        if navegador_morto:
+            return (ultimo_texto + "\n\n[Automacao interrompida: o navegador foi fechado "
+                    "antes do fim do teste.]") if ultimo_texto else \
+                   "Automacao interrompida: o navegador foi fechado antes do fim do teste."
+
+        proxima_mensagem = respostas_fc
+
+    return (ultimo_texto + "\n\n[Limite de passos atingido.]") if ultimo_texto else \
+           "Limite de iteracoes atingido antes de concluir o objetivo."
+
+
+# ================================================================== #
+# (bloco antigo do SDK novo removido - chave AQ. dava 401)           #
+# ================================================================== #
 
 
 # ================================================================== #
@@ -339,8 +409,8 @@ async def executar(api_key, url_alvo, objetivo):
                 else:
                     # Gemini: aceita AIza (classico), AQ./AQ_ (novo formato 2026)
                     # e qualquer outro que nao seja Claude/OpenAI.
-                    if not tem_lib("google.genai"):
-                        responder("Biblioteca ausente: google-genai. Rode: pip install google-genai")
+                    if not tem_lib("google.generativeai"):
+                        responder("Biblioteca ausente: google-generativeai. Rode: pip install google-generativeai")
                         return
                     resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
