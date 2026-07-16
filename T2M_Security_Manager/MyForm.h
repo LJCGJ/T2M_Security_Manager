@@ -1035,18 +1035,18 @@ namespace T2MSecurityManager {
 		AbrirFormularioConexaoBanco();
 	}
 
-	// Formulario que coleta os dados de conexao do banco.
+	// Formulario que coleta os dados de conexao do banco, com validacao visual.
 	private: void AbrirFormularioConexaoBanco() {
 		Form^ f = gcnew Form();
 		f->Text = L"Conexao de Banco de Dados";
-		f->Size = System::Drawing::Size(440, 430);
+		f->Size = System::Drawing::Size(460, 520);
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
 		f->BackColor = System::Drawing::Color::WhiteSmoke;
 		AplicarIcone(f);
 
-		int x1 = 20, x2 = 150, larg = 250, alt = 24, y = 20, dy = 38;
+		int x1 = 20, x2 = 150, larg = 260, alt = 24, y = 18, dy = 50;
 
 		// Tipo de banco
 		Label^ lblTipo = gcnew Label(); lblTipo->Text = L"Tipo de banco:";
@@ -1073,6 +1073,7 @@ namespace T2MSecurityManager {
 		txtHost->Location = System::Drawing::Point(x2, y); txtHost->Size = System::Drawing::Size(larg, alt);
 		txtHost->Text = (dbHost != nullptr) ? dbHost : L"localhost";
 		f->Controls->Add(txtHost);
+		Label^ errHost = CriarLabelErro(x2, y + alt + 1, larg); f->Controls->Add(errHost);
 
 		// Porta
 		y += dy;
@@ -1093,6 +1094,7 @@ namespace T2MSecurityManager {
 		txtNome->Location = System::Drawing::Point(x2, y); txtNome->Size = System::Drawing::Size(larg, alt);
 		txtNome->Text = (dbNome != nullptr) ? dbNome : L"";
 		f->Controls->Add(txtNome);
+		Label^ errNome = CriarLabelErro(x2, y + alt + 1, larg); f->Controls->Add(errNome);
 
 		// Usuario
 		y += dy;
@@ -1103,6 +1105,7 @@ namespace T2MSecurityManager {
 		txtUser->Location = System::Drawing::Point(x2, y); txtUser->Size = System::Drawing::Size(larg, alt);
 		txtUser->Text = (dbUsuario != nullptr) ? dbUsuario : L"";
 		f->Controls->Add(txtUser);
+		Label^ errUser = CriarLabelErro(x2, y + alt + 1, larg); f->Controls->Add(errUser);
 
 		// Senha (mascarada)
 		y += dy;
@@ -1124,16 +1127,16 @@ namespace T2MSecurityManager {
 		f->Controls->Add(chkRO);
 
 		// Aviso de seguranca
-		y += dy - 6;
+		y += 30;
 		Label^ lblAviso = gcnew Label();
 		lblAviso->Text = L"Dica: use um usuario de banco com privilegios minimos e, se possivel,\num ambiente de testes - evite credenciais de producao.";
-		lblAviso->Location = System::Drawing::Point(x1, y); lblAviso->Size = System::Drawing::Size(390, 34);
+		lblAviso->Location = System::Drawing::Point(x1, y); lblAviso->Size = System::Drawing::Size(410, 34);
 		lblAviso->ForeColor = System::Drawing::Color::DimGray;
 		lblAviso->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(lblAviso);
 
 		// Botoes
-		y += 44;
+		y += 42;
 		Button^ btnOk = gcnew Button();
 		btnOk->Text = L"Salvar conexao";
 		btnOk->Location = System::Drawing::Point(x2, y); btnOk->Size = System::Drawing::Size(140, 30);
@@ -1149,16 +1152,46 @@ namespace T2MSecurityManager {
 
 		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
 
-		// Ao salvar: le os campos (via Tag), cifra a senha e guarda na sessao.
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(7);
+		// Guarda campos + labels de erro no Tag (para o salvar validar e mostrar erros).
+		// Ordem: 0=cbTipo 1=txtHost 2=txtPorta 3=txtNome 4=txtUser 5=txtSenha 6=chkRO
+		//        7=errHost 8=errNome 9=errUser
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(10);
 		campos[0] = cbTipo; campos[1] = txtHost; campos[2] = txtPorta;
 		campos[3] = txtNome; campos[4] = txtUser; campos[5] = txtSenha;
-		campos[6] = chkRO;
+		campos[6] = chkRO; campos[7] = errHost; campos[8] = errNome; campos[9] = errUser;
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConexaoBanco_Click);
 
 		f->ShowDialog();
+	}
+
+	// Cria um label de erro (vermelho, pequeno) inicialmente vazio/invisivel.
+	private: Label^ CriarLabelErro(int x, int y, int larg) {
+		Label^ l = gcnew Label();
+		l->Text = L"";
+		l->Location = System::Drawing::Point(x, y);
+		l->Size = System::Drawing::Size(larg, 16);
+		l->ForeColor = System::Drawing::Color::Firebrick;
+		l->Font = gcnew System::Drawing::Font("Segoe UI", 7.5f);
+		l->Visible = false;
+		return l;
+	}
+
+	// Marca um campo com erro: borda vermelha e mostra o texto de erro embaixo.
+	private: void MarcarErroCampo(TextBox^ campo, Label^ lblErro, String^ msg) {
+		campo->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
+		campo->BackColor = System::Drawing::Color::FromArgb(255, 245, 245); // rosa bem claro
+		lblErro->Text = L"⚠ " + msg;
+		lblErro->Visible = true;
+	}
+
+	// Limpa o erro visual de um campo (volta ao normal).
+	private: void LimparErroCampo(TextBox^ campo, Label^ lblErro) {
+		campo->BorderStyle = System::Windows::Forms::BorderStyle::Fixed3D;
+		campo->BackColor = System::Drawing::Color::White;
+		lblErro->Text = L"";
+		lblErro->Visible = false;
 	}
 
 	// Handlers auxiliares do formulario de conexao
@@ -1194,7 +1227,7 @@ namespace T2MSecurityManager {
 		return esquema + L"://" + userInfo + L"@" + hostPorta + L"/" + dbNome;
 	}
 
-	// Salva a conexao: le os campos (via Tag do form), cifra a senha, guarda na sessao.
+	// Salva a conexao: valida por tipo (borda vermelha + texto embaixo), cifra a senha.
 	private: System::Void salvarConexaoBanco_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
 		Form^ f = safe_cast<Form^>(b->Tag);
@@ -1206,24 +1239,51 @@ namespace T2MSecurityManager {
 		TextBox^ txtUser = safe_cast<TextBox^>(ctl[4]);
 		TextBox^ txtSenha = safe_cast<TextBox^>(ctl[5]);
 		CheckBox^ chkRO = safe_cast<CheckBox^>(ctl[6]);
+		Label^ errHost = safe_cast<Label^>(ctl[7]);
+		Label^ errNome = safe_cast<Label^>(ctl[8]);
+		Label^ errUser = safe_cast<Label^>(ctl[9]);
 
-		// Validacao minima
-		if (String::IsNullOrWhiteSpace(txtHost->Text) && cbTipo->Text != "SQLite") {
-			MessageBox::Show(L"Informe o host do banco.", L"Aviso"); return;
+		String^ tipo = cbTipo->Text;
+		bool ehSQLite = (tipo == "SQLite");
+
+		// Limpa erros anteriores
+		LimparErroCampo(txtHost, errHost);
+		LimparErroCampo(txtNome, errNome);
+		LimparErroCampo(txtUser, errUser);
+
+		// Validacao inteligente por tipo:
+		//  - SQLite: exige so o "Nome do banco" (caminho do arquivo)
+		//  - Demais: exigem Host, Usuario e Nome do banco
+		bool ok = true;
+		if (ehSQLite) {
+			if (String::IsNullOrWhiteSpace(txtNome->Text)) {
+				MarcarErroCampo(txtNome, errNome, L"Informe o caminho do arquivo .db"); ok = false;
+			}
 		}
+		else {
+			if (String::IsNullOrWhiteSpace(txtHost->Text)) {
+				MarcarErroCampo(txtHost, errHost, L"Campo obrigatorio"); ok = false;
+			}
+			if (String::IsNullOrWhiteSpace(txtUser->Text)) {
+				MarcarErroCampo(txtUser, errUser, L"Campo obrigatorio"); ok = false;
+			}
+			if (String::IsNullOrWhiteSpace(txtNome->Text)) {
+				MarcarErroCampo(txtNome, errNome, L"Campo obrigatorio"); ok = false;
+			}
+		}
+		if (!ok) return;  // nao salva enquanto houver campos obrigatorios vazios
 
-		// Oracle e MongoDB ainda nao tem servidor MCP configurado: avisa mas deixa salvar
-		// a conexao (a interface funciona; a execucao vira quando o suporte chegar).
-		if (cbTipo->Text->Contains("em breve")) {
+		// Oracle e MongoDB ainda nao tem servidor MCP configurado: avisa mas deixa salvar.
+		if (tipo->Contains("em breve")) {
 			MessageBox::Show(
-				cbTipo->Text->Replace(" (em breve)", "") + L" ainda nao tem conexao ativa "
+				tipo->Replace(" (em breve)", "") + L" ainda nao tem conexao ativa "
 				L"(precisa de um servidor MCP proprio, que chega numa proxima versao).\n\n"
 				L"Voce pode salvar a conexao mesmo assim - ela ficara pronta para quando o "
 				L"suporte for habilitado.",
 				L"Banco em breve", MessageBoxButtons::OK, MessageBoxIcon::Information);
 		}
 
-		dbTipo = cbTipo->Text;
+		dbTipo = tipo;
 		dbHost = txtHost->Text->Trim();
 		dbPorta = txtPorta->Text->Trim();
 		dbNome = txtNome->Text->Trim();
