@@ -31,6 +31,12 @@ import json
 import asyncio
 import platform
 
+# Arquivo de memoria COMPARTILHADO com o chat (gerador_ia.py). Ambos usam o
+# mesmo caminho (diretorio do proprio script) para que o agente MCP e o chat
+# enxerguem a mesma conversa. E assim o agente "lembra" do que viu ao vivo.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ARQUIVO_MEMORIA = os.path.join(SCRIPT_DIR, "memoria_chat.json")
+
 # ------------------------------------------------------------------ #
 # Constantes de seguranca (guardrails de custo - recomendacao 2026)  #
 # ------------------------------------------------------------------ #
@@ -120,11 +126,9 @@ async def loop_anthropic(session, api_key, objetivo, mcp_tools):
         "input_schema": t.inputSchema,
     } for t in mcp_tools]
 
-    system = ("Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas "
-              "de navegador para cumprir o objetivo passo a passo, observando o estado "
-              "real da pagina antes de cada acao. Ao final, escreva um relatorio claro "
-              "do que testou, o que encontrou e um esboco de script (Robot Framework ou "
-              "Python) dentro de blocos ```linguagem ``` que reproduza o teste.")
+    system = ("Voce e um assistente de automacao de testes, QA e seguranca. Use as "
+              "ferramentas de navegador para cumprir o objetivo passo a passo, observando o "
+              "estado real da pagina antes de cada acao. Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos ```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), diga isso com clareza em vez de inventar um teste.")
 
     mensagens = [{"role": "user", "content": objetivo}]
 
@@ -181,7 +185,7 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
         {"role": "system", "content": (
             "Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas de "
             "navegador para cumprir o objetivo, observando o estado real da pagina. Ao "
-            "final, escreva um relatorio e um esboco de script em blocos ```linguagem ```.")},
+            "Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos ```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), diga isso com clareza em vez de inventar um teste.")},
         {"role": "user", "content": objetivo},
     ]
 
@@ -245,12 +249,12 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     tools_gemini = [{"function_declarations": declaracoes}]
     try:
         model = genai.GenerativeModel(
-            "gemini-2.5-flash",
+            "gemini-2.0-flash",
             tools=tools_gemini,
             system_instruction=(
                 "Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas de "
                 "navegador para cumprir o objetivo, observando o estado real da pagina. Ao "
-                "final, escreva um relatorio e um esboco de script em blocos ```linguagem ```."),
+                "Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos ```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), diga isso com clareza em vez de inventar um teste."),
         )
     except Exception as e:
         return (f"Falha ao registrar as ferramentas no Gemini (SDK antigo e restritivo "
@@ -342,9 +346,27 @@ async def executar(api_key, url_alvo, objetivo):
                         return
                     resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
-                responder(resultado)
+                # --- INTEGRACAO COM O CHAT: grava o resultado na memoria compartilhada ---
+                # Assim o proximo turno do chat (gerador_ia.py) "lembra" do que o MCP fez.
+                # O relatorio entra como uma fala do assistente, precedida de uma nota
+                # de contexto (como se o operador tivesse pedido a automacao ao vivo).
+                try:
+                    memoria = []
+                    if os.path.exists(ARQUIVO_MEMORIA):
+                        with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
+                            memoria = json.load(f)
+                    memoria.append({
+                        "role": "user",
+                        "content": f"[AUTOMACAO MCP AO VIVO] Executei uma automacao real no "
+                                   f"navegador sobre {url_alvo} com o objetivo: {objetivo}"
+                    })
+                    memoria.append({"role": "assistant", "content": resultado})
+                    with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
+                        json.dump(memoria, f, ensure_ascii=False, indent=4)
+                except Exception as e:
+                    log(f">>> Aviso: nao foi possivel gravar na memoria do chat: {e}")
 
-    except FileNotFoundError:
+                responder(resultado)
         responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
     except BaseException as e:
         # ExceptionGroup (TaskGroup) esconde a causa real; desempacota para mostrar.
