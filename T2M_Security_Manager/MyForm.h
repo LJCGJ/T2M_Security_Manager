@@ -78,7 +78,8 @@ namespace T2MSecurityManager {
 		ComboBox^ comboModeloChat;
 
 		// Botoes/controles de modo (toggle): so um ativo por vez.
-		ComboBox^ cmbAutomacao;  // Dropdown de automacao (Tela / API / Banco) = modo MCP
+		Button^ btnAutomacao;    // Botao "Automacao MCP" que abre menu (Tela/API/Banco)
+		System::Windows::Forms::ContextMenuStrip^ menuAutomacao;  // menu com as 3 opcoes
 		Button^ btnChatDom;      // Modo Scan DOM (varredura estatica)
 		Button^ btnChatConversa; // Modo Chat (so conversa, padrao)
 		Label^ lblChatStatus;    // Indicador "processando..."
@@ -87,7 +88,6 @@ namespace T2MSecurityManager {
 		// So um modo fica ligado por vez; o controle ligado fica em destaque.
 		int modoAtivo;
 		int tipoAutomacao;       // quando modoAtivo==2: 0=Tela, 1=API, 2=Banco
-		bool ignorarComboEvento; // evita recursao ao resetar o dropdown programaticamente
 
 		// Execucao NAO-BLOQUEANTE: o Python roda numa thread separada via BackgroundWorker,
 		// para a janela nao congelar durante o chat ou o MCP ao vivo.
@@ -888,25 +888,34 @@ namespace T2MSecurityManager {
 			L"Rapido e BARATO. Nao abre navegador nem executa acoes.\n"
 			L"Bom para dar contexto inicial da tela ao agente.");
 
-		// --- MODO AUTOMACAO (dropdown: Tela / API / Banco) = usa MCP ---
-		// O texto "Automacao" e placeholder (nao e item da lista). A lista tem SO as 3 opcoes.
-		cmbAutomacao = gcnew ComboBox();
-		cmbAutomacao->DropDownStyle = ComboBoxStyle::DropDownList;
-		cmbAutomacao->Location = System::Drawing::Point(600, 39);
-		cmbAutomacao->Size = System::Drawing::Size(110, 29);
-		cmbAutomacao->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
-		cmbAutomacao->Items->Add(L"🖥 Teste de Tela");   // indice 0 = Tela (funciona)
-		cmbAutomacao->Items->Add(L"🔌 Teste de API");    // indice 1 = API (em breve)
-		cmbAutomacao->Items->Add(L"🗄 Banco de Dados");  // indice 2 = Banco (em breve)
-		cmbAutomacao->SelectedIndex = -1;                // nada selecionado = placeholder
-		cmbAutomacao->Text = L"⚙ Automacao";
-		cmbAutomacao->SelectedIndexChanged += gcnew System::EventHandler(this, &MyForm::cmbAutomacao_Changed);
-		formIA->Controls->Add(cmbAutomacao);
-		dica->SetToolTip(cmbAutomacao,
+		// --- MODO AUTOMACAO (botao + menu: Tela / API / Banco) = usa MCP ---
+		// Botao com texto sempre visivel; ao clicar, abre um menu com SO as 3 opcoes reais.
+		btnAutomacao = gcnew Button();
+		btnAutomacao->Text = L"⚙ Automacao";
+		btnAutomacao->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
+		btnAutomacao->Location = System::Drawing::Point(600, 38);
+		btnAutomacao->Size = System::Drawing::Size(115, 29);
+		btnAutomacao->FlatStyle = FlatStyle::Flat;
+		btnAutomacao->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
+		btnAutomacao->Click += gcnew System::EventHandler(this, &MyForm::btnAutomacao_Click);
+		formIA->Controls->Add(btnAutomacao);
+		dica->SetToolTip(btnAutomacao,
 			L"AUTOMACAO (via MCP, navegador/execucao real)\n"
 			L"Teste de Tela: descreva o teste e a IA executa passo a passo ao vivo.\n"
 			L"Teste de API / Banco de Dados: em breve.\n"
 			L"ATENCAO: consome MUITO MAIS tokens (~100k+ por tarefa).");
+
+		// Menu com as 3 opcoes reais (sem placeholder)
+		menuAutomacao = gcnew System::Windows::Forms::ContextMenuStrip();
+		System::Windows::Forms::ToolStripMenuItem^ itTela = gcnew System::Windows::Forms::ToolStripMenuItem(L"🖥 Teste de Tela");
+		System::Windows::Forms::ToolStripMenuItem^ itApi = gcnew System::Windows::Forms::ToolStripMenuItem(L"🔌 Teste de API");
+		System::Windows::Forms::ToolStripMenuItem^ itBanco = gcnew System::Windows::Forms::ToolStripMenuItem(L"🗄 Banco de Dados");
+		itTela->Click += gcnew System::EventHandler(this, &MyForm::menuTela_Click);
+		itApi->Click += gcnew System::EventHandler(this, &MyForm::menuApi_Click);
+		itBanco->Click += gcnew System::EventHandler(this, &MyForm::menuBanco_Click);
+		menuAutomacao->Items->Add(itTela);
+		menuAutomacao->Items->Add(itApi);
+		menuAutomacao->Items->Add(itBanco);
 
 		btnSaveScript = gcnew Button();
 		btnSaveScript->Text = L"💾 2. Extrair e Salvar Codigo Final";
@@ -950,7 +959,7 @@ namespace T2MSecurityManager {
 		btnChatConversa->Text = L"💬 Chat";
 		btnChatDom->Text = L"🔍 Scan DOM";
 		// Dropdown apagado por padrao
-		cmbAutomacao->BackColor = corOff; cmbAutomacao->ForeColor = System::Drawing::Color::Black;
+		btnAutomacao->BackColor = corOff; btnAutomacao->ForeColor = txtOff;
 
 		// Liga o ativo
 		if (modoAtivo == 0) {
@@ -963,7 +972,7 @@ namespace T2MSecurityManager {
 		}
 		else if (modoAtivo == 2) {
 			// Destaque do dropdown quando a automacao esta ativa
-			cmbAutomacao->BackColor = corMcpOn; cmbAutomacao->ForeColor = System::Drawing::Color::White;
+			btnAutomacao->BackColor = corMcpOn; btnAutomacao->ForeColor = System::Drawing::Color::White;
 		}
 
 		// Atualiza a dica conforme o modo
@@ -987,48 +996,40 @@ namespace T2MSecurityManager {
 	private: System::Void btnModoConversa_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 		modoAtivo = 0;
-		resetarCombo();
 		AtualizarBotoesModo();
 	}
 	private: System::Void btnModoDom_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 		modoAtivo = 1;
-		resetarCombo();
 		AtualizarBotoesModo();
 	}
 
-		   // Reseta o dropdown para o placeholder SEM disparar o evento (evita recursao)
-	private: void resetarCombo() {
-		ignorarComboEvento = true;
-		cmbAutomacao->SelectedIndex = -1;
-		cmbAutomacao->Text = L"⚙ Automacao";
-		ignorarComboEvento = false;
+		   // Botao Automacao: abre o menu com as 3 opcoes, logo abaixo do botao.
+	private: System::Void btnAutomacao_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (workerChat->IsBusy) return;
+		menuAutomacao->Show(btnAutomacao, System::Drawing::Point(0, btnAutomacao->Height));
 	}
 
-		   // Dropdown de automacao: indice 0=Tela (funciona), 1=API, 2=Banco (em breve)
-	private: System::Void cmbAutomacao_Changed(System::Object^ sender, System::EventArgs^ e) {
-		if (ignorarComboEvento) return;   // reset programatico, ignora
-		int idx = cmbAutomacao->SelectedIndex;
-		if (idx < 0) return;              // placeholder, nada selecionado
-
-		if (workerChat->IsBusy) { resetarCombo(); return; }
-
-		if (idx == 0) {
-			// Teste de Tela - funciona (via MCP)
-			modoAtivo = 2; tipoAutomacao = 0;
-			AtualizarBotoesModo();
-		}
-		else {
-			// idx 1 = API, idx 2 = Banco: em breve. Avisa e volta ao placeholder.
-			String^ oque = (idx == 1) ? L"Teste de API" : L"Banco de Dados";
-			MessageBox::Show(
-				oque + L" estara disponivel em breve.\n\nPor enquanto, use o Teste de Tela "
-				L"(automacao ao vivo no navegador) ou os modos Chat e Scan DOM.",
-				L"Em breve", MessageBoxButtons::OK, MessageBoxIcon::Information);
-			resetarCombo();
-			if (modoAtivo == 2) { modoAtivo = 0; }
-			AtualizarBotoesModo();
-		}
+		   // Opcao Teste de Tela - funciona (via MCP)
+	private: System::Void menuTela_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (workerChat->IsBusy) return;
+		modoAtivo = 2; tipoAutomacao = 0;
+		AtualizarBotoesModo();
+	}
+		   // Opcao Teste de API - em breve
+	private: System::Void menuApi_Click(System::Object^ sender, System::EventArgs^ e) {
+		AvisarEmBreve(L"Teste de API");
+	}
+		   // Opcao Banco de Dados - em breve
+	private: System::Void menuBanco_Click(System::Object^ sender, System::EventArgs^ e) {
+		AvisarEmBreve(L"Banco de Dados");
+	}
+		   // Aviso comum de "em breve" (API/Banco)
+	private: void AvisarEmBreve(String^ oque) {
+		MessageBox::Show(
+			oque + L" estara disponivel em breve.\n\nPor enquanto, use o Teste de Tela "
+			L"(automacao ao vivo no navegador) ou os modos Chat e Scan DOM.",
+			L"Em breve", MessageBoxButtons::OK, MessageBoxIcon::Information);
 	}
 
 		   // ==========================================================================
@@ -1038,7 +1039,7 @@ namespace T2MSecurityManager {
 		   // Habilita/desabilita os controles enquanto o Python roda, e mostra status.
 	private: void DefinirOcupado(bool ocupado, String^ msgStatus) {
 		btnSendChat->Enabled = !ocupado;
-		cmbAutomacao->Enabled = !ocupado;
+		btnAutomacao->Enabled = !ocupado;
 		btnChatDom->Enabled = !ocupado;
 		btnChatConversa->Enabled = !ocupado;
 		btnSaveScript->Enabled = !ocupado;
