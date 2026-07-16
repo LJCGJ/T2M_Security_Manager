@@ -89,6 +89,17 @@ namespace T2MSecurityManager {
 		int modoAtivo;
 		int tipoAutomacao;       // quando modoAtivo==2: 0=Tela, 1=API, 2=Banco
 
+		// Dados da conexao de banco (coletados no formulario; senha cifrada com DPAPI).
+		// Por enquanto so armazenados na sessao; a conexao real via MCP vem depois.
+		String^ dbTipo;          // PostgreSQL, MySQL, SQLite, MariaDB...
+		String^ dbHost;
+		String^ dbPorta;
+		String^ dbNome;
+		String^ dbUsuario;
+		String^ dbSenhaCifrada;  // senha protegida com DPAPI
+		bool dbSomenteLeitura;
+		bool dbConfigurado;      // true quando o usuario preencheu a conexao
+
 		// Execucao NAO-BLOQUEANTE: o Python roda numa thread separada via BackgroundWorker,
 		// para a janela nao congelar durante o chat ou o MCP ao vivo.
 		System::ComponentModel::BackgroundWorker^ workerChat;
@@ -1020,9 +1031,179 @@ namespace T2MSecurityManager {
 	private: System::Void menuApi_Click(System::Object^ sender, System::EventArgs^ e) {
 		AvisarEmBreve(L"Teste de API");
 	}
-		   // Opcao Banco de Dados - em breve
+		   // Opcao Banco de Dados - abre o formulario de conexao (interface pronta; a
+		   // conexao real via MCP sera plugada depois).
 	private: System::Void menuBanco_Click(System::Object^ sender, System::EventArgs^ e) {
-		AvisarEmBreve(L"Banco de Dados");
+		if (workerChat->IsBusy) return;
+		AbrirFormularioConexaoBanco();
+	}
+
+		   // Formulario que coleta os dados de conexao do banco.
+	private: void AbrirFormularioConexaoBanco() {
+		Form^ f = gcnew Form();
+		f->Text = L"Conexao de Banco de Dados";
+		f->Size = System::Drawing::Size(440, 430);
+		f->StartPosition = FormStartPosition::CenterParent;
+		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
+		f->MaximizeBox = false; f->MinimizeBox = false;
+		f->BackColor = System::Drawing::Color::WhiteSmoke;
+		AplicarIcone(f);
+
+		int x1 = 20, x2 = 150, larg = 250, alt = 24, y = 20, dy = 38;
+
+		// Tipo de banco
+		Label^ lblTipo = gcnew Label(); lblTipo->Text = L"Tipo de banco:";
+		lblTipo->Location = System::Drawing::Point(x1, y + 3); lblTipo->AutoSize = true;
+		f->Controls->Add(lblTipo);
+		ComboBox^ cbTipo = gcnew ComboBox();
+		cbTipo->DropDownStyle = ComboBoxStyle::DropDownList;
+		cbTipo->Location = System::Drawing::Point(x2, y); cbTipo->Size = System::Drawing::Size(larg, alt);
+		cbTipo->Items->Add(L"PostgreSQL"); cbTipo->Items->Add(L"MySQL");
+		cbTipo->Items->Add(L"MariaDB"); cbTipo->Items->Add(L"SQLite");
+		cbTipo->SelectedIndex = (dbTipo != nullptr && cbTipo->Items->Contains(dbTipo))
+			? cbTipo->Items->IndexOf(dbTipo) : 0;
+		f->Controls->Add(cbTipo);
+
+		// Host
+		y += dy;
+		Label^ lblHost = gcnew Label(); lblHost->Text = L"Host / Servidor:";
+		lblHost->Location = System::Drawing::Point(x1, y + 3); lblHost->AutoSize = true;
+		f->Controls->Add(lblHost);
+		TextBox^ txtHost = gcnew TextBox();
+		txtHost->Location = System::Drawing::Point(x2, y); txtHost->Size = System::Drawing::Size(larg, alt);
+		txtHost->Text = (dbHost != nullptr) ? dbHost : L"localhost";
+		f->Controls->Add(txtHost);
+
+		// Porta
+		y += dy;
+		Label^ lblPorta = gcnew Label(); lblPorta->Text = L"Porta:";
+		lblPorta->Location = System::Drawing::Point(x1, y + 3); lblPorta->AutoSize = true;
+		f->Controls->Add(lblPorta);
+		TextBox^ txtPorta = gcnew TextBox();
+		txtPorta->Location = System::Drawing::Point(x2, y); txtPorta->Size = System::Drawing::Size(larg, alt);
+		txtPorta->Text = (dbPorta != nullptr) ? dbPorta : L"5432";
+		f->Controls->Add(txtPorta);
+
+		// Nome do banco
+		y += dy;
+		Label^ lblNome = gcnew Label(); lblNome->Text = L"Nome do banco:";
+		lblNome->Location = System::Drawing::Point(x1, y + 3); lblNome->AutoSize = true;
+		f->Controls->Add(lblNome);
+		TextBox^ txtNome = gcnew TextBox();
+		txtNome->Location = System::Drawing::Point(x2, y); txtNome->Size = System::Drawing::Size(larg, alt);
+		txtNome->Text = (dbNome != nullptr) ? dbNome : L"";
+		f->Controls->Add(txtNome);
+
+		// Usuario
+		y += dy;
+		Label^ lblUser = gcnew Label(); lblUser->Text = L"Usuario:";
+		lblUser->Location = System::Drawing::Point(x1, y + 3); lblUser->AutoSize = true;
+		f->Controls->Add(lblUser);
+		TextBox^ txtUser = gcnew TextBox();
+		txtUser->Location = System::Drawing::Point(x2, y); txtUser->Size = System::Drawing::Size(larg, alt);
+		txtUser->Text = (dbUsuario != nullptr) ? dbUsuario : L"";
+		f->Controls->Add(txtUser);
+
+		// Senha (mascarada)
+		y += dy;
+		Label^ lblSenha = gcnew Label(); lblSenha->Text = L"Senha:";
+		lblSenha->Location = System::Drawing::Point(x1, y + 3); lblSenha->AutoSize = true;
+		f->Controls->Add(lblSenha);
+		TextBox^ txtSenha = gcnew TextBox();
+		txtSenha->Location = System::Drawing::Point(x2, y); txtSenha->Size = System::Drawing::Size(larg, alt);
+		txtSenha->UseSystemPasswordChar = true;
+		txtSenha->Text = (dbSenhaCifrada != nullptr) ? DesprotegerTexto(dbSenhaCifrada) : L"";
+		f->Controls->Add(txtSenha);
+
+		// Somente leitura
+		y += dy;
+		CheckBox^ chkRO = gcnew CheckBox();
+		chkRO->Text = L"Somente leitura (recomendado - so consultas SELECT)";
+		chkRO->Location = System::Drawing::Point(x1, y); chkRO->AutoSize = true;
+		chkRO->Checked = dbConfigurado ? dbSomenteLeitura : true;
+		f->Controls->Add(chkRO);
+
+		// Aviso de seguranca
+		y += dy - 6;
+		Label^ lblAviso = gcnew Label();
+		lblAviso->Text = L"Dica: use um usuario de banco com privilegios minimos e, se possivel,\num ambiente de testes - evite credenciais de producao.";
+		lblAviso->Location = System::Drawing::Point(x1, y); lblAviso->Size = System::Drawing::Size(390, 34);
+		lblAviso->ForeColor = System::Drawing::Color::DimGray;
+		lblAviso->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		f->Controls->Add(lblAviso);
+
+		// Botoes
+		y += 44;
+		Button^ btnOk = gcnew Button();
+		btnOk->Text = L"Salvar conexao";
+		btnOk->Location = System::Drawing::Point(x2, y); btnOk->Size = System::Drawing::Size(140, 30);
+		btnOk->BackColor = System::Drawing::Color::MediumSeaGreen;
+		btnOk->ForeColor = System::Drawing::Color::White; btnOk->FlatStyle = FlatStyle::Flat;
+		f->Controls->Add(btnOk);
+
+		Button^ btnCancel = gcnew Button();
+		btnCancel->Text = L"Cancelar";
+		btnCancel->Location = System::Drawing::Point(x2 + 150, y); btnCancel->Size = System::Drawing::Size(100, 30);
+		btnCancel->FlatStyle = FlatStyle::Flat;
+		f->Controls->Add(btnCancel);
+
+		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
+
+		// Ao salvar: le os campos (via Tag), cifra a senha e guarda na sessao.
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(7);
+		campos[0] = cbTipo; campos[1] = txtHost; campos[2] = txtPorta;
+		campos[3] = txtNome; campos[4] = txtUser; campos[5] = txtSenha;
+		campos[6] = chkRO;
+		f->Tag = campos;
+		btnOk->Tag = f;
+		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConexaoBanco_Click);
+
+		f->ShowDialog();
+	}
+
+		   // Handlers auxiliares do formulario de conexao
+	private: System::Void fecharDialogo_Handler(System::Object^ sender, System::EventArgs^ e) {
+		Control^ c = safe_cast<Control^>(sender);
+		if (c != nullptr && c->FindForm() != nullptr) c->FindForm()->Close();
+	}
+
+		   // Salva a conexao: le os campos (via Tag do form), cifra a senha, guarda na sessao.
+	private: System::Void salvarConexaoBanco_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		Form^ f = safe_cast<Form^>(b->Tag);
+		cli::array<Object^>^ ctl = safe_cast<cli::array<Object^>^>(f->Tag);
+		ComboBox^ cbTipo = safe_cast<ComboBox^>(ctl[0]);
+		TextBox^ txtHost = safe_cast<TextBox^>(ctl[1]);
+		TextBox^ txtPorta = safe_cast<TextBox^>(ctl[2]);
+		TextBox^ txtNome = safe_cast<TextBox^>(ctl[3]);
+		TextBox^ txtUser = safe_cast<TextBox^>(ctl[4]);
+		TextBox^ txtSenha = safe_cast<TextBox^>(ctl[5]);
+		CheckBox^ chkRO = safe_cast<CheckBox^>(ctl[6]);
+
+		// Validacao minima
+		if (String::IsNullOrWhiteSpace(txtHost->Text) && cbTipo->Text != "SQLite") {
+			MessageBox::Show(L"Informe o host do banco.", L"Aviso"); return;
+		}
+
+		dbTipo = cbTipo->Text;
+		dbHost = txtHost->Text->Trim();
+		dbPorta = txtPorta->Text->Trim();
+		dbNome = txtNome->Text->Trim();
+		dbUsuario = txtUser->Text->Trim();
+		dbSenhaCifrada = String::IsNullOrEmpty(txtSenha->Text) ? L"" : ProtegerTexto(txtSenha->Text);
+		dbSomenteLeitura = chkRO->Checked;
+		dbConfigurado = true;
+
+		// Ativa o modo automacao/banco e informa no chat
+		modoAtivo = 2; tipoAutomacao = 2;
+		AtualizarBotoesModo();
+		rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
+		rtbChat->AppendText(L">>> Conexao de banco configurada: " + dbTipo +
+			L" @ " + (dbHost == "" ? L"(arquivo)" : dbHost) +
+			(dbSomenteLeitura ? L" [somente leitura]" : L" [leitura/escrita]") + L"\n");
+		rtbChat->AppendText(L">>> (A execucao real via MCP sera habilitada em breve.)\n\n");
+
+		f->Close();
 	}
 		   // Aviso comum de "em breve" (API/Banco)
 	private: void AvisarEmBreve(String^ oque) {
