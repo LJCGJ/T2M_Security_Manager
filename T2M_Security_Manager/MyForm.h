@@ -87,6 +87,7 @@ namespace T2MSecurityManager {
 		// So um modo fica ligado por vez; o controle ligado fica em destaque.
 		int modoAtivo;
 		int tipoAutomacao;       // quando modoAtivo==2: 0=Tela, 1=API, 2=Banco
+		bool ignorarComboEvento; // evita recursao ao resetar o dropdown programaticamente
 
 		// Execucao NAO-BLOQUEANTE: o Python roda numa thread separada via BackgroundWorker,
 		// para a janela nao congelar durante o chat ou o MCP ao vivo.
@@ -888,16 +889,17 @@ namespace T2MSecurityManager {
 			L"Bom para dar contexto inicial da tela ao agente.");
 
 		// --- MODO AUTOMACAO (dropdown: Tela / API / Banco) = usa MCP ---
+		// O texto "Automacao" e placeholder (nao e item da lista). A lista tem SO as 3 opcoes.
 		cmbAutomacao = gcnew ComboBox();
 		cmbAutomacao->DropDownStyle = ComboBoxStyle::DropDownList;
 		cmbAutomacao->Location = System::Drawing::Point(600, 39);
 		cmbAutomacao->Size = System::Drawing::Size(110, 29);
 		cmbAutomacao->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
-		cmbAutomacao->Items->Add(L"⚙ Automacao");      // item 0 = titulo/placeholder (nao ativa)
-		cmbAutomacao->Items->Add(L"🖥 Teste de Tela");   // item 1 = Tela (funciona)
-		cmbAutomacao->Items->Add(L"🔌 Teste de API");    // item 2 = API (em breve)
-		cmbAutomacao->Items->Add(L"🗄 Banco de Dados");  // item 3 = Banco (em breve)
-		cmbAutomacao->SelectedIndex = 0;
+		cmbAutomacao->Items->Add(L"🖥 Teste de Tela");   // indice 0 = Tela (funciona)
+		cmbAutomacao->Items->Add(L"🔌 Teste de API");    // indice 1 = API (em breve)
+		cmbAutomacao->Items->Add(L"🗄 Banco de Dados");  // indice 2 = Banco (em breve)
+		cmbAutomacao->SelectedIndex = -1;                // nada selecionado = placeholder
+		cmbAutomacao->Text = L"⚙ Automacao";
 		cmbAutomacao->SelectedIndexChanged += gcnew System::EventHandler(this, &MyForm::cmbAutomacao_Changed);
 		formIA->Controls->Add(cmbAutomacao);
 		dica->SetToolTip(cmbAutomacao,
@@ -924,10 +926,7 @@ namespace T2MSecurityManager {
 		workerChat->DoWork += gcnew System::ComponentModel::DoWorkEventHandler(this, &MyForm::workerChat_DoWork);
 		workerChat->RunWorkerCompleted += gcnew System::ComponentModel::RunWorkerCompletedEventHandler(this, &MyForm::workerChat_Completed);
 
-		// Modo inicial: Chat (so conversa). Aplica o destaque visual.
-		modoAtivo = 0;
-		tipoAutomacao = 0;
-		AtualizarBotoesModo();
+
 
 		formIA->ShowDialog();
 	}
@@ -988,39 +987,45 @@ namespace T2MSecurityManager {
 	private: System::Void btnModoConversa_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 		modoAtivo = 0;
-		cmbAutomacao->SelectedIndex = 0;  // reseta o dropdown para o placeholder
+		resetarCombo();
 		AtualizarBotoesModo();
 	}
 	private: System::Void btnModoDom_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 		modoAtivo = 1;
-		cmbAutomacao->SelectedIndex = 0;
+		resetarCombo();
 		AtualizarBotoesModo();
 	}
 
-		   // Dropdown de automacao: item 0=placeholder, 1=Tela (funciona), 2=API, 3=Banco (em breve)
+		   // Reseta o dropdown para o placeholder SEM disparar o evento (evita recursao)
+	private: void resetarCombo() {
+		ignorarComboEvento = true;
+		cmbAutomacao->SelectedIndex = -1;
+		cmbAutomacao->Text = L"⚙ Automacao";
+		ignorarComboEvento = false;
+	}
+
+		   // Dropdown de automacao: indice 0=Tela (funciona), 1=API, 2=Banco (em breve)
 	private: System::Void cmbAutomacao_Changed(System::Object^ sender, System::EventArgs^ e) {
-		if (workerChat->IsBusy) { cmbAutomacao->SelectedIndex = 0; return; }
+		if (ignorarComboEvento) return;   // reset programatico, ignora
 		int idx = cmbAutomacao->SelectedIndex;
+		if (idx < 0) return;              // placeholder, nada selecionado
+
+		if (workerChat->IsBusy) { resetarCombo(); return; }
 
 		if (idx == 0) {
-			// Placeholder: nao ativa automacao. Se estava no modo automacao, volta pro Chat.
-			if (modoAtivo == 2) { modoAtivo = 0; AtualizarBotoesModo(); }
-			return;
-		}
-		if (idx == 1) {
 			// Teste de Tela - funciona (via MCP)
 			modoAtivo = 2; tipoAutomacao = 0;
 			AtualizarBotoesModo();
 		}
-		else if (idx == 2 || idx == 3) {
-			// API / Banco: em breve. Avisa e volta o dropdown para o placeholder.
-			String^ oque = (idx == 2) ? L"Teste de API" : L"Banco de Dados";
+		else {
+			// idx 1 = API, idx 2 = Banco: em breve. Avisa e volta ao placeholder.
+			String^ oque = (idx == 1) ? L"Teste de API" : L"Banco de Dados";
 			MessageBox::Show(
 				oque + L" estara disponivel em breve.\n\nPor enquanto, use o Teste de Tela "
 				L"(automacao ao vivo no navegador) ou os modos Chat e Scan DOM.",
 				L"Em breve", MessageBoxButtons::OK, MessageBoxIcon::Information);
-			cmbAutomacao->SelectedIndex = 0;
+			resetarCombo();
 			if (modoAtivo == 2) { modoAtivo = 0; }
 			AtualizarBotoesModo();
 		}

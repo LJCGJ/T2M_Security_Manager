@@ -1,515 +1,1233 @@
-# -*- coding: utf-8 -*-
-"""
-agente_mcp.py - Cliente MCP REAL para o T2M Security Manager.
-
-Sobe o servidor Playwright MCP (Microsoft) como processo local, conecta via
-stdio/JSON-RPC e roda um loop agentic onde a IA (Claude / Gemini / OpenAI)
-chama as ferramentas do navegador de verdade (navigate, snapshot, click,
-type, screenshot...) e reage ao estado real da pagina, ate concluir o objetivo.
-
-Entrada (via STDIN, mesmo contrato do gerador_ia.py):
-    linha 1 = chave de API   (AIza... | sk-ant-... | sk-...)
-    linha 2 = URL alvo
-    resto   = objetivo em linguagem natural (ex.: "Teste o login e verifique
-              se campos aceitam SQL injection")
-
-Saida (via STDOUT, mesmos marcadores que o C++ ja entende):
-    CHAT_MSG_INICIO
-    <relatorio final da IA>
-    CHAT_MSG_FIM
-
-Logs de progresso vao para STDERR para NAO poluir o parsing do C++.
-
-Requisitos:
-    Node.js 18+  ->  npx playwright install chromium
-    pip install mcp anthropic google-generativeai openai
-"""
-
-import sys
-import os
-import json
-import asyncio
-import platform
-import time
-
-# Arquivo de memoria COMPARTILHADO com o chat (gerador_ia.py). Ambos usam o
-# mesmo caminho (diretorio do proprio script) para que o agente MCP e o chat
-# enxerguem a mesma conversa. E assim o agente "lembra" do que viu ao vivo.
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARQUIVO_MEMORIA = os.path.join(SCRIPT_DIR, "memoria_chat.json")
-
-# Instrucao comum aos tres provedores sobre relatorio + escolha de linguagem do script.
-INSTRUCAO_LINGUAGEM = (
-    "Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer "
-    "sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao "
-    "caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra "
-    "linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos "
-    "```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), "
-    "diga isso com clareza em vez de inventar um teste."
-)
-
-# ------------------------------------------------------------------ #
-# Constantes de seguranca (guardrails de custo - recomendacao 2026)  #
-# ------------------------------------------------------------------ #
-MAX_ITERACOES = 15          # teto de passos no loop (evita custo descontrolado)
-MAX_TOKENS = 2048           # teto por resposta do modelo
-HEADLESS = False            # False = voce ve o navegador agindo; True = invisivel
-
-
-def log(msg):
-    """Progresso vai para stderr, nunca para stdout (que o C++ le)."""
-    print(msg, file=sys.stderr, flush=True)
-
-
-def responder(texto):
-    """Formato que a interface C++ espera no stdout."""
-    print("CHAT_MSG_INICIO")
-    print(texto)
-    print("CHAT_MSG_FIM")
-
-
-def tem_lib(modulo):
-    try:
-        __import__(modulo)
-        return True
-    except ImportError:
-        return False
-
-
-# ------------------------------------------------------------------ #
-# Conversao de schema MCP -> Gemini (o velho clean_schema, agora util)#
-# Gemini nao aceita algumas chaves do JSON Schema.                    #
-# ------------------------------------------------------------------ #
-def limpar_schema_gemini(schema):
-    """
-    O SDK antigo google.generativeai so aceita um subconjunto pequeno do JSON
-    Schema. Em vez de listar campos proibidos (e descobrir um novo a cada erro),
-    usamos uma WHITELIST: so passam os campos que o Gemini reconhece. Qualquer
-    campo exotico (propertyNames, anyOf, $ref, etc.) e removido automaticamente.
-    """
-    if not isinstance(schema, dict):
-        return schema
-
-    permitidas = {"type", "description", "properties", "items",
-                  "required", "enum", "nullable"}
-
-    limpo = {}
-    for k, v in schema.items():
-        if k not in permitidas:
-            continue
-        if k == "properties" and isinstance(v, dict):
-            # Limpa recursivamente cada propriedade
-            limpo[k] = {nome: limpar_schema_gemini(sub) for nome, sub in v.items()}
-        elif isinstance(v, dict):
-            limpo[k] = limpar_schema_gemini(v)
-        elif isinstance(v, list):
-            limpo[k] = [limpar_schema_gemini(i) if isinstance(i, dict) else i for i in v]
-        else:
-            limpo[k] = v
-
-    # Se sobrou um 'properties' vazio de type object, mantem coerencia
-    if limpo.get("type") == "object" and "properties" not in limpo:
-        limpo["properties"] = {}
-    return limpo
-
-
-def texto_do_resultado_mcp(resultado):
-    """Extrai texto legivel do CallToolResult do MCP."""
-    partes = []
-    for bloco in getattr(resultado, "content", []) or []:
-        t = getattr(bloco, "text", None)
-        if t:
-            partes.append(t)
-    texto = "\n".join(partes) if partes else "(sem conteudo textual)"
-    return texto[:8000]  # teto para nao estourar o contexto do modelo
-
-
-# ================================================================== #
-# LOOP ANTHROPIC (Claude) - tool-use nativo                          #
-# ================================================================== #
-async def loop_anthropic(session, api_key, objetivo, mcp_tools):
-    from anthropic import Anthropic
-    client = Anthropic(api_key=api_key)
-
-    ferramentas = [{
-        "name": t.name,
-        "description": (t.description or "")[:1024],
-        "input_schema": t.inputSchema,
-    } for t in mcp_tools]
-
-    system = ("Voce e um assistente de automacao de testes, QA e seguranca. Use as "
-              "ferramentas de navegador para cumprir o objetivo passo a passo, observando o "
-              "estado real da pagina antes de cada acao. Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos ```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), diga isso com clareza em vez de inventar um teste.")
-
-    mensagens = [{"role": "user", "content": objetivo}]
-
-    for passo in range(MAX_ITERACOES):
-        resp = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=MAX_TOKENS,
-            system=system,
-            tools=ferramentas,
-            messages=mensagens,
-        )
-        mensagens.append({"role": "assistant", "content": resp.content})
-
-        usos = [b for b in resp.content if b.type == "tool_use"]
-        if not usos:
-            texto = "".join(b.text for b in resp.content if b.type == "text")
-            return texto.strip() or "(sem resposta final)"
-
-        resultados = []
-        for uso in usos:
-            log(f">>> [Claude] Ferramenta: {uso.name} {json.dumps(uso.input)[:120]}")
-            try:
-                r = await session.call_tool(uso.name, uso.input or {})
-                conteudo = texto_do_resultado_mcp(r)
-            except Exception as e:
-                conteudo = f"ERRO ao executar {uso.name}: {e}"
-            resultados.append({
-                "type": "tool_result",
-                "tool_use_id": uso.id,
-                "content": conteudo,
-            })
-        mensagens.append({"role": "user", "content": resultados})
-
-    return "Limite de iteracoes atingido antes de concluir o objetivo."
-
-
-# ================================================================== #
-# LOOP OPENAI (GPT)                                                  #
-# ================================================================== #
-async def loop_openai(session, api_key, objetivo, mcp_tools):
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key)
-
-    ferramentas = [{
-        "type": "function",
-        "function": {
-            "name": t.name,
-            "description": (t.description or "")[:1024],
-            "parameters": t.inputSchema,
-        }
-    } for t in mcp_tools]
-
-    mensagens = [
-        {"role": "system", "content": (
-            "Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas de "
-            "navegador para cumprir o objetivo, observando o estado real da pagina. Ao "
-            "Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos ```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), diga isso com clareza em vez de inventar um teste.")},
-        {"role": "user", "content": objetivo},
-    ]
-
-    for passo in range(MAX_ITERACOES):
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            tools=ferramentas,
-            messages=mensagens,
-            max_tokens=MAX_TOKENS,
-        )
-        msg = resp.choices[0].message
-        mensagens.append(msg.model_dump(exclude_none=True))
-
-        if not msg.tool_calls:
-            return (msg.content or "(sem resposta final)").strip()
-
-        for tc in msg.tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except Exception:
-                args = {}
-            log(f">>> [GPT] Ferramenta: {tc.function.name} {json.dumps(args)[:120]}")
-            try:
-                r = await session.call_tool(tc.function.name, args)
-                conteudo = texto_do_resultado_mcp(r)
-            except Exception as e:
-                conteudo = f"ERRO ao executar {tc.function.name}: {e}"
-            mensagens.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": conteudo,
-            })
-
-    return "Limite de iteracoes atingido antes de concluir o objetivo."
-
-
-# ================================================================== #
-# LOOP GEMINI (SDK google.generativeai - autentica chaves AQ./AIza)  #
-# O SDK novo (google.genai) rejeita chaves AQ. com 401, entao usamos #
-# o SDK classico aqui, com tratamento reforcado do                   #
-# MALFORMED_FUNCTION_CALL (retry) e deteccao de navegador fechado.   #
-# ================================================================== #
-async def loop_gemini(session, api_key, objetivo, mcp_tools):
-    import google.generativeai as genai
-    genai.configure(api_key=api_key)
-
-    # Converte as ferramentas MCP para o formato do Gemini (whitelist de schema).
-    declaracoes = []
-    for t in mcp_tools:
-        params = limpar_schema_gemini(t.inputSchema or {"type": "object", "properties": {}})
-        if not isinstance(params, dict):
-            params = {"type": "object", "properties": {}}
-        if "type" not in params:
-            params["type"] = "object"
-        if params.get("type") == "object" and "properties" not in params:
-            params["properties"] = {}
-        declaracoes.append({
-            "name": t.name,
-            "description": (t.description or "")[:1024],
-            "parameters": params,
-        })
-    tools_gemini = [{"function_declarations": declaracoes}]
-
-    system = ("Voce e um assistente de automacao de testes, QA e seguranca. Use as "
-              "ferramentas de navegador para cumprir o objetivo, observando o estado real "
-              "da pagina antes de cada acao. Chame UMA ferramenta por vez, com argumentos "
-              "simples e validos. " + INSTRUCAO_LINGUAGEM)
-
-    # No tier gratuito o limite por minuto e baixo (ex.: 5-10 req/min). Uma automacao
-    # MCP faz varias chamadas seguidas, entao: (1) preferimos modelos com mais folga,
-    # (2) pausamos entre passos, (3) tratamos ResourceExhausted com mensagem clara.
-    modelos_tentar = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
-    model = None
-    erro_modelo = ""
-    for nome_m in modelos_tentar:
-        try:
-            model = genai.GenerativeModel(
-                nome_m,
-                tools=tools_gemini,
-                system_instruction=system,
-            )
-            log(f">>> [Gemini] Usando modelo {nome_m}")
-            break
-        except Exception as e:
-            erro_modelo = f"{nome_m}: {type(e).__name__}: {e}"
-            continue
-    if model is None:
-        return f"Falha ao registrar ferramentas no Gemini: {erro_modelo}"
-
-    chat = model.start_chat()
-    proxima_mensagem = objetivo
-    ultimo_texto = ""          # guarda o ultimo texto util, para devolver algo se travar
-    navegador_morto = False
-
-    for passo in range(MAX_ITERACOES):
-        # Pausa entre passos para respeitar o limite por minuto do tier gratuito
-        # (evita ResourceExhausted no meio da automacao). Nao pausa no 1o passo.
-        if passo > 0:
-            time.sleep(4)
-
-        # --- Envia a mensagem, com RETRY em caso de MALFORMED / cota ---
-        resp = None
-        for tentativa in range(3):  # tentativas extras para cota (espera e refaz)
-            try:
-                resp = chat.send_message(proxima_mensagem)
-                break
-            except Exception as e:
-                nome_erro = type(e).__name__
-                msg = str(e)
-                # Cota por minuto estourada: espera e tenta de novo
-                if ("ResourceExhausted" in nome_erro or "429" in msg
-                        or "quota" in msg.lower() or "exhausted" in msg.lower()):
-                    if tentativa < 2:
-                        log(f">>> Limite por minuto atingido. Aguardando 30s para retomar (tentativa {tentativa+1})...")
-                        time.sleep(30)
-                        continue
-                    # Esgotou as tentativas de cota
-                    if ultimo_texto:
-                        return (ultimo_texto + "\n\n[Automacao interrompida: limite de uso "
-                                "da IA (cota gratuita por minuto) atingido. Aguarde 1 minuto "
-                                "e tente de novo, ou ative billing para limites maiores.]")
-                    return ("Limite de uso da IA atingido (cota gratuita: poucas requisicoes "
-                            "por minuto). Aguarde 1-2 minutos e tente de novo, ou ative billing "
-                            "no Google AI Studio para limites maiores.")
-                if "MALFORMED_FUNCTION_CALL" in msg or "finish_reason" in msg:
-                    log(f">>> MALFORMED na tentativa {tentativa+1}, tentando de novo...")
-                    if tentativa < 2:
-                        proxima_mensagem = ("A ultima acao falhou por chamada malformada. "
-                                            "Refaca chamando UMA ferramenta simples por vez.")
-                        continue
-                # Erro que nao da para recuperar
-                if ultimo_texto:
-                    return (ultimo_texto + "\n\n[Nota: a automacao foi interrompida por "
-                            f"instabilidade do modelo: {nome_erro}]")
-                return f"O modelo Gemini falhou ({nome_erro}). Tente de novo ou use outra chave/IA."
-        if resp is None:
-            break
-
-        # --- Coleta as chamadas de ferramenta pedidas ---
-        chamadas = []
-        try:
-            for cand in resp.candidates:
-                for parte in cand.content.parts:
-                    fc = getattr(parte, "function_call", None)
-                    if fc and fc.name:
-                        chamadas.append(fc)
-        except Exception:
-            pass
-
-        # Sem chamadas = resposta final em texto
-        if not chamadas:
-            try:
-                return (resp.text or ultimo_texto or "(sem resposta final)").strip()
-            except Exception:
-                return ultimo_texto or "(sem resposta final)"
-
-        # --- Executa cada ferramenta no navegador via MCP ---
-        respostas_fc = []
-        for fc in chamadas:
-            args = dict(fc.args) if fc.args else {}
-            log(f">>> [Gemini] Ferramenta: {fc.name} {json.dumps(args)[:120]}")
-            try:
-                r = await session.call_tool(fc.name, args)
-                conteudo = texto_do_resultado_mcp(r)
-                if conteudo and len(conteudo) > 40:
-                    ultimo_texto = conteudo  # guarda progresso util
-            except Exception as e:
-                # Navegador fechado / MCP caiu: nao adianta continuar
-                emsg = str(e)
-                conteudo = f"ERRO ao executar {fc.name}: {emsg}"
-                if ("closed" in emsg.lower() or "target" in emsg.lower()
-                        or "connection" in emsg.lower() or "browser" in emsg.lower()):
-                    navegador_morto = True
-                    log(f">>> Navegador parece ter sido fechado: {emsg[:100]}")
-            respostas_fc.append(genai.protos.Part(
-                function_response=genai.protos.FunctionResponse(
-                    name=fc.name, response={"resultado": conteudo})))
-
-        if navegador_morto:
-            return (ultimo_texto + "\n\n[Automacao interrompida: o navegador foi fechado "
-                    "antes do fim do teste.]") if ultimo_texto else \
-                   "Automacao interrompida: o navegador foi fechado antes do fim do teste."
-
-        proxima_mensagem = respostas_fc
-
-    return (ultimo_texto + "\n\n[Limite de passos atingido.]") if ultimo_texto else \
-           "Limite de iteracoes atingido antes de concluir o objetivo."
-
-
-# ================================================================== #
-# (bloco antigo do SDK novo removido - chave AQ. dava 401)           #
-# ================================================================== #
-
-
-# ================================================================== #
-# ORQUESTRACAO: sobe o Playwright MCP e roteia pelo provedor         #
-# ================================================================== #
-async def executar(api_key, url_alvo, objetivo):
-    if not tem_lib("mcp"):
-        responder("Biblioteca ausente: mcp. Rode: pip install mcp")
-        return
-
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
-
-    # Windows precisa de npx.cmd; outros SOs usam npx
-    comando_npx = "npx.cmd" if platform.system() == "Windows" else "npx"
-    args = ["@playwright/mcp@latest"]
-    if HEADLESS:
-        args.append("--headless")
-
-    server_params = StdioServerParameters(command=comando_npx, args=args)
-
-    log(">>> Subindo servidor Playwright MCP (Microsoft)...")
-    try:
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools_resp = await session.list_tools()
-                mcp_tools = tools_resp.tools
-                log(f">>> MCP conectado. {len(mcp_tools)} ferramentas disponiveis.")
-
-                objetivo_completo = (
-                    f"URL alvo: {url_alvo}\n"
-                    f"Comece navegando ate essa URL com a ferramenta de navegacao.\n"
-                    f"Objetivo do teste: {objetivo}\n\n"
-                    f"Depois de executar e relatar o que encontrou, PERGUNTE ao usuario qual "
-                    f"tipo de automacao ele quer construir a partir disto: (1) navegacao web, "
-                    f"(2) API, ou (3) banco de dados/SQL (peca credenciais se necessario). "
-                    f"So gere o script final quando tiver as informacoes necessarias.")
-
-                # Roteador por provedor. Ordem importa: prefixos mais especificos
-                # primeiro. Gemini fica como padrao porque o Google mudou o formato
-                # da chave (AIza -> AQ.) e pode mudar de novo; validar so "AIza"
-                # quebraria com chaves novas. Ver: prefixos AIza, AQ., AQ_ e afins.
-                if api_key.startswith("sk-ant-"):
-                    if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic.")
-                        return
-                    resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
-                elif api_key.startswith("sk-"):
-                    if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai.")
-                        return
-                    resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
-                else:
-                    # Gemini: aceita AIza (classico), AQ./AQ_ (novo formato 2026)
-                    # e qualquer outro que nao seja Claude/OpenAI.
-                    if not tem_lib("google.generativeai"):
-                        responder("Biblioteca ausente: google-generativeai. Rode: pip install google-generativeai")
-                        return
-                    resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
-
-                # --- INTEGRACAO COM O CHAT: grava o resultado na memoria compartilhada ---
-                # Assim o proximo turno do chat (gerador_ia.py) "lembra" do que o MCP fez.
-                # O relatorio entra como uma fala do assistente, precedida de uma nota
-                # de contexto (como se o operador tivesse pedido a automacao ao vivo).
-                try:
-                    memoria = []
-                    if os.path.exists(ARQUIVO_MEMORIA):
-                        with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
-                            memoria = json.load(f)
-                    memoria.append({
-                        "role": "user",
-                        "content": f"[AUTOMACAO MCP AO VIVO] Executei uma automacao real no "
-                                   f"navegador sobre {url_alvo} com o objetivo: {objetivo}"
-                    })
-                    memoria.append({"role": "assistant", "content": resultado})
-                    with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
-                        json.dump(memoria, f, ensure_ascii=False, indent=4)
-                except Exception as e:
-                    log(f">>> Aviso: nao foi possivel gravar na memoria do chat: {e}")
-
-                responder(resultado)
-        responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
-    except BaseException as e:
-        # ExceptionGroup (TaskGroup) esconde a causa real; desempacota para mostrar.
-        import traceback
-        reais = []
-
-        def _coletar(exc):
-            sub = getattr(exc, "exceptions", None)
-            if sub:
-                for x in sub:
-                    _coletar(x)
-            else:
-                reais.append(f"{type(exc).__name__}: {exc}")
-
-        _coletar(e)
-        detalhe = " | ".join(reais) if reais else f"{type(e).__name__}: {e}"
-        log("=== TRACEBACK COMPLETO ===")
-        log(traceback.format_exc())
-        responder(f"ERRO no agente MCP: {detalhe}")
-
-
-def main():
-    dados = sys.stdin.read()
-    partes = dados.split("\n", 2)
-    api_key = partes[0].strip() if len(partes) > 0 else ""
-    url_alvo = partes[1].strip() if len(partes) > 1 else ""
-    objetivo = partes[2].strip() if len(partes) > 2 else ""
-
-    if not api_key:
-        responder("Erro: nenhuma chave de API foi informada.")
-        return
-    if not objetivo:
-        responder("Erro: nenhum objetivo de teste foi informado.")
-        return
-
-    asyncio.run(executar(api_key, url_alvo, objetivo))
-
-
-if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
-    main()
+#pragma once
+#include <iostream>
+#include <string>
+
+using namespace System;
+using namespace System::ComponentModel;
+using namespace System::Collections;
+using namespace System::Windows::Forms;
+using namespace System::Data;
+using namespace System::Drawing;
+using namespace System::Diagnostics;
+using namespace System::IO;
+using namespace System::Collections::Generic;
+using namespace System::Text;
+using namespace System::Security::Cryptography;
+
+// Referencias de assembly necessarias:
+//  - System.Security.dll      -> ProtectedData / DPAPI (cifra chaves e token)
+//  - Microsoft.VisualBasic.dll -> InputBox (usado no botao MCP ao vivo)
+#using <System.Security.dll>
+#using <Microsoft.VisualBasic.dll>
+
+namespace T2MSecurityManager {
+
+	public ref class MyForm : public System::Windows::Forms::Form
+	{
+	public:
+		MyForm(void)
+		{
+			InitializeComponent();
+
+			// --- BOTAO GERAR IA ---
+			this->btnGerarIA = (gcnew System::Windows::Forms::Button());
+			this->btnGerarIA->Name = L"btnGerarIA";
+			this->btnGerarIA->Text = L"? T2M Copilot (IA)";
+			this->btnGerarIA->Location = System::Drawing::Point(20, 660);
+			this->btnGerarIA->Size = System::Drawing::Size(200, 35);
+			this->btnGerarIA->BackColor = System::Drawing::Color::Indigo;
+			this->btnGerarIA->ForeColor = System::Drawing::Color::White;
+			this->btnGerarIA->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnGerarIA->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			this->btnGerarIA->Click += gcnew System::EventHandler(this, &MyForm::btnGerarIA_Click);
+			this->Controls->Add(this->btnGerarIA);
+
+			scriptPaths = gcnew Dictionary<String^, String^>();
+
+			// Logo (runtime) + icone unificado para todas as janelas
+			try {
+				if (File::Exists(CaminhoApp("T2M_logo-03.png")))
+					this->picLogo->Image = System::Drawing::Image::FromFile(CaminhoApp("T2M_logo-03.png"));
+			}
+			catch (...) {}
+			CarregarIcone();
+
+			CarregarConfiguracao();
+			CarregarScriptsIA();
+		}
+
+	protected:
+		~MyForm()
+		{
+			if (appIcon != nullptr) { delete appIcon; appIcon = nullptr; }
+			if (components) delete components;
+		}
+
+	private:
+		Dictionary<String^, String^>^ scriptPaths;
+		Process^ pythonProcess;
+		System::Drawing::Icon^ appIcon;
+
+		// --- Variaveis do Chat Copilot ---
+		Form^ formIA;
+		RichTextBox^ rtbChat;
+		TextBox^ txtChatInput;
+		Button^ btnSendChat;
+		Button^ btnMapearSite;
+		Button^ btnSaveScript;
+		ComboBox^ comboModeloChat;
+
+		// Botoes/controles de modo (toggle): so um ativo por vez.
+		ComboBox^ cmbAutomacao;  // Dropdown de automacao (Tela / API / Banco) = modo MCP
+		Button^ btnChatDom;      // Modo Scan DOM (varredura estatica)
+		Button^ btnChatConversa; // Modo Chat (so conversa, padrao)
+		Label^ lblChatStatus;    // Indicador "processando..."
+
+		// Modo ativo do chat: 0 = Chat (so conversa), 1 = DOM, 2 = Automacao (dropdown).
+		// So um modo fica ligado por vez; o controle ligado fica em destaque.
+		int modoAtivo;
+		int tipoAutomacao;       // quando modoAtivo==2: 0=Tela, 1=API, 2=Banco
+
+		// Execucao NAO-BLOQUEANTE: o Python roda numa thread separada via BackgroundWorker,
+		// para a janela nao congelar durante o chat ou o MCP ao vivo.
+		System::ComponentModel::BackgroundWorker^ workerChat;
+		int modoWorker;          // 0 = chat normal, 1 = scan DOM, 2 = MCP ao vivo
+		String^ payloadWorker;   // texto que sera enviado ao Python (montado antes de rodar)
+
+		System::Windows::Forms::PictureBox^ picLogo;
+		System::Windows::Forms::ListBox^ lstScripts;
+		System::Windows::Forms::Button^ btnAdd;
+		System::Windows::Forms::Button^ btnRemove;
+		System::Windows::Forms::Button^ btnAbrirPasta;
+		System::Windows::Forms::RichTextBox^ txtOutput;
+		System::Windows::Forms::Label^ lblUrl;
+		System::Windows::Forms::TextBox^ txtUrl;
+		System::Windows::Forms::Label^ lblToken;
+		System::Windows::Forms::TextBox^ txtToken;
+		System::Windows::Forms::Button^ btnLoginAuto;
+		System::Windows::Forms::CheckBox^ chkHabilitarLogin;
+		System::Windows::Forms::Button^ btnGerarIA;
+		System::Windows::Forms::CheckBox^ chkSalvar;
+		System::Windows::Forms::Button^ btnStart;
+		System::Windows::Forms::Button^ btnStop;
+		System::Windows::Forms::Button^ btnExport;
+		System::ComponentModel::Container^ components;
+
+		// P/Invoke para liberar handle de icone gerado a partir de bitmap
+		[System::Runtime::InteropServices::DllImport("user32.dll", SetLastError = true)]
+		static bool DestroyIcon(System::IntPtr handle);
+
+		// =====================================================================
+		// --- HELPERS DE CAMINHO, ICONE E CRIPTOGRAFIA ---
+		// =====================================================================
+	private: String^ CaminhoApp(String^ arquivo) {
+		return Path::Combine(Application::StartupPath, arquivo);
+	}
+
+	// Nome completo da conta do Windows (ex.: "LeonardoJoseCordeiro").
+	private: String^ NomeUsuarioWindows() {
+		String^ nome = Environment::UserName;
+		if (String::IsNullOrWhiteSpace(nome)) return L"Operador";
+		return nome->Trim();
+	}
+
+	// Primeiro nome "amigavel" para a saudacao. Tenta separar nomes grudados em
+	// CamelCase (LeonardoJoseCordeiro -> Leonardo) ou por espaco/ponto.
+	private: String^ PrimeiroNomeUsuario() {
+		String^ nome = NomeUsuarioWindows();
+		// separadores comuns
+		array<Char>^ seps = { ' ', '.', '_', '-' };
+		array<String^>^ partes = nome->Split(seps, StringSplitOptions::RemoveEmptyEntries);
+		if (partes->Length > 0 && partes[0]->Length > 1) nome = partes[0];
+
+		// Se ainda estiver "grudado" em CamelCase (ex.: LeonardoJose), corta no 2o maiusculo
+		if (nome->Length > 3) {
+			for (int i = 1; i < nome->Length; i++) {
+				if (System::Char::IsUpper(nome[i])) {
+					nome = nome->Substring(0, i);
+					break;
+				}
+			}
+		}
+		// Capitaliza a inicial, deixa o resto como esta
+		if (nome->Length >= 1)
+			nome = System::Char::ToUpper(nome[0]) + nome->Substring(1);
+		return nome;
+	}
+
+	private: void CarregarIcone() {
+		try {
+			String^ ico = CaminhoApp("icon2.ico");
+			if (File::Exists(ico)) {
+				appIcon = gcnew System::Drawing::Icon(ico); // caminho ideal
+			}
+			else if (File::Exists(CaminhoApp("T2M_logo-03.png"))) {
+				System::Drawing::Bitmap^ bmp = gcnew System::Drawing::Bitmap(CaminhoApp("T2M_logo-03.png"));
+				System::IntPtr h = bmp->GetHicon();
+				try {
+					appIcon = gcnew System::Drawing::Icon(System::Drawing::Icon::FromHandle(h), bmp->Size);
+				}
+				finally {
+					DestroyIcon(h); // evita vazamento de handle GDI
+					delete bmp;
+				}
+			}
+			if (appIcon != nullptr) {
+				this->Icon = appIcon;
+				this->ShowIcon = true;
+			}
+		}
+		catch (...) {}
+	}
+
+	private: void AplicarIcone(Form^ f) {
+		if (f != nullptr && appIcon != nullptr) f->Icon = appIcon;
+	}
+
+	private: String^ ProtegerTexto(String^ texto) {
+		if (String::IsNullOrEmpty(texto)) return "";
+		array<System::Byte>^ dados = System::Text::Encoding::UTF8->GetBytes(texto);
+		array<System::Byte>^ cifra = ProtectedData::Protect(dados, nullptr, DataProtectionScope::CurrentUser);
+		return System::Convert::ToBase64String(cifra);
+	}
+
+	private: String^ DesprotegerTexto(String^ base64) {
+		if (String::IsNullOrEmpty(base64)) return "";
+		try {
+			array<System::Byte>^ cifra = System::Convert::FromBase64String(base64);
+			array<System::Byte>^ dados = ProtectedData::Unprotect(cifra, nullptr, DataProtectionScope::CurrentUser);
+			return System::Text::Encoding::UTF8->GetString(dados);
+		}
+		catch (...) {
+			return base64; // legado em texto puro: usa como esta (sera re-cifrado no proximo save)
+		}
+	}
+
+#pragma region Windows Form Designer generated code
+		void InitializeComponent(void)
+		{
+			this->picLogo = (gcnew System::Windows::Forms::PictureBox());
+			this->lstScripts = (gcnew System::Windows::Forms::ListBox());
+			this->btnAdd = (gcnew System::Windows::Forms::Button());
+			this->btnRemove = (gcnew System::Windows::Forms::Button());
+			this->btnAbrirPasta = (gcnew System::Windows::Forms::Button());
+			this->txtOutput = (gcnew System::Windows::Forms::RichTextBox());
+			this->lblUrl = (gcnew System::Windows::Forms::Label());
+			this->txtUrl = (gcnew System::Windows::Forms::TextBox());
+			this->lblToken = (gcnew System::Windows::Forms::Label());
+			this->txtToken = (gcnew System::Windows::Forms::TextBox());
+			this->btnLoginAuto = (gcnew System::Windows::Forms::Button());
+			this->chkHabilitarLogin = (gcnew System::Windows::Forms::CheckBox());
+			this->chkSalvar = (gcnew System::Windows::Forms::CheckBox());
+			this->btnStart = (gcnew System::Windows::Forms::Button());
+			this->btnStop = (gcnew System::Windows::Forms::Button());
+			this->btnExport = (gcnew System::Windows::Forms::Button());
+			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->BeginInit();
+			this->SuspendLayout();
+
+			this->picLogo->BackColor = System::Drawing::Color::Transparent;
+			this->picLogo->Location = System::Drawing::Point(20, 15);
+			this->picLogo->Name = L"picLogo";
+			this->picLogo->Size = System::Drawing::Size(200, 60);
+			this->picLogo->SizeMode = System::Windows::Forms::PictureBoxSizeMode::Zoom;
+			this->picLogo->TabIndex = 0;
+			this->picLogo->TabStop = false;
+
+			this->lstScripts->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
+			this->lstScripts->ItemHeight = 17;
+			this->lstScripts->Location = System::Drawing::Point(20, 140);
+			this->lstScripts->Name = L"lstScripts";
+			this->lstScripts->Size = System::Drawing::Size(200, 514);
+			this->lstScripts->TabIndex = 1;
+
+			this->btnAdd->BackColor = System::Drawing::Color::LightGreen;
+			this->btnAdd->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnAdd->Location = System::Drawing::Point(20, 90);
+			this->btnAdd->Name = L"btnAdd";
+			this->btnAdd->Size = System::Drawing::Size(80, 35);
+			this->btnAdd->TabIndex = 2;
+			this->btnAdd->Text = L"? Add";
+			this->btnAdd->UseVisualStyleBackColor = false;
+			this->btnAdd->Click += gcnew System::EventHandler(this, &MyForm::btnAdd_Click);
+
+			this->btnRemove->BackColor = System::Drawing::Color::LightCoral;
+			this->btnRemove->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnRemove->Location = System::Drawing::Point(105, 90);
+			this->btnRemove->Name = L"btnRemove";
+			this->btnRemove->Size = System::Drawing::Size(75, 35);
+			this->btnRemove->TabIndex = 3;
+			this->btnRemove->Text = L"?? Remover";
+			this->btnRemove->UseVisualStyleBackColor = false;
+			this->btnRemove->Click += gcnew System::EventHandler(this, &MyForm::btnRemove_Click);
+
+			this->btnAbrirPasta->BackColor = System::Drawing::Color::LightSkyBlue;
+			this->btnAbrirPasta->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnAbrirPasta->Location = System::Drawing::Point(185, 90);
+			this->btnAbrirPasta->Name = L"btnAbrirPasta";
+			this->btnAbrirPasta->Size = System::Drawing::Size(35, 35);
+			this->btnAbrirPasta->TabIndex = 4;
+			this->btnAbrirPasta->Text = L"??";
+			this->btnAbrirPasta->UseVisualStyleBackColor = false;
+			this->btnAbrirPasta->Click += gcnew System::EventHandler(this, &MyForm::btnAbrirPasta_Click);
+
+			this->txtOutput->BackColor = System::Drawing::Color::FromArgb(static_cast<System::Int32>(static_cast<System::Byte>(30)), static_cast<System::Int32>(static_cast<System::Byte>(30)),
+				static_cast<System::Int32>(static_cast<System::Byte>(30)));
+			this->txtOutput->Font = (gcnew System::Drawing::Font(L"Consolas", 10));
+			this->txtOutput->ForeColor = System::Drawing::Color::LimeGreen;
+			this->txtOutput->Location = System::Drawing::Point(240, 90);
+			this->txtOutput->Name = L"txtOutput";
+			this->txtOutput->ReadOnly = true;
+			this->txtOutput->Size = System::Drawing::Size(660, 360);
+			this->txtOutput->TabIndex = 5;
+			this->txtOutput->Text = L"";
+
+			this->lblUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			this->lblUrl->ForeColor = System::Drawing::Color::DarkRed;
+			this->lblUrl->Location = System::Drawing::Point(240, 460);
+			this->lblUrl->Name = L"lblUrl";
+			this->lblUrl->Size = System::Drawing::Size(100, 20);
+			this->lblUrl->TabIndex = 6;
+			this->lblUrl->Text = L"URL Alvo:";
+
+			this->txtUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
+			this->txtUrl->Location = System::Drawing::Point(240, 480);
+			this->txtUrl->Name = L"txtUrl";
+			this->txtUrl->Size = System::Drawing::Size(660, 25);
+			this->txtUrl->TabIndex = 7;
+
+			this->lblToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			this->lblToken->ForeColor = System::Drawing::Color::DarkBlue;
+			this->lblToken->Location = System::Drawing::Point(240, 515);
+			this->lblToken->Name = L"lblToken";
+			this->lblToken->Size = System::Drawing::Size(100, 20);
+			this->lblToken->TabIndex = 8;
+			this->lblToken->Text = L"Token JWT:";
+
+			this->txtToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
+			this->txtToken->Location = System::Drawing::Point(240, 535);
+			this->txtToken->Name = L"txtToken";
+			this->txtToken->Size = System::Drawing::Size(660, 25);
+			this->txtToken->UseSystemPasswordChar = true; // nao expoe o JWT na tela
+			this->txtToken->TabIndex = 11;
+
+			this->btnLoginAuto->BackColor = System::Drawing::Color::SteelBlue;
+			this->btnLoginAuto->Enabled = false;
+			this->btnLoginAuto->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnLoginAuto->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			this->btnLoginAuto->Location = System::Drawing::Point(740, 510);
+			this->btnLoginAuto->Name = L"btnLoginAuto";
+			this->btnLoginAuto->Size = System::Drawing::Size(160, 25);
+			this->btnLoginAuto->TabIndex = 10;
+			this->btnLoginAuto->Text = L"?? Login Automatico";
+			this->btnLoginAuto->UseVisualStyleBackColor = false;
+			this->btnLoginAuto->Click += gcnew System::EventHandler(this, &MyForm::btnLoginAuto_Click);
+
+			this->chkHabilitarLogin->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
+			this->chkHabilitarLogin->Location = System::Drawing::Point(660, 513);
+			this->chkHabilitarLogin->Name = L"chkHabilitarLogin";
+			this->chkHabilitarLogin->Size = System::Drawing::Size(80, 20);
+			this->chkHabilitarLogin->TabIndex = 9;
+			this->chkHabilitarLogin->Text = L"Ativar";
+			this->chkHabilitarLogin->CheckedChanged += gcnew System::EventHandler(this, &MyForm::chkHabilitarLogin_CheckedChanged);
+
+			this->chkSalvar->Checked = true;
+			this->chkSalvar->CheckState = System::Windows::Forms::CheckState::Checked;
+			this->chkSalvar->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9));
+			this->chkSalvar->Location = System::Drawing::Point(240, 570);
+			this->chkSalvar->Name = L"chkSalvar";
+			this->chkSalvar->Size = System::Drawing::Size(300, 25);
+			this->chkSalvar->TabIndex = 12;
+			this->chkSalvar->Text = L"Salvar configuracoes ao sair";
+
+			this->btnStart->BackColor = System::Drawing::Color::YellowGreen;
+			this->btnStart->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnStart->Location = System::Drawing::Point(240, 600);
+			this->btnStart->Name = L"btnStart";
+			this->btnStart->Size = System::Drawing::Size(180, 45);
+			this->btnStart->TabIndex = 13;
+			this->btnStart->Text = L"? INICIAR TESTE";
+			this->btnStart->UseVisualStyleBackColor = false;
+			this->btnStart->Click += gcnew System::EventHandler(this, &MyForm::btnStart_Click);
+
+			this->btnStop->BackColor = System::Drawing::Color::IndianRed;
+			this->btnStop->Enabled = false;
+			this->btnStop->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnStop->Location = System::Drawing::Point(480, 600);
+			this->btnStop->Name = L"btnStop";
+			this->btnStop->Size = System::Drawing::Size(180, 45);
+			this->btnStop->TabIndex = 14;
+			this->btnStop->Text = L"? PARAR";
+			this->btnStop->UseVisualStyleBackColor = false;
+			this->btnStop->Click += gcnew System::EventHandler(this, &MyForm::btnStop_Click);
+
+			this->btnExport->BackColor = System::Drawing::Color::SteelBlue;
+			this->btnExport->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnExport->Location = System::Drawing::Point(720, 600);
+			this->btnExport->Name = L"btnExport";
+			this->btnExport->Size = System::Drawing::Size(180, 45);
+			this->btnExport->TabIndex = 15;
+			this->btnExport->Text = L"?? Exportar Log";
+			this->btnExport->UseVisualStyleBackColor = false;
+			this->btnExport->Click += gcnew System::EventHandler(this, &MyForm::btnExport_Click);
+
+			this->BackColor = System::Drawing::Color::WhiteSmoke;
+			this->ClientSize = System::Drawing::Size(924, 711);
+			this->Controls->Add(this->picLogo);
+			this->Controls->Add(this->lstScripts);
+			this->Controls->Add(this->btnAdd);
+			this->Controls->Add(this->btnRemove);
+			this->Controls->Add(this->btnAbrirPasta);
+			this->Controls->Add(this->txtOutput);
+			this->Controls->Add(this->lblUrl);
+			this->Controls->Add(this->txtUrl);
+			this->Controls->Add(this->lblToken);
+			this->Controls->Add(this->chkHabilitarLogin);
+			this->Controls->Add(this->btnLoginAuto);
+			this->Controls->Add(this->txtToken);
+			this->Controls->Add(this->chkSalvar);
+			this->Controls->Add(this->btnStart);
+			this->Controls->Add(this->btnStop);
+			this->Controls->Add(this->btnExport);
+			this->Name = L"MyForm";
+			this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
+			this->Text = L"T2M Security Manager v4.0 (MCP Edition)";
+			this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
+			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->EndInit();
+			this->ResumeLayout(false);
+			this->PerformLayout();
+		}
+#pragma endregion
+
+		// --- FUNCOES BASICAS DA INTERFACE ---
+	private: System::Void chkHabilitarLogin_CheckedChanged(System::Object^ sender, System::EventArgs^ e) {
+		if (chkHabilitarLogin->Checked) {
+			btnLoginAuto->Enabled = true;
+			btnLoginAuto->BackColor = System::Drawing::Color::LightBlue;
+		}
+		else {
+			btnLoginAuto->Enabled = false;
+			btnLoginAuto->BackColor = System::Drawing::Color::Silver;
+		}
+	}
+
+	private: System::Void btnLoginAuto_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ urlAlvo = txtUrl->Text;
+		if (String::IsNullOrWhiteSpace(urlAlvo)) {
+			urlAlvo = "https://sgidd.t2mlab.com/auth";
+			txtUrl->Text = urlAlvo;
+		}
+		txtUrl->Enabled = false; txtToken->Enabled = false;
+		chkHabilitarLogin->Enabled = false; btnLoginAuto->Enabled = false;
+		btnLoginAuto->Text = L"? Aguarde...";
+		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO LOGIN AUTOMATICO...\n");
+
+		Process^ pLogin = gcnew Process();
+		try {
+			ProcessStartInfo^ psi = gcnew ProcessStartInfo();
+			psi->FileName = "python";
+			psi->Arguments = "-u \"" + CaminhoApp("get_token.py") + "\"";
+			psi->UseShellExecute = false;
+			psi->RedirectStandardInput = true;   // URL enviada por stdin
+			psi->RedirectStandardOutput = true;
+			psi->CreateNoWindow = true;
+			psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
+			pLogin->StartInfo = psi;
+
+			try { pLogin->Start(); }
+			catch (System::ComponentModel::Win32Exception^) {
+				txtOutput->AppendText("\n>>> ERRO: 'python' nao encontrado no PATH.\n");
+				return;
+			}
+
+			array<System::Byte>^ bytes = System::Text::Encoding::UTF8->GetBytes(urlAlvo);
+			pLogin->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
+			pLogin->StandardInput->Close();
+
+			// Login pode levar ate ~60s (script espera o usuario logar). Teto de 180s.
+			if (!pLogin->WaitForExit(180000)) {
+				try { pLogin->Kill(); } catch (...) {}
+				txtOutput->AppendText("\n>>> Tempo esgotado no login.\n");
+				return;
+			}
+
+			String^ output = pLogin->StandardOutput->ReadToEnd();
+			if (output->Contains("TOKEN_ENCONTRADO_INICIO")) {
+				array<String^>^ partes = output->Split(gcnew array<String^>{"TOKEN_ENCONTRADO_INICIO", "TOKEN_ENCONTRADO_FIM"}, StringSplitOptions::None);
+				if (partes->Length >= 2) {
+					txtToken->Text = partes[1]->Trim();
+					txtOutput->AppendText("\n>>> SUCESSO! Token capturado.\n");
+				}
+			}
+			else { txtOutput->AppendText("\n>>> AVISO: Token nao encontrado.\n"); }
+		}
+		catch (Exception^ ex) { MessageBox::Show(L"Erro: " + ex->Message); }
+		finally {
+			pLogin->Close();
+			txtUrl->Enabled = true; txtToken->Enabled = true; chkHabilitarLogin->Enabled = true;
+			btnLoginAuto->Enabled = true; btnLoginAuto->Text = L"?? Login Automatico";
+		}
+	}
+
+	private: void SalvarConfiguracao() {
+		if (!chkSalvar->Checked) { if (File::Exists(CaminhoApp("config.txt"))) File::Delete(CaminhoApp("config.txt")); return; }
+		try {
+			StreamWriter^ sw = gcnew StreamWriter(CaminhoApp("config.txt"));
+			sw->WriteLine(txtUrl->Text);
+			sw->WriteLine(ProtegerTexto(txtToken->Text)); // token cifrado (DPAPI)
+			for each(KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
+			sw->Close();
+		}
+		catch (...) {}
+	}
+
+	private: void CarregarConfiguracao() {
+		if (!File::Exists(CaminhoApp("config.txt"))) return;
+		try {
+			StreamReader^ sr = gcnew StreamReader(CaminhoApp("config.txt"));
+			String^ linha = sr->ReadLine(); if (linha != nullptr) txtUrl->Text = linha;
+			linha = sr->ReadLine(); if (linha != nullptr) txtToken->Text = DesprotegerTexto(linha);
+			while ((linha = sr->ReadLine()) != nullptr) {
+				if (File::Exists(linha)) {
+					String^ nome = Path::GetFileName(linha);
+					if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, linha); lstScripts->Items->Add(nome); }
+				}
+			}
+			sr->Close(); chkSalvar->Checked = true;
+		}
+		catch (...) {}
+	}
+
+	private: void CarregarScriptsIA() {
+		try {
+			String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
+			if (Directory::Exists(pastaIA)) {
+				array<String^>^ arquivos = Directory::GetFiles(pastaIA, "*.py");
+				for each(String ^ arquivo in arquivos) {
+					String^ nome = Path::GetFileName(arquivo);
+					if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, arquivo); lstScripts->Items->Add(nome); }
+				}
+			}
+		}
+		catch (...) {}
+	}
+
+	private: System::Void MyForm_FormClosing(System::Object^ sender, System::Windows::Forms::FormClosingEventArgs^ e) { SalvarConfiguracao(); }
+
+	private: System::Void btnAdd_Click(System::Object^ sender, System::EventArgs^ e) {
+		OpenFileDialog^ openFile = gcnew OpenFileDialog(); openFile->Filter = "Python Scripts (*.py)|*.py";
+		if (openFile->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+			String^ caminho = openFile->FileName; String^ nome = Path::GetFileName(caminho);
+			if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, caminho); lstScripts->Items->Add(nome); }
+		}
+	}
+
+	private: System::Void btnRemove_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (lstScripts->SelectedIndex != -1) { scriptPaths->Remove(lstScripts->SelectedItem->ToString()); lstScripts->Items->RemoveAt(lstScripts->SelectedIndex); }
+	}
+
+	private: System::Void btnAbrirPasta_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
+		if (Directory::Exists(pastaIA)) Process::Start("explorer.exe", pastaIA);
+		else MessageBox::Show(L"A pasta ainda nao existe.", L"Aviso");
+	}
+
+	private: System::Void btnStart_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (lstScripts->SelectedIndex == -1 || txtUrl->Text->Length == 0) { MessageBox::Show(L"Preencha a URL e selecione um script!"); return; }
+		String^ caminho = scriptPaths[lstScripts->SelectedItem->ToString()];
+
+		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO TESTE DINAMICO <<<\n");
+		ProcessStartInfo^ psi = gcnew ProcessStartInfo();
+		psi->FileName = "python";
+		// URL vai por argv[1]; TOKEN vai por variavel de ambiente (fora da linha de comando)
+		psi->Arguments = "-u \"" + caminho + "\" \"" + txtUrl->Text + "\"";
+		psi->EnvironmentVariables["T2M_AUTH_TOKEN"] = txtToken->Text;
+		psi->UseShellExecute = false; psi->RedirectStandardOutput = true; psi->RedirectStandardError = true;
+		psi->CreateNoWindow = true; psi->StandardOutputEncoding = System::Text::Encoding::UTF8; psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
+
+		pythonProcess = gcnew Process(); pythonProcess->StartInfo = psi;
+		pythonProcess->OutputDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::OnDataReceived);
+		pythonProcess->ErrorDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::OnDataReceived);
+		pythonProcess->EnableRaisingEvents = true; pythonProcess->Exited += gcnew EventHandler(this, &MyForm::OnProcessExited);
+
+		try {
+			pythonProcess->Start(); pythonProcess->BeginOutputReadLine(); pythonProcess->BeginErrorReadLine();
+			btnStart->Enabled = false; btnStop->Enabled = true;
+		}
+		catch (System::ComponentModel::Win32Exception^) {
+			MessageBox::Show(L"'python' nao encontrado no PATH. Instale o Python marcando 'Add to PATH'.", L"Erro");
+			ResetButtons();
+		}
+		catch (Exception^ ex) { MessageBox::Show(L"Erro: " + ex->Message); ResetButtons(); }
+	}
+
+	private: void OnDataReceived(System::Object^ sender, DataReceivedEventArgs^ e) {
+		if (String::IsNullOrEmpty(e->Data)) return;
+		if (this->IsDisposed || !this->IsHandleCreated) return;
+		try {
+			this->BeginInvoke(gcnew Action<String^>(this, &MyForm::AppendLog), e->Data);
+		}
+		catch (System::ObjectDisposedException^) {}
+		catch (System::InvalidOperationException^) {}
+	}
+	private: void AppendLog(String^ text) { txtOutput->AppendText(text + Environment::NewLine); txtOutput->ScrollToCaret(); }
+	private: void OnProcessExited(System::Object^ sender, EventArgs^ e) {
+		if (this->IsDisposed || !this->IsHandleCreated) return;
+		try { this->BeginInvoke(gcnew Action(this, &MyForm::ResetButtons)); }
+		catch (...) {}
+	}
+	private: void ResetButtons() {
+		btnStart->Enabled = true; btnStop->Enabled = false; txtOutput->AppendText("\n>>> FIM.");
+		if (pythonProcess != nullptr) { try { pythonProcess->Close(); } catch (...) {} pythonProcess = nullptr; }
+	}
+	private: System::Void btnStop_Click(System::Object^ sender, System::EventArgs^ e) { if (pythonProcess != nullptr && !pythonProcess->HasExited) { try { pythonProcess->Kill(); } catch (...) {} } }
+	private: System::Void btnExport_Click(System::Object^ sender, System::EventArgs^ e) {
+		SaveFileDialog^ save = gcnew SaveFileDialog(); save->Filter = "Log (*.txt)|*.txt";
+		if (save->ShowDialog() == System::Windows::Forms::DialogResult::OK) File::WriteAllText(save->FileName, txtOutput->Text);
+	}
+
+	private: void CarregarDropdownAPI(ComboBox^ combo) {
+		combo->Items->Clear();
+		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
+			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
+			for each(String ^ linha in linhas) {
+				if (!String::IsNullOrWhiteSpace(linha)) {
+					String^ real = DesprotegerTexto(linha->Trim());
+					if (real->Length >= 10)
+						combo->Items->Add(real->Substring(0, 6) + "****************" + real->Substring(real->Length - 4));
+					else
+						combo->Items->Add("****");
+				}
+			}
+		}
+		if (combo->Items->Count == 0) combo->Items->Add(L" Nenhuma chave ");
+		combo->Items->Add("-------------------------"); combo->Items->Add(L"+ Adicionar Nova API Key...");
+		combo->SelectedIndex = 0;
+	}
+
+		   // =========================================================================
+		   // --- MOTOR DE CHAT COPILOT ---
+		   // =========================================================================
+
+	private: String^ ChamarAgentePython(String^ apiKey, String^ prompt, String^ url) {
+		Process^ p = gcnew Process();
+		try {
+			ProcessStartInfo^ psi = gcnew ProcessStartInfo();
+			psi->FileName = "python";
+			psi->Arguments = "-u \"" + CaminhoApp("gerador_ia.py") + "\"";
+			psi->UseShellExecute = false;
+			psi->RedirectStandardInput = true;   // chave + prompt via stdin (nunca em argv)
+			psi->RedirectStandardOutput = true;
+			psi->CreateNoWindow = true;
+			psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
+			p->StartInfo = psi;
+
+			try { p->Start(); }
+			catch (System::ComponentModel::Win32Exception^) {
+				return L"Erro: 'python' nao encontrado no PATH. Instale o Python marcando 'Add to PATH'.";
+			}
+
+			// linha 1 = chave | linha 2 = url | resto = prompt (pode ser multilinha)
+			String^ payload = apiKey + "\n" + url + "\n" + prompt;
+			array<System::Byte>^ bytes = System::Text::Encoding::UTF8->GetBytes(payload);
+			p->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
+			p->StandardInput->Close();
+
+			if (!p->WaitForExit(120000)) { // teto de 120s: nunca congela para sempre
+				try { p->Kill(); } catch (...) {}
+				return L"Tempo esgotado (120s) aguardando a IA. Verifique a conexao ou a chave.";
+			}
+
+			String^ output = p->StandardOutput->ReadToEnd();
+			int startIdx = output->IndexOf("CHAT_MSG_INICIO");
+			int endIdx = output->IndexOf("CHAT_MSG_FIM");
+			if (startIdx != -1 && endIdx != -1) {
+				startIdx += 15;
+				return output->Substring(startIdx, endIdx - startIdx)->Trim();
+			}
+			return L"Erro de comunicacao com a IA:\n" + output;
+		}
+		finally {
+			p->Close();
+		}
+	}
+
+	// --- AGENTE MCP AO VIVO (Playwright) ---
+	private: String^ ChamarAgenteMcp(String^ apiKey, String^ objetivo, String^ url) {
+		Process^ p = gcnew Process();
+		try {
+			ProcessStartInfo^ psi = gcnew ProcessStartInfo();
+			psi->FileName = "python";
+			psi->Arguments = "-u \"" + CaminhoApp("agente_mcp.py") + "\"";
+			psi->UseShellExecute = false;
+			psi->RedirectStandardInput = true;
+			psi->RedirectStandardOutput = true;
+			psi->CreateNoWindow = true;
+			psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
+			p->StartInfo = psi;
+
+			try { p->Start(); }
+			catch (System::ComponentModel::Win32Exception^) {
+				return L"Erro: 'python' nao encontrado no PATH.";
+			}
+
+			String^ payload = apiKey + "\n" + url + "\n" + objetivo;
+			array<System::Byte>^ bytes = System::Text::Encoding::UTF8->GetBytes(payload);
+			p->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
+			p->StandardInput->Close();
+
+			// Loop ao vivo e lento: teto de 5 minutos
+			if (!p->WaitForExit(300000)) {
+				try { p->Kill(); } catch (...) {}
+				return L"Tempo esgotado (5 min) no agente MCP.";
+			}
+
+			String^ output = p->StandardOutput->ReadToEnd();
+			int i = output->IndexOf("CHAT_MSG_INICIO");
+			int f = output->IndexOf("CHAT_MSG_FIM");
+			if (i != -1 && f != -1) return output->Substring(i + 15, f - (i + 15))->Trim();
+			return L"Erro de comunicacao com o agente:\n" + output;
+		}
+		finally { p->Close(); }
+	}
+
+	private: String^ ObterChaveReal() {
+		int idx = comboModeloChat->SelectedIndex;
+		if (idx < 0) return "";
+		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
+			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
+			List<String^>^ chaves = gcnew List<String^>();
+			for each(String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
+			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
+		}
+		return "";
+	}
+
+	private: System::Void comboModeloChat_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
+		if (comboModeloChat->SelectedItem != nullptr && comboModeloChat->SelectedItem->ToString() == L"+ Adicionar Nova API Key...") {
+			Form^ formAdd = gcnew Form();
+			formAdd->Text = L"Adicionar API Key";
+			formAdd->Size = System::Drawing::Size(450, 150);
+			formAdd->StartPosition = FormStartPosition::CenterParent;
+			formAdd->BackColor = System::Drawing::Color::WhiteSmoke;
+			AplicarIcone(formAdd);
+
+			Label^ lbl = gcnew Label();
+			lbl->Text = L"Cole sua chave completa (Gemini, Anthropic Claude ou OpenAI):";
+			lbl->Location = System::Drawing::Point(20, 20);
+			lbl->AutoSize = true;
+			formAdd->Controls->Add(lbl);
+
+			TextBox^ txtNovaChave = gcnew TextBox();
+			txtNovaChave->Location = System::Drawing::Point(20, 45);
+			txtNovaChave->Size = System::Drawing::Size(390, 25);
+			txtNovaChave->UseSystemPasswordChar = true;
+			formAdd->Controls->Add(txtNovaChave);
+
+			Button^ btnSalvar = gcnew Button();
+			btnSalvar->Text = L"?? Salvar Chave";
+			btnSalvar->Location = System::Drawing::Point(310, 75);
+			btnSalvar->Size = System::Drawing::Size(100, 30);
+			btnSalvar->BackColor = System::Drawing::Color::MediumSeaGreen;
+			btnSalvar->ForeColor = System::Drawing::Color::White;
+			btnSalvar->FlatStyle = FlatStyle::Flat;
+			btnSalvar->DialogResult = System::Windows::Forms::DialogResult::OK;
+			formAdd->Controls->Add(btnSalvar);
+
+			if (formAdd->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+				String^ novaChave = txtNovaChave->Text->Trim();
+				if (novaChave != "") {
+					StreamWriter^ sw = gcnew StreamWriter(CaminhoApp("api_keys_ia.txt"), true);
+					sw->WriteLine(ProtegerTexto(novaChave)); // cifrada em disco (DPAPI)
+					sw->Close();
+					MessageBox::Show(L"Chave salva com sucesso!", L"T2M Copilot");
+				}
+			}
+			CarregarDropdownAPI(comboModeloChat);
+		}
+	}
+
+	private: System::Void btnRemoverChave_Click(System::Object^ sender, System::EventArgs^ e) {
+		int idx = comboModeloChat->SelectedIndex;
+		if (idx >= 0 && comboModeloChat->SelectedItem->ToString() != L"+ Adicionar Nova API Key..." && comboModeloChat->SelectedItem->ToString() != "-------------------------" && comboModeloChat->SelectedItem->ToString() != L" Nenhuma chave ") {
+			if (MessageBox::Show(L"Tem certeza que deseja excluir esta chave?", L"Confirmar Exclusao", MessageBoxButtons::YesNo, MessageBoxIcon::Warning) == System::Windows::Forms::DialogResult::Yes) {
+				if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
+					array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
+					List<String^>^ novasLinhas = gcnew List<String^>();
+					int cont = 0;
+					for each(String ^ linha in linhas) {
+						if (!String::IsNullOrWhiteSpace(linha)) {
+							if (cont != idx) novasLinhas->Add(linha);
+							cont++;
+						}
+					}
+					File::WriteAllLines(CaminhoApp("api_keys_ia.txt"), novasLinhas->ToArray());
+					CarregarDropdownAPI(comboModeloChat);
+					MessageBox::Show(L"Chave excluida!", L"T2M Copilot");
+				}
+			}
+		}
+		else {
+			MessageBox::Show(L"Selecione uma chave valida para excluir.", L"Aviso");
+		}
+	}
+
+	private: System::Void btnGerarIA_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (txtUrl->Text->Trim() == "") {
+			MessageBox::Show(L"Preencha a URL Alvo primeiro para a IA poder analisar o projeto!", L"Aviso");
+			return;
+		}
+
+		formIA = gcnew Form();
+		formIA->Text = L"T2M Copilot - Arquiteto de Automacao e Qualidade";
+		formIA->Size = System::Drawing::Size(750, 640);   // botoes de acao subiram para o topo
+		formIA->StartPosition = FormStartPosition::CenterParent;
+		formIA->BackColor = System::Drawing::Color::WhiteSmoke;
+		AplicarIcone(formIA);
+
+		formIA->Shown += gcnew System::EventHandler(this, &MyForm::formIA_Shown);
+
+		// ToolTip compartilhado da janela (mostra o custo/uso ao passar o mouse)
+		ToolTip^ dica = gcnew ToolTip();
+		dica->AutoPopDelay = 8000;
+		dica->InitialDelay = 400;
+		dica->ReshowDelay = 200;
+
+		Label^ lblInfo = gcnew Label();
+		lblInfo->Text = L"1. Selecione a Chave API:";
+		lblInfo->Location = System::Drawing::Point(20, 20);
+		lblInfo->AutoSize = true;
+		formIA->Controls->Add(lblInfo);
+
+		comboModeloChat = gcnew ComboBox();
+		comboModeloChat->Location = System::Drawing::Point(20, 40);
+		comboModeloChat->Size = System::Drawing::Size(260, 25);
+		comboModeloChat->DropDownStyle = ComboBoxStyle::DropDownList;
+		comboModeloChat->SelectedIndexChanged += gcnew System::EventHandler(this, &MyForm::comboModeloChat_SelectedIndexChanged);
+		CarregarDropdownAPI(comboModeloChat);
+		formIA->Controls->Add(comboModeloChat);
+
+		Button^ btnRemoverChave = gcnew Button();
+		btnRemoverChave->Text = L"?? Excluir";
+		btnRemoverChave->Location = System::Drawing::Point(290, 39);
+		btnRemoverChave->Size = System::Drawing::Size(80, 27);
+		btnRemoverChave->BackColor = System::Drawing::Color::LightCoral;
+		btnRemoverChave->FlatStyle = FlatStyle::Flat;
+		btnRemoverChave->Click += gcnew System::EventHandler(this, &MyForm::btnRemoverChave_Click);
+		formIA->Controls->Add(btnRemoverChave);
+
+		// Label de status (fica ao lado dos botoes de acao; some quando ocioso)
+		lblChatStatus = gcnew Label();
+		lblChatStatus->Text = L"";
+		lblChatStatus->Location = System::Drawing::Point(20, 452);
+		lblChatStatus->Size = System::Drawing::Size(690, 18);
+		lblChatStatus->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Italic);
+		lblChatStatus->ForeColor = System::Drawing::Color::DarkSlateBlue;
+		formIA->Controls->Add(lblChatStatus);
+
+		rtbChat = gcnew RichTextBox();
+		rtbChat->Location = System::Drawing::Point(20, 78);
+		rtbChat->Size = System::Drawing::Size(690, 368);
+		rtbChat->ReadOnly = true;
+		rtbChat->BackColor = System::Drawing::Color::White;
+		rtbChat->Font = gcnew System::Drawing::Font("Segoe UI", 10);
+		formIA->Controls->Add(rtbChat);
+
+		txtChatInput = gcnew TextBox();
+		txtChatInput->Location = System::Drawing::Point(20, 475);
+		txtChatInput->Size = System::Drawing::Size(580, 55);
+		txtChatInput->Multiline = true;
+		txtChatInput->Font = gcnew System::Drawing::Font("Segoe UI", 10);
+		formIA->Controls->Add(txtChatInput);
+
+		btnSendChat = gcnew Button();
+		btnSendChat->Text = L"? Enviar";
+		btnSendChat->Location = System::Drawing::Point(610, 475);
+		btnSendChat->Size = System::Drawing::Size(100, 55);
+		btnSendChat->BackColor = System::Drawing::Color::MediumSeaGreen;
+		btnSendChat->ForeColor = System::Drawing::Color::White;
+		btnSendChat->FlatStyle = FlatStyle::Flat;
+		btnSendChat->Click += gcnew System::EventHandler(this, &MyForm::btnSendChat_Click);
+		formIA->Controls->Add(btnSendChat);
+		dica->SetToolTip(btnSendChat, L"Envia sua mensagem ao agente (conversa em texto, custo baixo).");
+
+		// ===== BOTOES DE MODO (toggle: so um ativo por vez) =====
+		// Ficam no topo, ao lado do seletor de chave. O ativo fica em destaque.
+
+		// --- MODO CHAT (so conversa) ---
+		btnChatConversa = gcnew Button();
+		btnChatConversa->Text = L"?? Chat";
+		btnChatConversa->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
+		btnChatConversa->Location = System::Drawing::Point(380, 38);
+		btnChatConversa->Size = System::Drawing::Size(105, 29);
+		btnChatConversa->FlatStyle = FlatStyle::Flat;
+		btnChatConversa->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
+		btnChatConversa->Click += gcnew System::EventHandler(this, &MyForm::btnModoConversa_Click);
+		formIA->Controls->Add(btnChatConversa);
+		dica->SetToolTip(btnChatConversa,
+			L"MODO CONVERSA\n"
+			L"Converse com o agente para planejar testes e automacoes.\n"
+			L"Custo baixo: nao escaneia a pagina nem abre navegador.");
+
+		// --- MODO SCAN DOM ---
+		btnChatDom = gcnew Button();
+		btnChatDom->Text = L"?? Scan DOM";
+		btnChatDom->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
+		btnChatDom->Location = System::Drawing::Point(490, 38);
+		btnChatDom->Size = System::Drawing::Size(105, 29);
+		btnChatDom->FlatStyle = FlatStyle::Flat;
+		btnChatDom->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
+		btnChatDom->Click += gcnew System::EventHandler(this, &MyForm::btnModoDom_Click);
+		formIA->Controls->Add(btnChatDom);
+		dica->SetToolTip(btnChatDom,
+			L"MODO SCAN DOM (varredura rapida)\n"
+			L"Le a estrutura da pagina (campos, botoes, formularios) pelo HTML.\n"
+			L"Rapido e BARATO. Nao abre navegador nem executa acoes.\n"
+			L"Bom para dar contexto inicial da tela ao agente.");
+
+		// --- MODO AUTOMACAO (dropdown: Tela / API / Banco) = usa MCP ---
+		cmbAutomacao = gcnew ComboBox();
+		cmbAutomacao->DropDownStyle = ComboBoxStyle::DropDownList;
+		cmbAutomacao->Location = System::Drawing::Point(600, 39);
+		cmbAutomacao->Size = System::Drawing::Size(110, 29);
+		cmbAutomacao->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
+
+		cmbAutomacao->Items->Add(L"?? Teste de Tela");   // item 1 = Tela (funciona)
+		cmbAutomacao->Items->Add(L"?? Teste de API");    // item 2 = API (em breve)
+		cmbAutomacao->Items->Add(L"?? Banco de Dados");  // item 3 = Banco (em breve)
+		cmbAutomacao->SelectedIndex = 0;
+		cmbAutomacao->SelectedIndexChanged += gcnew System::EventHandler(this, &MyForm::cmbAutomacao_Changed);
+		formIA->Controls->Add(cmbAutomacao);
+		dica->SetToolTip(cmbAutomacao,
+			L"AUTOMACAO (via MCP, navegador/execucao real)\n"
+			L"Teste de Tela: descreva o teste e a IA executa passo a passo ao vivo.\n"
+			L"Teste de API / Banco de Dados: em breve.\n"
+			L"ATENCAO: consome MUITO MAIS tokens (~100k+ por tarefa).");
+
+		btnSaveScript = gcnew Button();
+		btnSaveScript->Text = L"?? 2. Extrair e Salvar Codigo Final";
+		btnSaveScript->Location = System::Drawing::Point(20, 545);
+		btnSaveScript->Size = System::Drawing::Size(690, 40);
+		btnSaveScript->BackColor = System::Drawing::Color::Indigo;
+		btnSaveScript->ForeColor = System::Drawing::Color::White;
+		btnSaveScript->FlatStyle = FlatStyle::Flat;
+		btnSaveScript->Font = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		btnSaveScript->Click += gcnew System::EventHandler(this, &MyForm::btnSaveScript_Click);
+		formIA->Controls->Add(btnSaveScript);
+		dica->SetToolTip(btnSaveScript,
+			L"Extrai o ultimo bloco de codigo da conversa e salva como script (.py/.robot/.sql).");
+
+		// Configura o BackgroundWorker (execucao em thread separada = janela nao congela)
+		workerChat = gcnew System::ComponentModel::BackgroundWorker();
+		workerChat->DoWork += gcnew System::ComponentModel::DoWorkEventHandler(this, &MyForm::workerChat_DoWork);
+		workerChat->RunWorkerCompleted += gcnew System::ComponentModel::RunWorkerCompletedEventHandler(this, &MyForm::workerChat_Completed);
+
+		// Modo inicial: Chat (so conversa). Aplica o destaque visual.
+		modoAtivo = 0;
+		tipoAutomacao = 0;
+		AtualizarBotoesModo();
+
+		formIA->ShowDialog();
+	}
+
+	// ==========================================================================
+	// --- MODOS DO CHAT (toggle: Chat / DOM / MCP) ---
+	// ==========================================================================
+
+	// Aplica o destaque visual: o controle do modo ativo fica forte;
+	// os outros ficam apagados (cinza). O dropdown destaca quando modo==2.
+	private: void AtualizarBotoesModo() {
+		System::Drawing::Color corConversaOn = System::Drawing::Color::MediumSeaGreen;
+		System::Drawing::Color corDomOn = System::Drawing::Color::SteelBlue;
+		System::Drawing::Color corMcpOn = System::Drawing::Color::DarkSlateBlue;
+		System::Drawing::Color corOff = System::Drawing::Color::Gainsboro;
+		System::Drawing::Color txtOff = System::Drawing::Color::DimGray;
+
+		// Reseta os botoes para "apagado"
+		btnChatConversa->BackColor = corOff; btnChatConversa->ForeColor = txtOff;
+		btnChatDom->BackColor = corOff; btnChatDom->ForeColor = txtOff;
+		btnChatConversa->Text = L"?? Chat";
+		btnChatDom->Text = L"?? Scan DOM";
+		// Dropdown apagado por padrao
+		cmbAutomacao->BackColor = corOff; cmbAutomacao->ForeColor = System::Drawing::Color::Black;
+
+		// Liga o ativo
+		if (modoAtivo == 0) {
+			btnChatConversa->BackColor = corConversaOn; btnChatConversa->ForeColor = System::Drawing::Color::White;
+			btnChatConversa->Text = L"? ?? Chat";
+		}
+		else if (modoAtivo == 1) {
+			btnChatDom->BackColor = corDomOn; btnChatDom->ForeColor = System::Drawing::Color::White;
+			btnChatDom->Text = L"? ?? Scan DOM";
+		}
+		else if (modoAtivo == 2) {
+			// Destaque do dropdown quando a automacao esta ativa
+			cmbAutomacao->BackColor = corMcpOn; cmbAutomacao->ForeColor = System::Drawing::Color::White;
+		}
+
+		// Atualiza a dica conforme o modo
+		if (txtChatInput != nullptr) {
+			if (modoAtivo == 0)
+				lblChatStatus->Text = L"Modo Chat: converse para planejar testes e automacoes.";
+			else if (modoAtivo == 1)
+				lblChatStatus->Text = L"Modo Scan DOM: sua proxima mensagem escaneia a pagina (URL Alvo) - bom para seguranca e testes simples.";
+			else {
+				// Mensagem depende do tipo de automacao escolhido
+				if (tipoAutomacao == 0)
+					lblChatStatus->Text = L"Automacao - Teste de Tela: descreva o teste; o MCP executa ao vivo (gasta mais tokens).";
+				else if (tipoAutomacao == 1)
+					lblChatStatus->Text = L"Automacao - Teste de API: adicione sua API aqui no chat (metodo, URL, headers, payload).";
+				else
+					lblChatStatus->Text = L"Automacao - Banco de Dados: informe tipo de banco e conexao quando solicitado.";
+			}
+		}
+	}
+
+	private: System::Void btnModoConversa_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (workerChat->IsBusy) return;
+		modoAtivo = 0;
+		cmbAutomacao->SelectedIndex = 0;  // reseta o dropdown para o placeholder
+		AtualizarBotoesModo();
+	}
+	private: System::Void btnModoDom_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (workerChat->IsBusy) return;
+		modoAtivo = 1;
+		cmbAutomacao->SelectedIndex = 0;
+		AtualizarBotoesModo();
+	}
+
+	// Dropdown de automacao: item 0=placeholder, 1=Tela (funciona), 2=API, 3=Banco (em breve)
+	private: System::Void cmbAutomacao_Changed(System::Object^ sender, System::EventArgs^ e) {
+		if (workerChat->IsBusy) { cmbAutomacao->SelectedIndex = 0; return; }
+		int idx = cmbAutomacao->SelectedIndex;
+
+		if (idx == 0) {
+			// Placeholder: nao ativa automacao. Se estava no modo automacao, volta pro Chat.
+			if (modoAtivo == 2) { modoAtivo = 0; AtualizarBotoesModo(); }
+			return;
+		}
+		if (idx == 1) {
+			// Teste de Tela - funciona (via MCP)
+			modoAtivo = 2; tipoAutomacao = 0;
+			AtualizarBotoesModo();
+		}
+		else if (idx == 2 || idx == 3) {
+			// API / Banco: em breve. Avisa e volta o dropdown para o placeholder.
+			String^ oque = (idx == 2) ? L"Teste de API" : L"Banco de Dados";
+			MessageBox::Show(
+				oque + L" estara disponivel em breve.\n\nPor enquanto, use o Teste de Tela "
+				L"(automacao ao vivo no navegador) ou os modos Chat e Scan DOM.",
+				L"Em breve", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			cmbAutomacao->SelectedIndex = 0;
+			if (modoAtivo == 2) { modoAtivo = 0; }
+			AtualizarBotoesModo();
+		}
+	}
+
+	// ==========================================================================
+	// --- EXECUCAO NAO-BLOQUEANTE (BackgroundWorker) ---
+	// ==========================================================================
+
+	// Habilita/desabilita os controles enquanto o Python roda, e mostra status.
+	private: void DefinirOcupado(bool ocupado, String^ msgStatus) {
+		btnSendChat->Enabled = !ocupado;
+		cmbAutomacao->Enabled = !ocupado;
+		btnChatDom->Enabled = !ocupado;
+		btnChatConversa->Enabled = !ocupado;
+		btnSaveScript->Enabled = !ocupado;
+		txtChatInput->Enabled = !ocupado;
+		if (ocupado)
+			lblChatStatus->Text = msgStatus;
+		// quando desocupa, o status e restaurado por AtualizarBotoesModo (chamado no Completed)
+		formIA->Cursor = ocupado ? Cursors::WaitCursor : Cursors::Default;
+	}
+
+	// Campos capturados na thread da UI antes de rodar o worker (evita acesso cross-thread)
+	private:
+		String^ workerApiKey;
+		String^ workerUrl;
+
+	// Dispara o Python em background. modo: 0=chat, 1=DOM, 2=MCP. payload ja montado.
+	private: void RodarWorker(int modo, String^ payload, String^ statusMsg) {
+		if (workerChat->IsBusy) return;   // ja tem algo rodando
+
+		// Captura tudo que vem da UI AGORA (thread principal), pois o DoWork roda
+		// em outra thread e nao pode tocar em controles com seguranca.
+		workerApiKey = ObterChaveReal();
+		workerUrl = txtUrl->Text;
+		if (workerApiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
+
+		modoWorker = modo;
+		payloadWorker = payload;
+		DefinirOcupado(true, statusMsg);
+		workerChat->RunWorkerAsync();
+	}
+
+	// Roda na THREAD SEPARADA. Nao pode tocar na UI aqui; usa os valores capturados.
+	private: System::Void workerChat_DoWork(System::Object^ sender, System::ComponentModel::DoWorkEventArgs^ e) {
+		if (modoWorker == 2) {
+			// MCP ao vivo: payloadWorker contem o objetivo do teste
+			e->Result = ChamarAgenteMcp(workerApiKey, payloadWorker, workerUrl);
+		}
+		else {
+			// Chat normal (0) ou scan DOM (1): ambos via gerador_ia.py.
+			e->Result = ChamarAgentePython(workerApiKey, payloadWorker, workerUrl);
+		}
+	}
+
+	// Volta para a THREAD DA UI quando o Python termina. Aqui pode atualizar a tela.
+	private: System::Void workerChat_Completed(System::Object^ sender, System::ComponentModel::RunWorkerCompletedEventArgs^ e) {
+		String^ resposta = (e->Error != nullptr)
+			? (L"ERRO interno: " + e->Error->Message)
+			: safe_cast<String^>(e->Result);
+
+		rtbChat->SelectionColor = (modoWorker == 2)
+			? System::Drawing::Color::DarkSlateBlue
+			: System::Drawing::Color::DarkGreen;
+		String^ prefixo = (modoWorker == 2) ? L"T2M Copilot (MCP ao vivo):\n" : L"T2M Copilot Arquiteto:\n";
+		rtbChat->AppendText(L"\n" + prefixo + resposta + L"\n\n");
+		rtbChat->ScrollToCaret();
+
+		DefinirOcupado(false, L"");
+		AtualizarBotoesModo();  // restaura o destaque e o texto de status do modo ativo
+	}
+
+	private: System::Void formIA_Shown(System::Object^ sender, System::EventArgs^ e) {
+		// Mensagem de abertura FIXA (instantanea, nao chama a IA, nao gasta token).
+		rtbChat->SelectionColor = System::Drawing::Color::Indigo;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 12, System::Drawing::FontStyle::Bold);
+		rtbChat->AppendText(L"T2M Copilot\n");
+
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+		rtbChat->SelectionColor = System::Drawing::Color::Black;
+		rtbChat->AppendText(L"Assistente especialista em Automacao, Qualidade (QA) e Seguranca.\n\n");
+		rtbChat->AppendText(L"Escolha um modo no topo (passe o mouse para ver detalhes):\n");
+
+		rtbChat->SelectionColor = System::Drawing::Color::MediumSeaGreen;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		rtbChat->AppendText(L"   ?? Chat");
+		rtbChat->SelectionColor = System::Drawing::Color::Black;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+		rtbChat->AppendText(L" - conversar e planejar (barato).\n");
+
+		rtbChat->SelectionColor = System::Drawing::Color::SteelBlue;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		rtbChat->AppendText(L"   ?? Scan DOM");
+		rtbChat->SelectionColor = System::Drawing::Color::Black;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+		rtbChat->AppendText(L" - ler a estrutura da pagina (seguranca e testes simples).\n");
+
+		rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		rtbChat->AppendText(L"   ? Automacao");
+		rtbChat->SelectionColor = System::Drawing::Color::Black;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+		rtbChat->AppendText(L" - executar ao vivo no navegador via MCP (Teste de Tela).\n\n");
+
+		rtbChat->SelectionColor = System::Drawing::Color::Indigo;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		rtbChat->AppendText(L"Ola, " + PrimeiroNomeUsuario() + L"! Qual e a tarefa de hoje?\n\n");
+
+		// Volta a fonte/cor padrao para as proximas mensagens
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+		rtbChat->SelectionColor = System::Drawing::Color::Black;
+		rtbChat->ScrollToCaret();
+
+		// Aviso discreto se nao houver chave (nao trava, so informa)
+		if (ObterChaveReal() == "") {
+			rtbChat->SelectionColor = System::Drawing::Color::Firebrick;
+			rtbChat->AppendText(L">>> Selecione uma chave de API acima para comecar.\n\n");
+			rtbChat->SelectionColor = System::Drawing::Color::Black;
+		}
+	}
+
+	private: System::Void btnSendChat_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ prompt = txtChatInput->Text->Trim();
+		if (prompt == "") return;
+		String^ apiKey = ObterChaveReal();
+		if (apiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
+
+		// Modos DOM e MCP exigem URL Alvo
+		if ((modoAtivo == 1 || modoAtivo == 2) && String::IsNullOrWhiteSpace(txtUrl->Text)) {
+			MessageBox::Show(L"Preencha a URL Alvo na tela principal para usar Scan DOM ou Automacao MCP.", L"Aviso");
+			return;
+		}
+
+		// Eco da mensagem do usuario
+		rtbChat->SelectionColor = System::Drawing::Color::DarkBlue;
+		rtbChat->AppendText(NomeUsuarioWindows() + L":\n" + prompt + L"\n\n");
+		txtChatInput->Clear();
+
+		// Decide a acao conforme o modo ativo
+		if (modoAtivo == 2) {
+			// MCP ao vivo: o texto do usuario e o objetivo do teste
+			rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
+			rtbChat->AppendText(L">>> Iniciando automacao MCP ao vivo. Uma janela do navegador vai abrir. Aguarde...\n\n");
+			RodarWorker(2, prompt, L"Automacao ao vivo em andamento (navegador aberto)...");
+		}
+		else if (modoAtivo == 1) {
+			// Scan DOM: escaneia a pagina e usa o texto como pergunta/contexto.
+			// O prefixo --SCAN_DOM-- avisa o Python para ativar o escaner nesta mensagem.
+			rtbChat->SelectionColor = System::Drawing::Color::DimGray;
+			rtbChat->AppendText(L">>> Escaneando a estrutura de " + txtUrl->Text + L"...\n\n");
+			RodarWorker(1, L"--SCAN_DOM--\n" + prompt, L"Escaneando a pagina (DOM)...");
+		}
+		else {
+			// Chat normal (so conversa)
+			RodarWorker(0, prompt, L"O agente esta pensando...");
+		}
+	}
+
+	private: System::Void btnSaveScript_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ textoCompleto = rtbChat->Text;
+		int idxStart = textoCompleto->LastIndexOf("```");
+		int offset = 3;
+
+		if (textoCompleto->LastIndexOf("```python") != -1) {
+			idxStart = textoCompleto->LastIndexOf("```python");
+			offset = 9;
+		}
+		else if (textoCompleto->LastIndexOf("```robot") != -1) {
+			idxStart = textoCompleto->LastIndexOf("```robot");
+			offset = 8;
+		}
+		else if (textoCompleto->LastIndexOf("```sql") != -1) {
+			idxStart = textoCompleto->LastIndexOf("```sql");
+			offset = 6;
+		}
+
+		if (idxStart != -1) {
+			int idxEnd = textoCompleto->IndexOf("```", idxStart + offset);
+			if (idxEnd != -1) {
+				String^ codigo = textoCompleto->Substring(idxStart + offset, idxEnd - (idxStart + offset))->Trim();
+
+				String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
+				Directory::CreateDirectory(pastaIA);
+
+				String^ ext = ".txt";
+				if (textoCompleto->LastIndexOf("```python") != -1) ext = ".py";
+				else if (textoCompleto->LastIndexOf("```robot") != -1 || codigo->Contains("*** Settings ***") || codigo->Contains("*** Test Cases ***")) ext = ".robot";
+				else if (textoCompleto->LastIndexOf("```sql") != -1 || codigo->StartsWith("SELECT", StringComparison::OrdinalIgnoreCase) || codigo->StartsWith("UPDATE", StringComparison::OrdinalIgnoreCase)) ext = ".sql";
+
+				String^ nomeArq = "script_copilot_" + DateTime::Now.ToString("yyyyMMdd_HHmmss") + ext;
+				String^ caminho = Path::Combine(pastaIA, nomeArq);
+
+				File::WriteAllText(caminho, codigo);
+
+				if (!scriptPaths->ContainsKey(nomeArq)) {
+					scriptPaths->Add(nomeArq, caminho);
+					lstScripts->Items->Add(nomeArq);
+				}
+				MessageBox::Show(L"Automacao extraida e salva com sucesso:\n" + nomeArq, L"Copilot Integrado");
+				formIA->Close();
+			}
+			else {
+				MessageBox::Show(L"A IA nao finalizou o bloco de codigo corretamente.", L"Aviso de Estrutura");
+			}
+		}
+		else {
+			MessageBox::Show(L"Nenhum codigo estruturado encontrado na conversa. Peca a IA para gerar o script primeiro!", L"Aviso de Extracao");
+		}
+	}
+
+	};
+}
