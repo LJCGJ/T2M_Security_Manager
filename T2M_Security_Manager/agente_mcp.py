@@ -243,7 +243,13 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
+    # Forca a Gemini Developer API na versao ESTAVEL (v1). O padrao do SDK e v1beta,
+    # que tem tido 401 ACCESS_TOKEN_TYPE_UNSUPPORTED com as chaves novas "AQ.".
+    # http_options com api_version='v1' contorna isso.
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(api_version="v1"),
+    )
 
     system = ("Voce e um assistente de automacao de testes, QA e seguranca. Use as "
               "ferramentas de navegador para cumprir o objetivo, observando o estado real "
