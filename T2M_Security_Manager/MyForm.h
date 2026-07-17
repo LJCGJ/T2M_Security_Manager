@@ -495,7 +495,7 @@ namespace T2MSecurityManager {
 			StreamWriter^ sw = gcnew StreamWriter(CaminhoApp("config.txt"));
 			sw->WriteLine(txtUrl->Text);
 			sw->WriteLine(ProtegerTexto(txtToken->Text)); // token cifrado (DPAPI)
-			for each(KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
+			for each (KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
 			sw->Close();
 		}
 		catch (...) {}
@@ -523,7 +523,7 @@ namespace T2MSecurityManager {
 			String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
 			if (Directory::Exists(pastaIA)) {
 				array<String^>^ arquivos = Directory::GetFiles(pastaIA, "*.py");
-				for each(String ^ arquivo in arquivos) {
+				for each (String ^ arquivo in arquivos) {
 					String^ nome = Path::GetFileName(arquivo);
 					if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, arquivo); lstScripts->Items->Add(nome); }
 				}
@@ -610,7 +610,7 @@ namespace T2MSecurityManager {
 		combo->Items->Clear();
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
-			for each(String ^ linha in linhas) {
+			for each (String ^ linha in linhas) {
 				if (!String::IsNullOrWhiteSpace(linha)) {
 					String^ real = DesprotegerTexto(linha->Trim());
 					if (real->Length >= 10)
@@ -719,7 +719,7 @@ namespace T2MSecurityManager {
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 			List<String^>^ chaves = gcnew List<String^>();
-			for each(String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
+			for each (String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
 			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
 		}
 		return "";
@@ -803,7 +803,7 @@ namespace T2MSecurityManager {
 					array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 					List<String^>^ novasLinhas = gcnew List<String^>();
 					int cont = 0;
-					for each(String ^ linha in linhas) {
+					for each (String ^ linha in linhas) {
 						if (!String::IsNullOrWhiteSpace(linha)) {
 							if (cont != idx) novasLinhas->Add(linha);
 							cont++;
@@ -1188,16 +1188,31 @@ namespace T2MSecurityManager {
 		TextBox^ txtApiBody = safe_cast<TextBox^>(ctl[3]);
 		Label^ errUrl = safe_cast<Label^>(ctl[4]);
 
-		// Validacao: URL obrigatoria e precisa comecar com http
+		// Validacao: URL obrigatoria, precisa de http(s):// E ter algo depois do prefixo.
 		String^ url = txtApiUrl->Text->Trim();
-		if (String::IsNullOrWhiteSpace(url) || !(url->StartsWith("http://") || url->StartsWith("https://"))) {
-			errUrl->Text = L"⚠ Informe uma URL valida (http:// ou https://)";
+		bool temPrefixo = url->StartsWith("http://") || url->StartsWith("https://");
+		String^ depoisPrefixo = L"";
+		if (url->StartsWith("https://")) depoisPrefixo = url->Substring(8)->Trim();
+		else if (url->StartsWith("http://")) depoisPrefixo = url->Substring(7)->Trim();
+		if (String::IsNullOrWhiteSpace(url) || !temPrefixo || String::IsNullOrWhiteSpace(depoisPrefixo)) {
+			errUrl->Text = L"⚠ Informe uma URL valida (ex.: https://api.exemplo.com/rota)";
 			errUrl->Visible = true;
 			txtApiUrl->BackColor = System::Drawing::Color::FromArgb(255, 245, 245);
 			return;
 		}
 		errUrl->Visible = false;
 		txtApiUrl->BackColor = System::Drawing::Color::White;
+
+		// Aviso amigavel (nao bloqueia): metodos que costumam enviar dados sem body.
+		String^ met = cbMet->Text;
+		bool enviaBody = (met == "POST" || met == "PUT" || met == "PATCH");
+		if (enviaBody && String::IsNullOrWhiteSpace(txtApiBody->Text)) {
+			System::Windows::Forms::DialogResult r = MessageBox::Show(
+				L"O metodo " + met + L" normalmente envia um corpo (body), mas ele esta vazio.\n\n"
+				L"Deseja salvar mesmo assim?",
+				L"Body vazio", MessageBoxButtons::YesNo, MessageBoxIcon::Question);
+			if (r == System::Windows::Forms::DialogResult::No) return;  // volta para preencher
+		}
 
 		apiMetodo = cbMet->Text;
 		apiUrl = url;
@@ -1700,7 +1715,7 @@ namespace T2MSecurityManager {
 		if (!String::IsNullOrWhiteSpace(apiHeaders)) {
 			array<String^>^ linhas = apiHeaders->Split('\n');
 			bool primeiro = true;
-			for each(String ^ linha in linhas) {
+			for each (String ^ linha in linhas) {
 				String^ l = linha->Trim();
 				int dp = l->IndexOf(':');
 				if (dp > 0) {
