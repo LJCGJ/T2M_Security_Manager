@@ -73,6 +73,8 @@ namespace T2MSecurityManager {
 		RichTextBox^ rtbChat;
 		TextBox^ txtChatInput;
 		Button^ btnSendChat;
+		Button^ btnTemaChat;     // alterna tema claro/escuro da janela do chat
+		bool temaEscuro;         // estado atual do tema
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
 		Button^ btnExportarRelatorio;  // exporta a conversa como relatorio HTML
@@ -880,6 +882,16 @@ namespace T2MSecurityManager {
 		btnRemoverChave->Click += gcnew System::EventHandler(this, &MyForm::btnRemoverChave_Click);
 		formIA->Controls->Add(btnRemoverChave);
 
+		// Botao de tema (sol/lua) - fica no canto superior direito da janela do chat
+		btnTemaChat = gcnew Button();
+		btnTemaChat->Location = System::Drawing::Point(680, 12);
+		btnTemaChat->Size = System::Drawing::Size(30, 26);
+		btnTemaChat->FlatStyle = FlatStyle::Flat;
+		btnTemaChat->Font = gcnew System::Drawing::Font("Segoe UI", 9);
+		btnTemaChat->Click += gcnew System::EventHandler(this, &MyForm::btnTemaChat_Click);
+		formIA->Controls->Add(btnTemaChat);
+		dica->SetToolTip(btnTemaChat, L"Alterna entre tema claro e escuro (a preferencia e lembrada).");
+
 		// Label de status (fica ao lado dos botoes de acao; some quando ocioso)
 		lblChatStatus = gcnew Label();
 		lblChatStatus->Text = L"";
@@ -1017,7 +1029,74 @@ namespace T2MSecurityManager {
 		AtualizarBotoesModo();
 		AtualizarIndicadorIA();
 
+		// Carrega a preferencia de tema salva e aplica
+		temaEscuro = CarregarPreferenciaTema();
+		AplicarTema(temaEscuro);
+
 		formIA->ShowDialog();
+	}
+
+		   // ==========================================================================
+		   // --- TEMA CLARO / ESCURO (janela do chat) ---
+		   // ==========================================================================
+
+	private: System::Void btnTemaChat_Click(System::Object^ sender, System::EventArgs^ e) {
+		temaEscuro = !temaEscuro;
+		AplicarTema(temaEscuro);
+		SalvarPreferenciaTema(temaEscuro);
+	}
+
+		   // Aplica as cores do tema aos controles principais da janela do chat.
+	private: void AplicarTema(bool escuro) {
+		if (formIA == nullptr) return;
+		System::Drawing::Color fundo, fundoCampo, texto, fundoInput;
+		if (escuro) {
+			fundo = System::Drawing::Color::FromArgb(32, 34, 40);
+			fundoCampo = System::Drawing::Color::FromArgb(24, 26, 31);
+			fundoInput = System::Drawing::Color::FromArgb(44, 47, 54);
+			texto = System::Drawing::Color::Gainsboro;
+			btnTemaChat->Text = L"☀";
+		}
+		else {
+			fundo = System::Drawing::Color::WhiteSmoke;
+			fundoCampo = System::Drawing::Color::White;
+			fundoInput = System::Drawing::Color::White;
+			texto = System::Drawing::Color::Black;
+			btnTemaChat->Text = L"🌙";
+		}
+		formIA->BackColor = fundo;
+		if (rtbChat != nullptr) { rtbChat->BackColor = fundoCampo; rtbChat->ForeColor = texto; }
+		if (txtChatInput != nullptr) { txtChatInput->BackColor = fundoInput; txtChatInput->ForeColor = texto; }
+		btnTemaChat->BackColor = fundoInput;
+		btnTemaChat->ForeColor = texto;
+		// Percorre labels soltos (titulos) para ajustar a cor do texto
+		for each (Control ^ c in formIA->Controls) {
+			Label^ lbl = dynamic_cast<Label^>(c);
+			if (lbl != nullptr && lbl != lblChatStatus && lbl != lblIndicadorIA) {
+				lbl->ForeColor = texto;
+			}
+		}
+	}
+
+		   // Le a preferencia de tema do disco (arquivo simples). Retorna true = escuro.
+	private: bool CarregarPreferenciaTema() {
+		try {
+			String^ caminho = CaminhoApp("tema.txt");
+			if (File::Exists(caminho)) {
+				String^ v = File::ReadAllText(caminho)->Trim();
+				return v == "escuro";
+			}
+		}
+		catch (...) {}
+		return false;  // padrao: claro
+	}
+
+		   // Salva a preferencia de tema no disco.
+	private: void SalvarPreferenciaTema(bool escuro) {
+		try {
+			File::WriteAllText(CaminhoApp("tema.txt"), escuro ? "escuro" : "claro");
+		}
+		catch (...) {}
 	}
 
 		   // ==========================================================================
