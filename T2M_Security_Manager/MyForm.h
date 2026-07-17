@@ -75,6 +75,7 @@ namespace T2MSecurityManager {
 		Button^ btnSendChat;
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
+		Button^ btnExportarRelatorio;  // exporta a conversa como relatorio HTML
 		ComboBox^ comboModeloChat;
 
 		// Botoes/controles de modo (toggle): so um ativo por vez.
@@ -386,7 +387,7 @@ namespace T2MSecurityManager {
 			   this->btnExport->Name = L"btnExport";
 			   this->btnExport->Size = System::Drawing::Size(180, 45);
 			   this->btnExport->TabIndex = 15;
-			   this->btnExport->Text = L"💾 Exportar Log";
+			   this->btnExport->Text = L"💾 Exportar Log Tecnico";
 			   this->btnExport->UseVisualStyleBackColor = false;
 			   this->btnExport->Click += gcnew System::EventHandler(this, &MyForm::btnExport_Click);
 
@@ -602,8 +603,12 @@ namespace T2MSecurityManager {
 	}
 	private: System::Void btnStop_Click(System::Object^ sender, System::EventArgs^ e) { if (pythonProcess != nullptr && !pythonProcess->HasExited) { try { pythonProcess->Kill(); } catch (...) {} } }
 	private: System::Void btnExport_Click(System::Object^ sender, System::EventArgs^ e) {
-		SaveFileDialog^ save = gcnew SaveFileDialog(); save->Filter = "Log (*.txt)|*.txt";
-		if (save->ShowDialog() == System::Windows::Forms::DialogResult::OK) File::WriteAllText(save->FileName, txtOutput->Text);
+		if (String::IsNullOrWhiteSpace(txtOutput->Text)) {
+			MessageBox::Show(L"O log tecnico esta vazio. Execute alguma operacao primeiro.", L"Aviso");
+			return;
+		}
+		ExportarComoHtml(txtOutput->Text, L"Log Tecnico",
+			L"Registro tecnico das operacoes do sistema", L"log_tecnico_T2M_");
 	}
 
 	private: void CarregarDropdownAPI(ComboBox^ combo) {
@@ -974,9 +979,9 @@ namespace T2MSecurityManager {
 		menuAutomacao->Items->Add(itBanco);
 
 		btnSaveScript = gcnew Button();
-		btnSaveScript->Text = L"💾 2. Extrair e Salvar Codigo Final";
+		btnSaveScript->Text = L"💾 Extrair e Salvar Codigo";
 		btnSaveScript->Location = System::Drawing::Point(20, 545);
-		btnSaveScript->Size = System::Drawing::Size(690, 40);
+		btnSaveScript->Size = System::Drawing::Size(450, 40);
 		btnSaveScript->BackColor = System::Drawing::Color::Indigo;
 		btnSaveScript->ForeColor = System::Drawing::Color::White;
 		btnSaveScript->FlatStyle = FlatStyle::Flat;
@@ -985,6 +990,19 @@ namespace T2MSecurityManager {
 		formIA->Controls->Add(btnSaveScript);
 		dica->SetToolTip(btnSaveScript,
 			L"Extrai o ultimo bloco de codigo da conversa e salva como script (.py/.robot/.sql).");
+
+		btnExportarRelatorio = gcnew Button();
+		btnExportarRelatorio->Text = L"📄 Relatorio do Teste";
+		btnExportarRelatorio->Location = System::Drawing::Point(480, 545);
+		btnExportarRelatorio->Size = System::Drawing::Size(230, 40);
+		btnExportarRelatorio->BackColor = System::Drawing::Color::SteelBlue;
+		btnExportarRelatorio->ForeColor = System::Drawing::Color::White;
+		btnExportarRelatorio->FlatStyle = FlatStyle::Flat;
+		btnExportarRelatorio->Font = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		btnExportarRelatorio->Click += gcnew System::EventHandler(this, &MyForm::btnExportarRelatorio_Click);
+		formIA->Controls->Add(btnExportarRelatorio);
+		dica->SetToolTip(btnExportarRelatorio,
+			L"Gera um relatorio HTML da conversa/teste, para documentar e compartilhar.");
 
 		// Configura o BackgroundWorker (execucao em thread separada = janela nao congela)
 		workerChat = gcnew System::ComponentModel::BackgroundWorker();
@@ -1522,6 +1540,7 @@ namespace T2MSecurityManager {
 		btnChatDom->Enabled = !ocupado;
 		btnChatConversa->Enabled = !ocupado;
 		btnSaveScript->Enabled = !ocupado;
+		btnExportarRelatorio->Enabled = !ocupado;
 		txtChatInput->Enabled = !ocupado;
 		if (ocupado)
 			lblChatStatus->Text = msgStatus;
@@ -1755,6 +1774,72 @@ namespace T2MSecurityManager {
 		payloadWorker = objetivo;
 		DefinirOcupado(true, L"Testando a API...");
 		workerChat->RunWorkerAsync();
+	}
+
+		   // Exporta a conversa/teste atual como um relatorio HTML formatado.
+	private: System::Void btnExportarRelatorio_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (String::IsNullOrWhiteSpace(rtbChat->Text)) {
+			MessageBox::Show(L"Nao ha conteudo para exportar. Faca um teste ou converse primeiro.", L"Aviso");
+			return;
+		}
+		ExportarComoHtml(rtbChat->Text, L"Relatorio de Teste",
+			L"Resultado do teste conduzido pela IA", L"relatorio_T2M_");
+	}
+
+		   // Funcao compartilhada: gera um HTML formatado e pergunta se quer abrir.
+		   // Usada tanto pelo "Relatorio do Teste" (chat) quanto pelo "Exportar Log Tecnico".
+	private: void ExportarComoHtml(String^ conteudo, String^ titulo, String^ subtitulo, String^ prefixoArquivo) {
+		String^ pasta = Path::Combine(
+			Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "relatorios T2M");
+		Directory::CreateDirectory(pasta);
+
+		String^ dataHora = DateTime::Now.ToString("yyyy-MM-dd_HH-mm-ss");
+		String^ caminho = Path::Combine(pasta, prefixoArquivo + dataHora + ".html");
+
+		// Escapa o conteudo para HTML
+		String^ corpo = conteudo
+			->Replace("&", "&amp;")
+			->Replace("<", "&lt;")
+			->Replace(">", "&gt;");
+
+		System::Text::StringBuilder^ html = gcnew System::Text::StringBuilder();
+		html->Append(L"<!DOCTYPE html>\n<html lang=\"pt-br\">\n<head>\n");
+		html->Append(L"<meta charset=\"UTF-8\">\n");
+		html->Append(L"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
+		html->Append(L"<title>" + titulo + L" - T2M Security Manager</title>\n");
+		html->Append(L"<style>\n");
+		html->Append(L"body{font-family:'Segoe UI',Arial,sans-serif;background:#f4f6f8;color:#222;margin:0;padding:0;}\n");
+		html->Append(L".container{max-width:900px;margin:30px auto;background:#fff;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.08);overflow:hidden;}\n");
+		html->Append(L".header{background:#2c3e6b;color:#fff;padding:24px 32px;}\n");
+		html->Append(L".header h1{margin:0;font-size:22px;}\n");
+		html->Append(L".header .sub{opacity:.85;font-size:13px;margin-top:6px;}\n");
+		html->Append(L".meta{padding:16px 32px;background:#eef1f6;font-size:13px;color:#555;border-bottom:1px solid #dde;}\n");
+		html->Append(L".content{padding:24px 32px;}\n");
+		html->Append(L"pre{white-space:pre-wrap;word-wrap:break-word;font-family:'Consolas','Courier New',monospace;font-size:13px;line-height:1.5;background:#fafbfc;border:1px solid #e3e7ec;border-radius:6px;padding:16px;}\n");
+		html->Append(L".footer{padding:16px 32px;font-size:12px;color:#888;border-top:1px solid #eee;text-align:center;}\n");
+		html->Append(L"</style>\n</head>\n<body>\n");
+		html->Append(L"<div class=\"container\">\n");
+		html->Append(L"<div class=\"header\"><h1>" + titulo + L"</h1>");
+		html->Append(L"<div class=\"sub\">" + subtitulo + L" - T2M Security Manager</div></div>\n");
+		html->Append(L"<div class=\"meta\">");
+		html->Append(L"<strong>Data:</strong> " + DateTime::Now.ToString("dd/MM/yyyy HH:mm:ss") + L" &nbsp;|&nbsp; ");
+		html->Append(L"<strong>Operador:</strong> " + NomeUsuarioWindows() + L"</div>\n");
+		html->Append(L"<div class=\"content\">\n<pre>" + corpo + L"</pre>\n</div>\n");
+		html->Append(L"<div class=\"footer\">Gerado automaticamente pelo T2M Security Manager</div>\n");
+		html->Append(L"</div>\n</body>\n</html>");
+
+		try {
+			File::WriteAllText(caminho, html->ToString(), System::Text::Encoding::UTF8);
+			System::Windows::Forms::DialogResult r = MessageBox::Show(
+				L"Arquivo salvo em:\n" + caminho + L"\n\nDeseja abrir agora no navegador?",
+				L"Exportado", MessageBoxButtons::YesNo, MessageBoxIcon::Information);
+			if (r == System::Windows::Forms::DialogResult::Yes) {
+				System::Diagnostics::Process::Start(caminho);
+			}
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Erro ao salvar: " + ex->Message, L"Erro");
+		}
 	}
 
 	private: System::Void btnSaveScript_Click(System::Object^ sender, System::EventArgs^ e) {
