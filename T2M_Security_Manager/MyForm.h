@@ -101,6 +101,13 @@ namespace T2MSecurityManager {
 		bool dbSomenteLeitura;
 		bool dbConfigurado;      // true quando o usuario preencheu a conexao
 
+		// Dados da requisicao de API (coletados no formulario).
+		String^ apiMetodo;       // GET, POST, PUT, DELETE...
+		String^ apiUrl;
+		String^ apiHeaders;      // texto (uma linha por header: Nome: valor)
+		String^ apiBody;         // corpo (JSON como texto)
+		bool apiConfigurado;
+
 		// Execucao NAO-BLOQUEANTE: o Python roda numa thread separada via BackgroundWorker,
 		// para a janela nao congelar durante o chat ou o MCP ao vivo.
 		System::ComponentModel::BackgroundWorker^ workerChat;
@@ -987,6 +994,8 @@ namespace T2MSecurityManager {
 		// Estado inicial: modo Chat + indicador da IA da chave atual
 		modoAtivo = 0;
 		tipoAutomacao = 0;
+		dbConfigurado = false;
+		apiConfigurado = false;
 		AtualizarBotoesModo();
 		AtualizarIndicadorIA();
 
@@ -1071,7 +1080,138 @@ namespace T2MSecurityManager {
 	}
 		   // Opcao Teste de API - em breve
 	private: System::Void menuApi_Click(System::Object^ sender, System::EventArgs^ e) {
-		AvisarEmBreve(L"Teste de API");
+		if (workerChat->IsBusy) return;
+		AbrirFormularioApi();
+	}
+
+		   // Formulario que coleta os dados da requisicao de API.
+	private: void AbrirFormularioApi() {
+		Form^ f = gcnew Form();
+		f->Text = L"Teste de API - Montar Requisicao";
+		f->Size = System::Drawing::Size(520, 520);
+		f->StartPosition = FormStartPosition::CenterParent;
+		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
+		f->MaximizeBox = false; f->MinimizeBox = false;
+		f->BackColor = System::Drawing::Color::WhiteSmoke;
+		AplicarIcone(f);
+
+		int x1 = 20, larg = 460, y = 18;
+
+		// Metodo + URL na mesma linha
+		Label^ lblMet = gcnew Label(); lblMet->Text = L"Metodo:";
+		lblMet->Location = System::Drawing::Point(x1, y + 3); lblMet->AutoSize = true;
+		f->Controls->Add(lblMet);
+		ComboBox^ cbMet = gcnew ComboBox();
+		cbMet->DropDownStyle = ComboBoxStyle::DropDownList;
+		cbMet->Location = System::Drawing::Point(x1 + 60, y); cbMet->Size = System::Drawing::Size(90, 24);
+		cbMet->Items->Add(L"GET"); cbMet->Items->Add(L"POST"); cbMet->Items->Add(L"PUT");
+		cbMet->Items->Add(L"DELETE"); cbMet->Items->Add(L"PATCH");
+		cbMet->SelectedIndex = (apiMetodo != nullptr && cbMet->Items->Contains(apiMetodo))
+			? cbMet->Items->IndexOf(apiMetodo) : 0;
+		f->Controls->Add(cbMet);
+
+		// URL
+		y += 36;
+		Label^ lblUrl = gcnew Label(); lblUrl->Text = L"URL do endpoint:";
+		lblUrl->Location = System::Drawing::Point(x1, y); lblUrl->AutoSize = true;
+		f->Controls->Add(lblUrl);
+		Label^ errUrl = CriarLabelErro(x1 + 130, y, 300);
+		f->Controls->Add(errUrl);
+		y += 20;
+		TextBox^ txtApiUrl = gcnew TextBox();
+		txtApiUrl->Location = System::Drawing::Point(x1, y); txtApiUrl->Size = System::Drawing::Size(larg, 24);
+		txtApiUrl->Text = (apiUrl != nullptr) ? apiUrl : L"https://";
+		f->Controls->Add(txtApiUrl);
+
+		// Headers
+		y += 36;
+		Label^ lblHead = gcnew Label();
+		lblHead->Text = L"Headers (um por linha, ex.: Authorization: Bearer xxx):";
+		lblHead->Location = System::Drawing::Point(x1, y); lblHead->AutoSize = true;
+		f->Controls->Add(lblHead);
+		y += 20;
+		TextBox^ txtApiHead = gcnew TextBox();
+		txtApiHead->Location = System::Drawing::Point(x1, y); txtApiHead->Size = System::Drawing::Size(larg, 70);
+		txtApiHead->Multiline = true; txtApiHead->ScrollBars = ScrollBars::Vertical;
+		txtApiHead->Text = (apiHeaders != nullptr) ? apiHeaders : L"Content-Type: application/json";
+		f->Controls->Add(txtApiHead);
+
+		// Body
+		y += 82;
+		Label^ lblBody = gcnew Label();
+		lblBody->Text = L"Body (JSON - opcional, usado em POST/PUT/PATCH):";
+		lblBody->Location = System::Drawing::Point(x1, y); lblBody->AutoSize = true;
+		f->Controls->Add(lblBody);
+		y += 20;
+		TextBox^ txtApiBody = gcnew TextBox();
+		txtApiBody->Location = System::Drawing::Point(x1, y); txtApiBody->Size = System::Drawing::Size(larg, 90);
+		txtApiBody->Multiline = true; txtApiBody->ScrollBars = ScrollBars::Vertical;
+		txtApiBody->Font = gcnew System::Drawing::Font("Consolas", 9);
+		txtApiBody->Text = (apiBody != nullptr) ? apiBody : L"";
+		f->Controls->Add(txtApiBody);
+
+		// Botoes
+		y += 100;
+		Button^ btnOk = gcnew Button();
+		btnOk->Text = L"Salvar requisicao";
+		btnOk->Location = System::Drawing::Point(x1 + 130, y); btnOk->Size = System::Drawing::Size(150, 30);
+		btnOk->BackColor = System::Drawing::Color::MediumSeaGreen;
+		btnOk->ForeColor = System::Drawing::Color::White; btnOk->FlatStyle = FlatStyle::Flat;
+		f->Controls->Add(btnOk);
+
+		Button^ btnCancel = gcnew Button();
+		btnCancel->Text = L"Cancelar";
+		btnCancel->Location = System::Drawing::Point(x1 + 290, y); btnCancel->Size = System::Drawing::Size(100, 30);
+		btnCancel->FlatStyle = FlatStyle::Flat;
+		f->Controls->Add(btnCancel);
+		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
+
+		// Guarda campos no Tag: 0=cbMet 1=txtApiUrl 2=txtApiHead 3=txtApiBody 4=errUrl
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(5);
+		campos[0] = cbMet; campos[1] = txtApiUrl; campos[2] = txtApiHead;
+		campos[3] = txtApiBody; campos[4] = errUrl;
+		f->Tag = campos;
+		btnOk->Tag = f;
+		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarApi_Click);
+
+		f->ShowDialog();
+	}
+
+		   // Salva a requisicao de API: valida a URL, guarda na sessao, ativa o modo.
+	private: System::Void salvarApi_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		Form^ f = safe_cast<Form^>(b->Tag);
+		cli::array<Object^>^ ctl = safe_cast<cli::array<Object^>^>(f->Tag);
+		ComboBox^ cbMet = safe_cast<ComboBox^>(ctl[0]);
+		TextBox^ txtApiUrl = safe_cast<TextBox^>(ctl[1]);
+		TextBox^ txtApiHead = safe_cast<TextBox^>(ctl[2]);
+		TextBox^ txtApiBody = safe_cast<TextBox^>(ctl[3]);
+		Label^ errUrl = safe_cast<Label^>(ctl[4]);
+
+		// Validacao: URL obrigatoria e precisa comecar com http
+		String^ url = txtApiUrl->Text->Trim();
+		if (String::IsNullOrWhiteSpace(url) || !(url->StartsWith("http://") || url->StartsWith("https://"))) {
+			errUrl->Text = L"⚠ Informe uma URL valida (http:// ou https://)";
+			errUrl->Visible = true;
+			txtApiUrl->BackColor = System::Drawing::Color::FromArgb(255, 245, 245);
+			return;
+		}
+		errUrl->Visible = false;
+		txtApiUrl->BackColor = System::Drawing::Color::White;
+
+		apiMetodo = cbMet->Text;
+		apiUrl = url;
+		apiHeaders = txtApiHead->Text->Trim();
+		apiBody = txtApiBody->Text->Trim();
+		apiConfigurado = true;
+
+		modoAtivo = 2; tipoAutomacao = 1;
+		AtualizarBotoesModo();
+		rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
+		rtbChat->AppendText(L">>> Requisicao de API configurada: " + apiMetodo + L" " + apiUrl + L"\n");
+		rtbChat->AppendText(L">>> Descreva no chat o que quer validar (ex.: 'verifique se retorna 200 e tem o campo id').\n\n");
+
+		f->Close();
 	}
 		   // Opcao Banco de Dados - abre o formulario de conexao (interface pronta; a
 		   // conexao real via MCP sera plugada depois).
@@ -1492,6 +1632,10 @@ namespace T2MSecurityManager {
 			MessageBox::Show(L"Configure a conexao de banco primeiro (menu Automacao > Banco de Dados).", L"Aviso");
 			return;
 		}
+		if (modoAtivo == 2 && tipoAutomacao == 1 && !apiConfigurado) {
+			MessageBox::Show(L"Configure a requisicao de API primeiro (menu Automacao > Teste de API).", L"Aviso");
+			return;
+		}
 
 		// Eco da mensagem do usuario
 		rtbChat->SelectionColor = System::Drawing::Color::DarkBlue;
@@ -1499,7 +1643,13 @@ namespace T2MSecurityManager {
 		txtChatInput->Clear();
 
 		// Decide a acao conforme o modo ativo
-		if (modoAtivo == 2 && tipoAutomacao == 2) {
+		if (modoAtivo == 2 && tipoAutomacao == 1) {
+			// TESTE DE API: monta o JSON e envia via ferramenta HTTP do agente
+			rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
+			rtbChat->AppendText(L">>> Testando a API (" + apiMetodo + L" " + apiUrl + L"). Aguarde...\n\n");
+			RodarWorkerApi(prompt);
+		}
+		else if (modoAtivo == 2 && tipoAutomacao == 2) {
 			// AUTOMACAO DE BANCO: monta o DSN e envia via MCP (DBHub)
 			rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
 			rtbChat->AppendText(L">>> Consultando o banco (" + dbTipo + L") via MCP. Aguarde...\n\n");
@@ -1535,6 +1685,60 @@ namespace T2MSecurityManager {
 		modoWorker = 2;              // usa ChamarAgenteMcp (que roteia p/ agente_mcp.py)
 		payloadWorker = objetivo;
 		DefinirOcupado(true, L"Consultando o banco de dados...");
+		workerChat->RunWorkerAsync();
+	}
+
+		   // Monta o JSON da requisicao de API a partir dos dados salvos.
+		   // Converte os headers (texto "Nome: valor" por linha) em objeto JSON.
+	private: String^ MontarJsonApi() {
+		System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
+		sb->Append(L"{");
+		sb->Append(L"\"metodo\":\"" + EscaparJson(apiMetodo) + L"\",");
+		sb->Append(L"\"url\":\"" + EscaparJson(apiUrl) + L"\",");
+		// headers: transforma cada linha "Nome: valor" em par chave:valor
+		sb->Append(L"\"headers\":{");
+		if (!String::IsNullOrWhiteSpace(apiHeaders)) {
+			array<String^>^ linhas = apiHeaders->Split('\n');
+			bool primeiro = true;
+			for each(String ^ linha in linhas) {
+				String^ l = linha->Trim();
+				int dp = l->IndexOf(':');
+				if (dp > 0) {
+					String^ nome = l->Substring(0, dp)->Trim();
+					String^ valor = l->Substring(dp + 1)->Trim();
+					if (!primeiro) sb->Append(L",");
+					sb->Append(L"\"" + EscaparJson(nome) + L"\":\"" + EscaparJson(valor) + L"\"");
+					primeiro = false;
+				}
+			}
+		}
+		sb->Append(L"},");
+		// body como texto (o Python interpreta como JSON se possivel)
+		sb->Append(L"\"body\":\"" + EscaparJson(apiBody) + L"\"");
+		sb->Append(L"}");
+		return sb->ToString();
+	}
+
+		   // Escapa caracteres especiais para o JSON nao quebrar.
+	private: String^ EscaparJson(String^ s) {
+		if (s == nullptr) return L"";
+		s = s->Replace(L"\\", L"\\\\");
+		s = s->Replace(L"\"", L"\\\"");
+		s = s->Replace(L"\r", L"");
+		s = s->Replace(L"\n", L"\\n");
+		s = s->Replace(L"\t", L"\\t");
+		return s;
+	}
+
+		   // Dispara o worker para o modo API: passa o JSON via URL com marcador --API--.
+	private: void RodarWorkerApi(String^ objetivo) {
+		if (workerChat->IsBusy) return;
+		workerApiKey = ObterChaveReal();
+		if (workerApiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
+		workerUrl = L"--API--" + MontarJsonApi();
+		modoWorker = 2;              // usa ChamarAgenteMcp (roteia p/ agente_mcp.py)
+		payloadWorker = objetivo;
+		DefinirOcupado(true, L"Testando a API...");
 		workerChat->RunWorkerAsync();
 	}
 
