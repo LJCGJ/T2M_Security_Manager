@@ -1,0 +1,16 @@
+# T2M Security Manager - dependencias Python
+# Instale com:  pip install -r requirements.txt
+
+# Protocolo MCP (Model Context Protocol) - usado nos modos Tela, Banco e MongoDB
+mcp>=1.0.0
+
+# Provedores de IA (o app roteia pelo prefixo da chave)
+anthropic>=0.40.0
+openai>=1.50.0
+google-generativeai>=0.8.0
+
+# Requisicoes HTTP - usado no Teste de API
+requests>=2.31.0
+
+# Driver oficial da Oracle (thin mode, nao exige Oracle Instant Client)
+oracledb>=2.0.0
