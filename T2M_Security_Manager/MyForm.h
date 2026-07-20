@@ -528,15 +528,39 @@ namespace T2MSecurityManager {
 	private: void CarregarScriptsIA() {
 		try {
 			String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
-			if (Directory::Exists(pastaIA)) {
-				array<String^>^ arquivos = Directory::GetFiles(pastaIA, "*.py");
-				for each(String ^ arquivo in arquivos) {
-					String^ nome = Path::GetFileName(arquivo);
-					if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, arquivo); lstScripts->Items->Add(nome); }
+			if (!Directory::Exists(pastaIA)) return;
+
+			// Carrega TODOS os tipos de script gerados pelo Copilot (antes so lia .py,
+			// entao scripts .robot/.sql/.txt sumiam da lista ao reabrir o app).
+			List<String^>^ todos = gcnew List<String^>();
+			array<String^>^ extensoes = gcnew array<String^>{ "*.py", "*.robot", "*.sql", "*.txt" };
+			for each(String ^ padrao in extensoes) {
+				for each(String ^ arquivo in Directory::GetFiles(pastaIA, padrao))
+					todos->Add(arquivo);
+			}
+
+			// Ordena por data de modificacao: mais recentes primeiro
+			todos->Sort(gcnew Comparison<String^>(&MyForm::CompararPorDataDesc));
+
+			for each(String ^ arquivo in todos) {
+				String^ nome = Path::GetFileName(arquivo);
+				if (!scriptPaths->ContainsKey(nome)) {
+					scriptPaths->Add(nome, arquivo);
+					lstScripts->Items->Add(nome);
 				}
 			}
 		}
 		catch (...) {}
+	}
+
+		   // Comparador: ordena caminhos de arquivo pela data de modificacao (desc).
+	private: static int CompararPorDataDesc(String^ a, String^ b) {
+		try {
+			DateTime da = File::GetLastWriteTime(a);
+			DateTime db = File::GetLastWriteTime(b);
+			return db.CompareTo(da);   // mais recente primeiro
+		}
+		catch (...) { return 0; }
 	}
 
 	private: System::Void MyForm_FormClosing(System::Object^ sender, System::Windows::Forms::FormClosingEventArgs^ e) { SalvarConfiguracao(); }
@@ -2039,7 +2063,7 @@ namespace T2MSecurityManager {
 
 				if (!scriptPaths->ContainsKey(nomeArq)) {
 					scriptPaths->Add(nomeArq, caminho);
-					lstScripts->Items->Add(nomeArq);
+					lstScripts->Items->Insert(0, nomeArq);   // mais recente no topo
 				}
 				MessageBox::Show(L"Automacao extraida e salva com sucesso:\n" + nomeArq, L"Copilot Integrado");
 				formIA->Close();
