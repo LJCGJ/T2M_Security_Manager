@@ -1082,6 +1082,87 @@ async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
     return (ultimo or "") + "\n[Limite de passos atingido.]"
 
 
+async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
+    """Sobe o servidor MCP OFICIAL da MongoDB (mongodb-mcp-server) via npx.
+    conn_string: mongodb://usuario:senha@host:porta/banco
+    somente_leitura: se True, passa --readOnly (o servidor e read-write por padrao).
+
+    Nota de seguranca: o servidor oficial tambem expoe ferramentas do Atlas
+    (criar usuarios, alterar lista de IPs, gerenciar clusters). Como nao passamos
+    credenciais da API do Atlas, essas ferramentas nao tem como agir - o acesso
+    fica restrito ao banco informado."""
+    if not tem_lib("mcp"):
+        responder("Biblioteca ausente: mcp. Rode: pip install mcp")
+        return
+
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    comando_npx = "npx.cmd" if platform.system() == "Windows" else "npx"
+    args = ["-y", "mongodb-mcp-server@latest", "--connectionString", conn_string]
+    if somente_leitura:
+        args.append("--readOnly")   # atencao: o padrao do servidor e read-write
+
+    server_params = StdioServerParameters(command=comando_npx, args=args)
+
+    log(">>> Subindo servidor MCP oficial da MongoDB...")
+    try:
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                tools_resp = await session.list_tools()
+                mcp_tools = tools_resp.tools
+                log(f">>> MongoDB MCP conectado. {len(mcp_tools)} ferramentas disponiveis.")
+
+                modo_ro = ("O banco esta em modo SOMENTE LEITURA (apenas consultas). "
+                           if somente_leitura else
+                           "O banco permite leitura e escrita; seja cuidadoso com operacoes "
+                           "destrutivas (insert/update/delete/drop) e confirme antes. ")
+                objetivo_completo = (
+                    f"Voce esta conectado a um banco MongoDB via ferramentas MCP. {modo_ro}"
+                    f"Nao use ferramentas administrativas do Atlas (criar usuarios, alterar "
+                    f"lista de IPs, gerenciar clusters) - limite-se a explorar e consultar os "
+                    f"dados. Primeiro liste as collections e observe a forma dos documentos, "
+                    f"depois consulte.\n\n"
+                    f"Objetivo do usuario: {objetivo}\n\n"
+                    f"Ao final, relate o que encontrou de forma clara. Se fizer sentido, gere "
+                    f"um script de teste dentro de blocos ```linguagem ... ```.")
+
+                if api_key.startswith("sk-ant-"):
+                    if not tem_lib("anthropic"):
+                        responder("Biblioteca ausente: anthropic."); return
+                    resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
+                elif api_key.startswith("sk-"):
+                    if not tem_lib("openai"):
+                        responder("Biblioteca ausente: openai."); return
+                    resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
+                else:
+                    if not tem_lib("google.generativeai"):
+                        responder("Biblioteca ausente: google-generativeai."); return
+                    resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
+
+                try:
+                    memoria = []
+                    if os.path.exists(ARQUIVO_MEMORIA):
+                        with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
+                            memoria = json.load(f)
+                    memoria.append({"role": "user",
+                                    "content": f"[MONGODB] {objetivo}"})
+                    memoria.append({"role": "assistant", "content": resultado})
+                    with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
+                        json.dump(memoria, f, ensure_ascii=False, indent=4)
+                except Exception as e:
+                    log(f">>> Aviso: nao foi possivel gravar na memoria: {e}")
+
+                responder(resultado)
+    except FileNotFoundError:
+        responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
+    except Exception as e:
+        import traceback
+        log(traceback.format_exc())
+        responder(f"ERRO no MongoDB: {type(e).__name__}: {e}")
+
+
 def main():
     dados = sys.stdin.read()
     partes = dados.split("\n", 2)
@@ -1105,6 +1186,17 @@ def main():
         else:
             dsn, somente_leitura = resto, True
         asyncio.run(executar_banco(api_key, dsn.strip(), somente_leitura, objetivo))
+        return
+
+    # MODO MONGODB: linha 2 = "--MONGO--<connstring>|<readonly>"
+    if linha2.startswith("--MONGO--"):
+        resto = linha2[len("--MONGO--"):]
+        if "|" in resto:
+            conn, ro = resto.rsplit("|", 1)
+            somente_leitura = ro.strip() == "1"
+        else:
+            conn, somente_leitura = resto, True
+        asyncio.run(executar_mongo(api_key, conn.strip(), somente_leitura, objetivo))
         return
 
     # MODO ORACLE: linha 2 = "--ORACLE--<json>" (driver oficial, sem DBHub).

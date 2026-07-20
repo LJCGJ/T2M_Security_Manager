@@ -1033,9 +1033,10 @@ namespace T2MSecurityManager {
 		btnAutomacao->Click += gcnew System::EventHandler(this, &MyForm::btnAutomacao_Click);
 		formIA->Controls->Add(btnAutomacao);
 		dica->SetToolTip(btnAutomacao,
-			L"AUTOMACAO (via MCP, navegador/execucao real)\n"
+			L"AUTOMACAO (via MCP, execucao real)\n"
 			L"Teste de Tela: descreva o teste e a IA executa passo a passo ao vivo.\n"
-			L"Teste de API / Banco de Dados: em breve.\n"
+			L"Teste de API: monte a requisicao e a IA chama e analisa a resposta.\n"
+			L"Banco de Dados: a IA explora o schema e consulta (somente leitura por padrao).\n"
 			L"ATENCAO: consome MUITO MAIS tokens (~100k+ por tarefa).");
 
 		// Menu com as 3 opcoes reais (sem placeholder)
@@ -1558,7 +1559,7 @@ namespace T2MSecurityManager {
 		cbTipo->Items->Add(L"MariaDB"); cbTipo->Items->Add(L"SQLite");
 		cbTipo->Items->Add(L"SQL Server");
 		cbTipo->Items->Add(L"Oracle");
-		cbTipo->Items->Add(L"MongoDB (em breve)");
+		cbTipo->Items->Add(L"MongoDB");
 		cbTipo->SelectedIndex = (dbTipo != nullptr && cbTipo->Items->Contains(dbTipo))
 			? cbTipo->Items->IndexOf(dbTipo) : 0;
 		f->Controls->Add(cbTipo);
@@ -1773,16 +1774,6 @@ namespace T2MSecurityManager {
 		}
 		if (!ok) return;  // nao salva enquanto houver campos obrigatorios vazios
 
-		// Oracle e MongoDB ainda nao tem servidor MCP configurado: avisa mas deixa salvar.
-		if (tipo->Contains("em breve")) {
-			MessageBox::Show(
-				tipo->Replace(" (em breve)", "") + L" ainda nao tem conexao ativa "
-				L"(precisa de um servidor MCP proprio, que chega numa proxima versao).\n\n"
-				L"Voce pode salvar a conexao mesmo assim - ela ficara pronta para quando o "
-				L"suporte for habilitado.",
-				L"Banco em breve", MessageBoxButtons::OK, MessageBoxIcon::Information);
-		}
-
 		dbTipo = tipo;
 		dbHost = txtHost->Text->Trim();
 		dbPorta = txtPorta->Text->Trim();
@@ -1802,13 +1793,6 @@ namespace T2MSecurityManager {
 		rtbChat->AppendText(L">>> Descreva no chat o que quer consultar ou validar neste banco.\n\n");
 
 		f->Close();
-	}
-		   // Aviso comum de "em breve" (API/Banco)
-	private: void AvisarEmBreve(String^ oque) {
-		MessageBox::Show(
-			oque + L" estara disponivel em breve.\n\nPor enquanto, use o Teste de Tela "
-			L"(automacao ao vivo no navegador) ou os modos Chat e Scan DOM.",
-			L"Em breve", MessageBoxButtons::OK, MessageBoxIcon::Information);
 	}
 
 		   // ==========================================================================
@@ -2000,6 +1984,11 @@ namespace T2MSecurityManager {
 		if (dbTipo == "Oracle") {
 			workerUrl = L"--ORACLE--" + MontarJsonOracle();
 		}
+		else if (dbTipo == "MongoDB") {
+			// MongoDB usa o servidor MCP oficial da MongoDB
+			workerUrl = L"--MONGO--" + MontarConnStringMongo() +
+				L"|" + (dbSomenteLeitura ? L"1" : L"0");
+		}
 		else {
 			// Demais bancos: DSN + DBHub via MCP
 			String^ dsn = MontarDSN();
@@ -2009,6 +1998,20 @@ namespace T2MSecurityManager {
 		payloadWorker = objetivo;
 		DefinirOcupado(true, L"Consultando o banco de dados...");
 		workerChat->RunWorkerAsync();
+	}
+
+		   // Monta a connection string do MongoDB (mongodb://usuario:senha@host:porta/banco).
+	private: String^ MontarConnStringMongo() {
+		String^ porta = String::IsNullOrWhiteSpace(dbPorta) ? L"27017" : dbPorta;
+		String^ senha = (dbSenhaCifrada != nullptr && dbSenhaCifrada != "")
+			? DesprotegerTexto(dbSenhaCifrada) : L"";
+		String^ cred = L"";
+		if (!String::IsNullOrWhiteSpace(dbUsuario)) {
+			cred = Uri::EscapeDataString(dbUsuario);
+			if (senha != "") cred += L":" + Uri::EscapeDataString(senha);
+			cred += L"@";
+		}
+		return L"mongodb://" + cred + dbHost + L":" + porta + L"/" + dbNome;
 	}
 
 		   // Monta o JSON de conexao Oracle (driver oficial, thin mode).
