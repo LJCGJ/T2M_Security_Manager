@@ -54,6 +54,10 @@ namespace T2MSecurityManager {
 
 			CarregarConfiguracao();
 			CarregarScriptsIA();
+
+			// Aplica o tema salvo tambem na janela principal
+			temaEscuro = CarregarPreferenciaTema();
+			AplicarTemaRecursivo(this, temaEscuro);
 		}
 
 	protected:
@@ -884,10 +888,11 @@ namespace T2MSecurityManager {
 
 		// Botao de tema (icone + texto) - canto superior direito, alinhado com o topo
 		btnTemaChat = gcnew Button();
-		btnTemaChat->Location = System::Drawing::Point(610, 14);
-		btnTemaChat->Size = System::Drawing::Size(110, 21);
+		btnTemaChat->Location = System::Drawing::Point(605, 13);
+		btnTemaChat->Size = System::Drawing::Size(115, 23);
 		btnTemaChat->FlatStyle = FlatStyle::Flat;
-		btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::Silver;
+		btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
+		btnTemaChat->FlatAppearance->BorderSize = 1;
 		btnTemaChat->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
 		btnTemaChat->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
 		btnTemaChat->Padding = System::Windows::Forms::Padding(0);
@@ -1046,7 +1051,8 @@ namespace T2MSecurityManager {
 
 	private: System::Void btnTemaChat_Click(System::Object^ sender, System::EventArgs^ e) {
 		temaEscuro = !temaEscuro;
-		AplicarTema(temaEscuro);
+		AplicarTema(temaEscuro);                    // janela do chat
+		AplicarTemaRecursivo(this, temaEscuro);     // janela principal
 		SalvarPreferenciaTema(temaEscuro);
 	}
 
@@ -1059,20 +1065,29 @@ namespace T2MSecurityManager {
 			fundoCampo = System::Drawing::Color::FromArgb(24, 26, 31);
 			fundoInput = System::Drawing::Color::FromArgb(44, 47, 54);
 			texto = System::Drawing::Color::Gainsboro;
-			btnTemaChat->Text = L"Tema Claro";
+			btnTemaChat->Text = L"☀  Tema Claro";
 		}
 		else {
 			fundo = System::Drawing::Color::WhiteSmoke;
 			fundoCampo = System::Drawing::Color::White;
 			fundoInput = System::Drawing::Color::White;
 			texto = System::Drawing::Color::Black;
-			btnTemaChat->Text = L"Tema Escuro";
+			btnTemaChat->Text = L"☾  Tema Escuro";
 		}
 		formIA->BackColor = fundo;
 		if (rtbChat != nullptr) { rtbChat->BackColor = fundoCampo; rtbChat->ForeColor = texto; }
 		if (txtChatInput != nullptr) { txtChatInput->BackColor = fundoInput; txtChatInput->ForeColor = texto; }
-		btnTemaChat->BackColor = fundoInput;
-		btnTemaChat->ForeColor = texto;
+		// Botao de tema com cor propria (destaque sutil, coerente com o tema)
+		if (escuro) {
+			btnTemaChat->BackColor = System::Drawing::Color::FromArgb(58, 62, 72);
+			btnTemaChat->ForeColor = System::Drawing::Color::Gold;
+			btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(85, 90, 102);
+		}
+		else {
+			btnTemaChat->BackColor = System::Drawing::Color::FromArgb(238, 241, 246);
+			btnTemaChat->ForeColor = System::Drawing::Color::FromArgb(60, 66, 87);
+			btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
+		}
 		// Percorre labels soltos (titulos) para ajustar a cor do texto
 		for each(Control ^ c in formIA->Controls) {
 			Label^ lbl = dynamic_cast<Label^>(c);
@@ -1080,6 +1095,65 @@ namespace T2MSecurityManager {
 				lbl->ForeColor = texto;
 			}
 		}
+	}
+
+		   // Aplica o tema recursivamente a qualquer janela/painel.
+		   // Preserva cores semanticas (botoes coloridos) e o console txtOutput.
+	private: void AplicarTemaRecursivo(Control^ raiz, bool escuro) {
+		if (raiz == nullptr) return;
+
+		System::Drawing::Color fundo = escuro
+			? System::Drawing::Color::FromArgb(32, 34, 40)
+			: System::Drawing::Color::WhiteSmoke;
+		System::Drawing::Color fundoCampo = escuro
+			? System::Drawing::Color::FromArgb(44, 47, 54)
+			: System::Drawing::Color::White;
+		System::Drawing::Color texto = escuro
+			? System::Drawing::Color::Gainsboro
+			: System::Drawing::Color::Black;
+
+		for each(Control ^ c in raiz->Controls) {
+			// Console de log: mantem a identidade propria (fundo escuro, texto verde)
+			if (c == txtOutput) continue;
+
+			Label^ lbl = dynamic_cast<Label^>(c);
+			if (lbl != nullptr) {
+				// Preserva labels que ja tem cor propria de destaque
+				if (lbl != lblIndicadorIA) lbl->ForeColor = texto;
+				continue;
+			}
+
+			TextBox^ tb = dynamic_cast<TextBox^>(c);
+			if (tb != nullptr) { tb->BackColor = fundoCampo; tb->ForeColor = texto; continue; }
+
+			RichTextBox^ rtb = dynamic_cast<RichTextBox^>(c);
+			if (rtb != nullptr) { rtb->BackColor = fundoCampo; rtb->ForeColor = texto; continue; }
+
+			ComboBox^ cb = dynamic_cast<ComboBox^>(c);
+			if (cb != nullptr) { cb->BackColor = fundoCampo; cb->ForeColor = texto; continue; }
+
+			ListBox^ lb = dynamic_cast<ListBox^>(c);
+			if (lb != nullptr) { lb->BackColor = fundoCampo; lb->ForeColor = texto; continue; }
+
+			CheckBox^ chk = dynamic_cast<CheckBox^>(c);
+			if (chk != nullptr) { chk->ForeColor = texto; continue; }
+
+			GroupBox^ gb = dynamic_cast<GroupBox^>(c);
+			if (gb != nullptr) {
+				gb->ForeColor = texto;
+				AplicarTemaRecursivo(gb, escuro);   // desce nos filhos
+				continue;
+			}
+
+			Panel^ pn = dynamic_cast<Panel^>(c);
+			if (pn != nullptr) {
+				pn->BackColor = fundo;
+				AplicarTemaRecursivo(pn, escuro);
+				continue;
+			}
+			// Botoes: preservados (mantem as cores semanticas verde/vermelho/roxo)
+		}
+		raiz->BackColor = fundo;
 	}
 
 		   // Le a preferencia de tema do disco (arquivo simples). Retorna true = escuro.
@@ -1275,6 +1349,7 @@ namespace T2MSecurityManager {
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarApi_Click);
 
+		AplicarTemaRecursivo(f, temaEscuro);   // aplica o tema atual ao formulario
 		f->ShowDialog();
 	}
 
@@ -1464,6 +1539,7 @@ namespace T2MSecurityManager {
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConexaoBanco_Click);
 
+		AplicarTemaRecursivo(f, temaEscuro);   // aplica o tema atual ao formulario
 		f->ShowDialog();
 	}
 
