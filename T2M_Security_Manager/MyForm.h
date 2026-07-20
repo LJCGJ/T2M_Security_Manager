@@ -884,12 +884,13 @@ namespace T2MSecurityManager {
 
 		// Botao de tema (icone + texto) - canto superior direito, alinhado com o topo
 		btnTemaChat = gcnew Button();
-		btnTemaChat->Location = System::Drawing::Point(600, 15);
-		btnTemaChat->Size = System::Drawing::Size(110, 26);
+		btnTemaChat->Location = System::Drawing::Point(610, 14);
+		btnTemaChat->Size = System::Drawing::Size(110, 21);
 		btnTemaChat->FlatStyle = FlatStyle::Flat;
 		btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::Silver;
 		btnTemaChat->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
 		btnTemaChat->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
+		btnTemaChat->Padding = System::Windows::Forms::Padding(0);
 		btnTemaChat->Cursor = Cursors::Hand;
 		btnTemaChat->Click += gcnew System::EventHandler(this, &MyForm::btnTemaChat_Click);
 		formIA->Controls->Add(btnTemaChat);
@@ -1058,14 +1059,14 @@ namespace T2MSecurityManager {
 			fundoCampo = System::Drawing::Color::FromArgb(24, 26, 31);
 			fundoInput = System::Drawing::Color::FromArgb(44, 47, 54);
 			texto = System::Drawing::Color::Gainsboro;
-			btnTemaChat->Text = L"☀ Claro";
+			btnTemaChat->Text = L"Tema Claro";
 		}
 		else {
 			fundo = System::Drawing::Color::WhiteSmoke;
 			fundoCampo = System::Drawing::Color::White;
 			fundoInput = System::Drawing::Color::White;
 			texto = System::Drawing::Color::Black;
-			btnTemaChat->Text = L"🌙 Escuro";
+			btnTemaChat->Text = L"Tema Escuro";
 		}
 		formIA->BackColor = fundo;
 		if (rtbChat != nullptr) { rtbChat->BackColor = fundoCampo; rtbChat->ForeColor = texto; }
