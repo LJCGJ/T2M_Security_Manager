@@ -42,6 +42,21 @@ namespace T2MSecurityManager {
 			this->btnGerarIA->Click += gcnew System::EventHandler(this, &MyForm::btnGerarIA_Click);
 			this->Controls->Add(this->btnGerarIA);
 
+			// --- BOTAO DE TEMA (canto superior direito da tela principal) ---
+			this->btnTemaChat = (gcnew System::Windows::Forms::Button());
+			this->btnTemaChat->Name = L"btnTemaChat";
+			this->btnTemaChat->Location = System::Drawing::Point(760, 30);
+			this->btnTemaChat->Size = System::Drawing::Size(140, 28);
+			this->btnTemaChat->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
+			this->btnTemaChat->FlatAppearance->BorderSize = 1;
+			this->btnTemaChat->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			this->btnTemaChat->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
+			this->btnTemaChat->Padding = System::Windows::Forms::Padding(0);
+			this->btnTemaChat->Cursor = Cursors::Hand;
+			this->btnTemaChat->Click += gcnew System::EventHandler(this, &MyForm::btnTemaChat_Click);
+			this->Controls->Add(this->btnTemaChat);
+
 			scriptPaths = gcnew Dictionary<String^, String^>();
 
 			// Logo (runtime) + icone unificado para todas as janelas
@@ -58,6 +73,7 @@ namespace T2MSecurityManager {
 			// Aplica o tema salvo tambem na janela principal
 			temaEscuro = CarregarPreferenciaTema();
 			AplicarTemaRecursivo(this, temaEscuro);
+			AtualizarBotaoTema(temaEscuro);
 		}
 
 	protected:
@@ -502,7 +518,7 @@ namespace T2MSecurityManager {
 			StreamWriter^ sw = gcnew StreamWriter(CaminhoApp("config.txt"));
 			sw->WriteLine(txtUrl->Text);
 			sw->WriteLine(ProtegerTexto(txtToken->Text)); // token cifrado (DPAPI)
-			for each(KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
+			for each (KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
 			sw->Close();
 		}
 		catch (...) {}
@@ -534,15 +550,15 @@ namespace T2MSecurityManager {
 			// entao scripts .robot/.sql/.txt sumiam da lista ao reabrir o app).
 			List<String^>^ todos = gcnew List<String^>();
 			array<String^>^ extensoes = gcnew array<String^>{ "*.py", "*.robot", "*.sql", "*.txt" };
-			for each(String ^ padrao in extensoes) {
-				for each(String ^ arquivo in Directory::GetFiles(pastaIA, padrao))
+			for each (String ^ padrao in extensoes) {
+				for each (String ^ arquivo in Directory::GetFiles(pastaIA, padrao))
 					todos->Add(arquivo);
 			}
 
 			// Ordena por data de modificacao: mais recentes primeiro
 			todos->Sort(gcnew Comparison<String^>(&MyForm::CompararPorDataDesc));
 
-			for each(String ^ arquivo in todos) {
+			for each (String ^ arquivo in todos) {
 				String^ nome = Path::GetFileName(arquivo);
 				if (!scriptPaths->ContainsKey(nome)) {
 					scriptPaths->Add(nome, arquivo);
@@ -645,7 +661,7 @@ namespace T2MSecurityManager {
 		combo->Items->Clear();
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
-			for each(String ^ linha in linhas) {
+			for each (String ^ linha in linhas) {
 				if (!String::IsNullOrWhiteSpace(linha)) {
 					String^ real = DesprotegerTexto(linha->Trim());
 					if (real->Length >= 10)
@@ -754,7 +770,7 @@ namespace T2MSecurityManager {
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 			List<String^>^ chaves = gcnew List<String^>();
-			for each(String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
+			for each (String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
 			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
 		}
 		return "";
@@ -816,6 +832,7 @@ namespace T2MSecurityManager {
 			btnSalvar->DialogResult = System::Windows::Forms::DialogResult::OK;
 			formAdd->Controls->Add(btnSalvar);
 
+			AplicarTemaRecursivo(formAdd, temaEscuro);   // aplica o tema atual
 			if (formAdd->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
 				String^ novaChave = txtNovaChave->Text->Trim();
 				if (novaChave != "") {
@@ -838,7 +855,7 @@ namespace T2MSecurityManager {
 					array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 					List<String^>^ novasLinhas = gcnew List<String^>();
 					int cont = 0;
-					for each(String ^ linha in linhas) {
+					for each (String ^ linha in linhas) {
 						if (!String::IsNullOrWhiteSpace(linha)) {
 							if (cont != idx) novasLinhas->Add(linha);
 							cont++;
@@ -910,20 +927,30 @@ namespace T2MSecurityManager {
 		btnRemoverChave->Click += gcnew System::EventHandler(this, &MyForm::btnRemoverChave_Click);
 		formIA->Controls->Add(btnRemoverChave);
 
-		// Botao de tema (icone + texto) - canto superior direito, alinhado com o topo
-		btnTemaChat = gcnew Button();
-		btnTemaChat->Location = System::Drawing::Point(605, 13);
-		btnTemaChat->Size = System::Drawing::Size(115, 23);
-		btnTemaChat->FlatStyle = FlatStyle::Flat;
-		btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
-		btnTemaChat->FlatAppearance->BorderSize = 1;
-		btnTemaChat->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
-		btnTemaChat->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
-		btnTemaChat->Padding = System::Windows::Forms::Padding(0);
-		btnTemaChat->Cursor = Cursors::Hand;
-		btnTemaChat->Click += gcnew System::EventHandler(this, &MyForm::btnTemaChat_Click);
-		formIA->Controls->Add(btnTemaChat);
-		dica->SetToolTip(btnTemaChat, L"Alterna entre tema claro e escuro (a preferencia e lembrada).");
+		// --- HISTORICO DE SESSOES (salvar / abrir conversas) ---
+		Button^ btnSalvarSessao = gcnew Button();
+		btnSalvarSessao->Text = L"💾 Salvar Sessao";
+		btnSalvarSessao->Location = System::Drawing::Point(430, 13);
+		btnSalvarSessao->Size = System::Drawing::Size(140, 23);
+		btnSalvarSessao->FlatStyle = FlatStyle::Flat;
+		btnSalvarSessao->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		btnSalvarSessao->Cursor = Cursors::Hand;
+		btnSalvarSessao->Click += gcnew System::EventHandler(this, &MyForm::btnSalvarSessao_Click);
+		formIA->Controls->Add(btnSalvarSessao);
+		dica->SetToolTip(btnSalvarSessao,
+			L"Salva esta conversa para retomar depois (mantem cores e formatacao).");
+
+		Button^ btnAbrirSessao = gcnew Button();
+		btnAbrirSessao->Text = L"📂 Abrir Sessao";
+		btnAbrirSessao->Location = System::Drawing::Point(578, 13);
+		btnAbrirSessao->Size = System::Drawing::Size(140, 23);
+		btnAbrirSessao->FlatStyle = FlatStyle::Flat;
+		btnAbrirSessao->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		btnAbrirSessao->Cursor = Cursors::Hand;
+		btnAbrirSessao->Click += gcnew System::EventHandler(this, &MyForm::btnAbrirSessao_Click);
+		formIA->Controls->Add(btnAbrirSessao);
+		dica->SetToolTip(btnAbrirSessao,
+			L"Reabre uma conversa salva anteriormente.");
 
 		// Label de status (fica ao lado dos botoes de acao; some quando ocioso)
 		lblChatStatus = gcnew Label();
@@ -1070,50 +1097,122 @@ namespace T2MSecurityManager {
 	}
 
 		   // ==========================================================================
-		   // --- TEMA CLARO / ESCURO (janela do chat) ---
+		   // --- HISTORICO DE SESSOES (salvar / reabrir conversas) ---
+		   // ==========================================================================
+
+		   // Pasta onde as sessoes ficam guardadas.
+	private: String^ PastaSessoes() {
+		String^ p = Path::Combine(
+			Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "sessoes T2M");
+		Directory::CreateDirectory(p);
+		return p;
+	}
+
+		   // Salva a conversa atual (com cores e formatacao), perguntando onde salvar.
+	private: System::Void btnSalvarSessao_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (rtbChat == nullptr || String::IsNullOrWhiteSpace(rtbChat->Text)) {
+			MessageBox::Show(L"Nao ha conversa para salvar.", L"Aviso");
+			return;
+		}
+		SaveFileDialog^ dlg = gcnew SaveFileDialog();
+		dlg->Title = L"Salvar sessao";
+		dlg->InitialDirectory = PastaSessoes();
+		dlg->FileName = "sessao_" + DateTime::Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".rtf";
+		dlg->Filter = "Sessao do T2M (*.rtf)|*.rtf";
+		dlg->DefaultExt = "rtf";
+		if (dlg->ShowDialog() != System::Windows::Forms::DialogResult::OK) return;
+
+		try {
+			rtbChat->SaveFile(dlg->FileName, RichTextBoxStreamType::RichText);
+			MessageBox::Show(L"Sessao salva em:\n" + dlg->FileName +
+				L"\n\nUse 'Abrir Sessao' para retomar depois.", L"Sessao salva",
+				MessageBoxButtons::OK, MessageBoxIcon::Information);
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Erro ao salvar a sessao: " + ex->Message, L"Erro");
+		}
+	}
+
+		   // Abre uma sessao salva e restaura no chat (pergunta antes de substituir).
+	private: System::Void btnAbrirSessao_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (workerChat->IsBusy) return;
+
+		OpenFileDialog^ dlg = gcnew OpenFileDialog();
+		dlg->Title = L"Abrir sessao salva";
+		dlg->InitialDirectory = PastaSessoes();
+		dlg->Filter = "Sessoes do T2M (*.rtf)|*.rtf";
+		if (dlg->ShowDialog() != System::Windows::Forms::DialogResult::OK) return;
+
+		// Se ja houver conversa em andamento, confirma antes de substituir
+		if (!String::IsNullOrWhiteSpace(rtbChat->Text)) {
+			System::Windows::Forms::DialogResult r = MessageBox::Show(
+				L"A conversa atual sera substituida pela sessao escolhida.\n\n"
+				L"Deseja continuar? (salve a atual antes, se quiser mante-la)",
+				L"Substituir conversa", MessageBoxButtons::YesNo, MessageBoxIcon::Question);
+			if (r == System::Windows::Forms::DialogResult::No) return;
+		}
+
+		try {
+			rtbChat->LoadFile(dlg->FileName, RichTextBoxStreamType::RichText);
+			rtbChat->SelectionStart = rtbChat->TextLength;
+			rtbChat->ScrollToCaret();
+			rtbChat->SelectionColor = System::Drawing::Color::DimGray;
+			rtbChat->AppendText(L"\n>>> Sessao restaurada: " +
+				Path::GetFileName(dlg->FileName) + L"\n\n");
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Erro ao abrir a sessao: " + ex->Message, L"Erro");
+		}
+	}
+
+		   // ==========================================================================
+		   // --- TEMA CLARO / ESCURO ---
 		   // ==========================================================================
 
 	private: System::Void btnTemaChat_Click(System::Object^ sender, System::EventArgs^ e) {
 		temaEscuro = !temaEscuro;
-		AplicarTema(temaEscuro);                    // janela do chat
 		AplicarTemaRecursivo(this, temaEscuro);     // janela principal
+		AtualizarBotaoTema(temaEscuro);             // aparencia do proprio botao
+		if (formIA != nullptr && !formIA->IsDisposed)
+			AplicarTema(temaEscuro);                // janela do chat, se estiver aberta
 		SalvarPreferenciaTema(temaEscuro);
 	}
 
-		   // Aplica as cores do tema aos controles principais da janela do chat.
-	private: void AplicarTema(bool escuro) {
-		if (formIA == nullptr) return;
-		System::Drawing::Color fundo, fundoCampo, texto, fundoInput;
+		   // Atualiza texto e cores do botao de tema (ele vive na tela principal).
+	private: void AtualizarBotaoTema(bool escuro) {
+		if (btnTemaChat == nullptr) return;
 		if (escuro) {
-			fundo = System::Drawing::Color::FromArgb(32, 34, 40);
-			fundoCampo = System::Drawing::Color::FromArgb(24, 26, 31);
-			fundoInput = System::Drawing::Color::FromArgb(44, 47, 54);
-			texto = System::Drawing::Color::Gainsboro;
 			btnTemaChat->Text = L"☀  Tema Claro";
-		}
-		else {
-			fundo = System::Drawing::Color::WhiteSmoke;
-			fundoCampo = System::Drawing::Color::White;
-			fundoInput = System::Drawing::Color::White;
-			texto = System::Drawing::Color::Black;
-			btnTemaChat->Text = L"☾  Tema Escuro";
-		}
-		formIA->BackColor = fundo;
-		if (rtbChat != nullptr) { rtbChat->BackColor = fundoCampo; rtbChat->ForeColor = texto; }
-		if (txtChatInput != nullptr) { txtChatInput->BackColor = fundoInput; txtChatInput->ForeColor = texto; }
-		// Botao de tema com cor propria (destaque sutil, coerente com o tema)
-		if (escuro) {
 			btnTemaChat->BackColor = System::Drawing::Color::FromArgb(58, 62, 72);
 			btnTemaChat->ForeColor = System::Drawing::Color::Gold;
 			btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(85, 90, 102);
 		}
 		else {
+			btnTemaChat->Text = L"☾  Tema Escuro";
 			btnTemaChat->BackColor = System::Drawing::Color::FromArgb(238, 241, 246);
 			btnTemaChat->ForeColor = System::Drawing::Color::FromArgb(60, 66, 87);
 			btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
 		}
+	}
+
+		   // Aplica as cores do tema aos controles principais da janela do chat.
+	private: void AplicarTema(bool escuro) {
+		if (formIA == nullptr) return;
+
+		// Cobertura completa (combo, campos, labels) via funcao recursiva
+		AplicarTemaRecursivo(formIA, escuro);
+
+		System::Drawing::Color fundoCampo = escuro
+			? System::Drawing::Color::FromArgb(24, 26, 31)
+			: System::Drawing::Color::White;
+		System::Drawing::Color texto = escuro
+			? System::Drawing::Color::Gainsboro
+			: System::Drawing::Color::Black;
+
+		// A area de conversa usa um fundo um pouco mais escuro que os campos
+		if (rtbChat != nullptr) { rtbChat->BackColor = fundoCampo; rtbChat->ForeColor = texto; }
 		// Percorre labels soltos (titulos) para ajustar a cor do texto
-		for each(Control ^ c in formIA->Controls) {
+		for each (Control ^ c in formIA->Controls) {
 			Label^ lbl = dynamic_cast<Label^>(c);
 			if (lbl != nullptr && lbl != lblChatStatus && lbl != lblIndicadorIA) {
 				lbl->ForeColor = texto;
@@ -1136,7 +1235,7 @@ namespace T2MSecurityManager {
 			? System::Drawing::Color::Gainsboro
 			: System::Drawing::Color::Black;
 
-		for each(Control ^ c in raiz->Controls) {
+		for each (Control ^ c in raiz->Controls) {
 			// Console de log: mantem a identidade propria (fundo escuro, texto verde)
 			if (c == txtOutput) continue;
 
@@ -1917,7 +2016,7 @@ namespace T2MSecurityManager {
 		if (!String::IsNullOrWhiteSpace(apiHeaders)) {
 			array<String^>^ linhas = apiHeaders->Split('\n');
 			bool primeiro = true;
-			for each(String ^ linha in linhas) {
+			for each (String ^ linha in linhas) {
 				String^ l = linha->Trim();
 				int dp = l->IndexOf(':');
 				if (dp > 0) {
@@ -1977,7 +2076,16 @@ namespace T2MSecurityManager {
 		Directory::CreateDirectory(pasta);
 
 		String^ dataHora = DateTime::Now.ToString("yyyy-MM-dd_HH-mm-ss");
-		String^ caminho = Path::Combine(pasta, prefixoArquivo + dataHora + ".html");
+
+		// Pergunta ao usuario onde salvar (sugere a pasta padrao e um nome)
+		SaveFileDialog^ dlg = gcnew SaveFileDialog();
+		dlg->Title = L"Salvar " + titulo;
+		dlg->InitialDirectory = pasta;
+		dlg->FileName = prefixoArquivo + dataHora + ".html";
+		dlg->Filter = "Pagina HTML (*.html)|*.html";
+		dlg->DefaultExt = "html";
+		if (dlg->ShowDialog() != System::Windows::Forms::DialogResult::OK) return;
+		String^ caminho = dlg->FileName;
 
 		// Escapa o conteudo para HTML
 		String^ corpo = conteudo
@@ -2056,8 +2164,17 @@ namespace T2MSecurityManager {
 				else if (textoCompleto->LastIndexOf("```robot") != -1 || codigo->Contains("*** Settings ***") || codigo->Contains("*** Test Cases ***")) ext = ".robot";
 				else if (textoCompleto->LastIndexOf("```sql") != -1 || codigo->StartsWith("SELECT", StringComparison::OrdinalIgnoreCase) || codigo->StartsWith("UPDATE", StringComparison::OrdinalIgnoreCase)) ext = ".sql";
 
-				String^ nomeArq = "script_copilot_" + DateTime::Now.ToString("yyyyMMdd_HHmmss") + ext;
-				String^ caminho = Path::Combine(pastaIA, nomeArq);
+				// Pergunta ao usuario onde salvar (sugere a pasta padrao da biblioteca)
+				SaveFileDialog^ dlg = gcnew SaveFileDialog();
+				dlg->Title = L"Salvar script gerado";
+				dlg->InitialDirectory = pastaIA;
+				dlg->FileName = "script_copilot_" + DateTime::Now.ToString("yyyyMMdd_HHmmss") + ext;
+				dlg->Filter = "Script (*" + ext + ")|*" + ext + "|Todos os arquivos (*.*)|*.*";
+				dlg->DefaultExt = ext->Substring(1);
+				if (dlg->ShowDialog() != System::Windows::Forms::DialogResult::OK) return;
+
+				String^ caminho = dlg->FileName;
+				String^ nomeArq = Path::GetFileName(caminho);
 
 				File::WriteAllText(caminho, codigo);
 
