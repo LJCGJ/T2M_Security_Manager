@@ -1557,7 +1557,7 @@ namespace T2MSecurityManager {
 		cbTipo->Items->Add(L"PostgreSQL"); cbTipo->Items->Add(L"MySQL");
 		cbTipo->Items->Add(L"MariaDB"); cbTipo->Items->Add(L"SQLite");
 		cbTipo->Items->Add(L"SQL Server");
-		cbTipo->Items->Add(L"Oracle (em breve)");
+		cbTipo->Items->Add(L"Oracle");
 		cbTipo->Items->Add(L"MongoDB (em breve)");
 		cbTipo->SelectedIndex = (dbTipo != nullptr && cbTipo->Items->Contains(dbTipo))
 			? cbTipo->Items->IndexOf(dbTipo) : 0;
@@ -1799,7 +1799,7 @@ namespace T2MSecurityManager {
 		rtbChat->AppendText(L">>> Conexao de banco configurada: " + dbTipo +
 			L" @ " + (dbHost == "" ? L"(arquivo)" : dbHost) +
 			(dbSomenteLeitura ? L" [somente leitura]" : L" [leitura/escrita]") + L"\n");
-		rtbChat->AppendText(L">>> (A execucao real via MCP sera habilitada em breve.)\n\n");
+		rtbChat->AppendText(L">>> Descreva no chat o que quer consultar ou validar neste banco.\n\n");
 
 		f->Close();
 	}
@@ -1995,13 +1995,37 @@ namespace T2MSecurityManager {
 		if (workerChat->IsBusy) return;
 		workerApiKey = ObterChaveReal();
 		if (workerApiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
-		// "URL" para o banco = --DB--<dsn>|<readonly>
-		String^ dsn = MontarDSN();
-		workerUrl = L"--DB--" + dsn + L"|" + (dbSomenteLeitura ? L"1" : L"0");
+
+		// Oracle usa o driver oficial (python-oracledb), nao o DBHub.
+		if (dbTipo == "Oracle") {
+			workerUrl = L"--ORACLE--" + MontarJsonOracle();
+		}
+		else {
+			// Demais bancos: DSN + DBHub via MCP
+			String^ dsn = MontarDSN();
+			workerUrl = L"--DB--" + dsn + L"|" + (dbSomenteLeitura ? L"1" : L"0");
+		}
 		modoWorker = 2;              // usa ChamarAgenteMcp (que roteia p/ agente_mcp.py)
 		payloadWorker = objetivo;
 		DefinirOcupado(true, L"Consultando o banco de dados...");
 		workerChat->RunWorkerAsync();
+	}
+
+		   // Monta o JSON de conexao Oracle (driver oficial, thin mode).
+	private: String^ MontarJsonOracle() {
+		String^ porta = String::IsNullOrWhiteSpace(dbPorta) ? L"1521" : dbPorta;
+		String^ senha = (dbSenhaCifrada != nullptr && dbSenhaCifrada != "")
+			? DesprotegerTexto(dbSenhaCifrada) : L"";
+		System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
+		sb->Append(L"{");
+		sb->Append(L"\"host\":\"" + EscaparJson(dbHost) + L"\",");
+		sb->Append(L"\"porta\":\"" + EscaparJson(porta) + L"\",");
+		sb->Append(L"\"servico\":\"" + EscaparJson(dbNome) + L"\",");
+		sb->Append(L"\"usuario\":\"" + EscaparJson(dbUsuario) + L"\",");
+		sb->Append(L"\"senha\":\"" + EscaparJson(senha) + L"\",");
+		sb->Append(L"\"somente_leitura\":\"" + (dbSomenteLeitura ? L"1" : L"0") + L"\"");
+		sb->Append(L"}");
+		return sb->ToString();
 	}
 
 		   // Monta o JSON da requisicao de API a partir dos dados salvos.

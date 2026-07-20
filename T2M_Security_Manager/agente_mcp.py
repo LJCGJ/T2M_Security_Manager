@@ -812,6 +812,276 @@ async def _loop_api_gemini(api_key, instrucao, schema_http):
     return (ultimo or "") + "\n[Limite de passos atingido no teste de API.]"
 
 
+def _oracle_abrir_conexao(info):
+    """Abre conexao Oracle em thin mode (driver oficial, sem Instant Client)."""
+    import oracledb
+    host = info.get("host", "localhost")
+    porta = int(info.get("porta") or 1521)
+    servico = info.get("servico") or info.get("nome") or "XEPDB1"
+    usuario = info.get("usuario", "")
+    senha = info.get("senha", "")
+    dsn = f"{host}:{porta}/{servico}"
+    return oracledb.connect(user=usuario, password=senha, dsn=dsn)
+
+
+def _oracle_ferramentas(somente_leitura):
+    """Schemas das ferramentas Oracle expostas a IA."""
+    return [
+        {
+            "name": "listar_tabelas",
+            "description": "Lista as tabelas e views disponiveis no schema do usuario conectado.",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "descrever_tabela",
+            "description": "Mostra as colunas, tipos e nulidade de uma tabela.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"tabela": {"type": "string", "description": "Nome da tabela"}},
+                "required": ["tabela"],
+            },
+        },
+        {
+            "name": "executar_sql",
+            "description": ("Executa um comando SQL no Oracle e retorna as linhas."
+                            + (" Somente SELECT e permitido (conexao somente-leitura)."
+                               if somente_leitura else "")),
+            "input_schema": {
+                "type": "object",
+                "properties": {"sql": {"type": "string", "description": "Comando SQL a executar"}},
+                "required": ["sql"],
+            },
+        },
+    ]
+
+
+def _oracle_executar_ferramenta(conn, somente_leitura, nome, args, limite=100):
+    """Executa uma ferramenta Oracle e devolve um dict com o resultado."""
+    try:
+        cur = conn.cursor()
+        if nome == "listar_tabelas":
+            cur.execute("SELECT table_name FROM user_tables ORDER BY table_name")
+            tabelas = [linha[0] for linha in cur.fetchmany(200)]
+            cur.close()
+            return {"tabelas": tabelas, "total": len(tabelas)}
+
+        if nome == "descrever_tabela":
+            tabela = (args.get("tabela") or "").upper()
+            cur.execute(
+                "SELECT column_name, data_type, data_length, nullable "
+                "FROM user_tab_columns WHERE table_name = :t ORDER BY column_id",
+                t=tabela)
+            colunas = [{"coluna": c[0], "tipo": c[1], "tamanho": c[2], "aceita_nulo": c[3] == "Y"}
+                       for c in cur.fetchall()]
+            cur.close()
+            if not colunas:
+                return {"erro": f"Tabela '{tabela}' nao encontrada no schema do usuario."}
+            return {"tabela": tabela, "colunas": colunas}
+
+        if nome == "executar_sql":
+            sql = (args.get("sql") or "").strip().rstrip(";")
+            if not sql:
+                cur.close()
+                return {"erro": "SQL vazio."}
+            # Trava de seguranca: em modo somente-leitura, so SELECT/WITH passam
+            primeira = sql.split()[0].upper() if sql.split() else ""
+            if somente_leitura and primeira not in ("SELECT", "WITH"):
+                cur.close()
+                return {"erro": "Conexao em modo somente-leitura: apenas SELECT e permitido. "
+                                f"Comando recusado: {primeira}"}
+            cur.execute(sql)
+            if cur.description is None:
+                conn.commit()
+                cur.close()
+                return {"ok": True, "mensagem": "Comando executado (sem linhas de retorno)."}
+            nomes = [d[0] for d in cur.description]
+            linhas = [list(map(_oracle_valor_seguro, r)) for r in cur.fetchmany(limite)]
+            cur.close()
+            return {"colunas": nomes, "linhas": linhas, "exibidas": len(linhas)}
+
+        cur.close()
+        return {"erro": f"Ferramenta desconhecida: {nome}"}
+    except Exception as e:
+        return {"erro": f"{type(e).__name__}: {e}"}
+
+
+def _oracle_valor_seguro(v):
+    """Converte valores do banco para algo serializavel em JSON."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float, str, bool)):
+        return v
+    return str(v)
+
+
+async def executar_oracle(api_key, info, somente_leitura, objetivo):
+    """Testa/consulta um banco Oracle usando o driver oficial (thin mode).
+    A IA recebe ferramentas (listar/descrever/executar) no mesmo padrao de tool-use."""
+    if not tem_lib("oracledb"):
+        responder("Biblioteca ausente: oracledb (driver oficial da Oracle).\n"
+                  "Instale com: pip install oracledb")
+        return
+
+    log(">>> Conectando ao Oracle (thin mode, driver oficial)...")
+    try:
+        conn = _oracle_abrir_conexao(info)
+    except Exception as e:
+        responder(f"Nao foi possivel conectar ao Oracle: {type(e).__name__}: {e}")
+        return
+
+    log(">>> Oracle conectado.")
+    ferramentas = _oracle_ferramentas(somente_leitura)
+
+    instrucao = (
+        f"Voce esta conectado a um banco Oracle "
+        f"({info.get('host')}:{info.get('porta')}/{info.get('servico') or info.get('nome')}) "
+        f"em modo {'SOMENTE LEITURA' if somente_leitura else 'leitura e escrita'}.\n\n"
+        f"Objetivo: {objetivo}\n\n"
+        f"Use as ferramentas para explorar o schema e executar as consultas necessarias. "
+        f"Explique os achados de forma clara e, se fizer sentido, gere um script SQL de teste "
+        f"em blocos ```sql ... ```.")
+
+    def despachar(nome, args):
+        log(f">>> [Oracle] {nome} {args if args else ''}")
+        return _oracle_executar_ferramenta(conn, somente_leitura, nome, args)
+
+    try:
+        if api_key.startswith("sk-ant-"):
+            if not tem_lib("anthropic"):
+                responder("Biblioteca ausente: anthropic."); return
+            resultado = await _loop_ferramentas_anthropic(api_key, instrucao, ferramentas, despachar)
+        elif api_key.startswith("sk-"):
+            if not tem_lib("openai"):
+                responder("Biblioteca ausente: openai."); return
+            resultado = await _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar)
+        else:
+            if not tem_lib("google.generativeai"):
+                responder("Biblioteca ausente: google-generativeai."); return
+            resultado = await _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar)
+
+        try:
+            memoria = []
+            if os.path.exists(ARQUIVO_MEMORIA):
+                with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
+                    memoria = json.load(f)
+            memoria.append({"role": "user", "content": f"[ORACLE] {objetivo}"})
+            memoria.append({"role": "assistant", "content": resultado})
+            with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
+                json.dump(memoria, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            log(f">>> Aviso: nao foi possivel gravar na memoria: {e}")
+
+        responder(resultado)
+    except Exception as e:
+        import traceback
+        log(traceback.format_exc())
+        responder(f"ERRO no teste Oracle: {type(e).__name__}: {e}")
+    finally:
+        try:
+            conn.close()
+            log(">>> Conexao Oracle encerrada.")
+        except Exception:
+            pass
+
+
+# --- Loops genericos de tool-use (varias ferramentas, dispatcher externo) ---
+async def _loop_ferramentas_anthropic(api_key, instrucao, ferramentas, despachar):
+    from anthropic import Anthropic
+    client = Anthropic(api_key=api_key)
+    mensagens = [{"role": "user", "content": instrucao}]
+    for _ in range(MAX_ITERACOES):
+        resp = client.messages.create(model="claude-3-5-sonnet-20241022",
+                                      max_tokens=MAX_TOKENS, tools=ferramentas, messages=mensagens)
+        mensagens.append({"role": "assistant", "content": resp.content})
+        usos = [b for b in resp.content if b.type == "tool_use"]
+        if not usos:
+            return "".join(b.text for b in resp.content if b.type == "text").strip() or "(sem resposta)"
+        resultados = []
+        for uso in usos:
+            r = despachar(uso.name, dict(uso.input) if uso.input else {})
+            resultados.append({"type": "tool_result", "tool_use_id": uso.id,
+                               "content": json.dumps(r, ensure_ascii=False, default=str)[:6000]})
+        mensagens.append({"role": "user", "content": resultados})
+    return "Limite de passos atingido."
+
+
+async def _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar):
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
+    tools = [{"type": "function", "function": {
+        "name": f["name"], "description": f["description"], "parameters": f["input_schema"]}}
+        for f in ferramentas]
+    mensagens = [{"role": "user", "content": instrucao}]
+    for _ in range(MAX_ITERACOES):
+        resp = client.chat.completions.create(model="gpt-4o-mini", tools=tools,
+                                              messages=mensagens, max_tokens=MAX_TOKENS)
+        msg = resp.choices[0].message
+        mensagens.append(msg.model_dump(exclude_none=True))
+        if not msg.tool_calls:
+            return (msg.content or "(sem resposta)").strip()
+        for tc in msg.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except Exception:
+                args = {}
+            r = despachar(tc.function.name, args)
+            mensagens.append({"role": "tool", "tool_call_id": tc.id,
+                              "content": json.dumps(r, ensure_ascii=False, default=str)[:6000]})
+    return "Limite de passos atingido."
+
+
+async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
+    decls = [{"name": f["name"], "description": f["description"],
+              "parameters": limpar_schema_gemini(f["input_schema"])} for f in ferramentas]
+    tools_gemini = [{"function_declarations": decls}]
+    modelos = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    model = None
+    for nm in modelos:
+        try:
+            model = genai.GenerativeModel(nm, tools=tools_gemini); break
+        except Exception:
+            continue
+    if model is None:
+        return "Falha ao iniciar o modelo Gemini."
+    chat = model.start_chat()
+    proxima = instrucao
+    ultimo = ""
+    for passo in range(MAX_ITERACOES):
+        if passo > 0:
+            time.sleep(4)
+        try:
+            resp = chat.send_message(proxima)
+        except Exception as e:
+            if "ResourceExhausted" in type(e).__name__ or "429" in str(e):
+                return (ultimo or "") + "\n[Limite de uso da IA atingido. Aguarde 1-2 min.]"
+            return f"O modelo Gemini falhou: {type(e).__name__}"
+        chamadas = []
+        try:
+            for cand in resp.candidates:
+                for parte in cand.content.parts:
+                    fc = getattr(parte, "function_call", None)
+                    if fc and fc.name:
+                        chamadas.append(fc)
+        except Exception:
+            pass
+        if not chamadas:
+            try:
+                return (resp.text or ultimo or "(sem resposta)").strip()
+            except Exception:
+                return ultimo or "(sem resposta)"
+        respostas = []
+        for fc in chamadas:
+            args = dict(fc.args) if fc.args else {}
+            r = despachar(fc.name, args)
+            ultimo = json.dumps(r, ensure_ascii=False, default=str)[:2000]
+            respostas.append(genai.protos.Part(function_response=genai.protos.FunctionResponse(
+                name=fc.name, response={"resultado": r})))
+        proxima = respostas
+    return (ultimo or "") + "\n[Limite de passos atingido.]"
+
+
 def main():
     dados = sys.stdin.read()
     partes = dados.split("\n", 2)
@@ -835,6 +1105,17 @@ def main():
         else:
             dsn, somente_leitura = resto, True
         asyncio.run(executar_banco(api_key, dsn.strip(), somente_leitura, objetivo))
+        return
+
+    # MODO ORACLE: linha 2 = "--ORACLE--<json>" (driver oficial, sem DBHub).
+    if linha2.startswith("--ORACLE--"):
+        bruto = linha2[len("--ORACLE--"):]
+        try:
+            info = json.loads(bruto) if bruto.strip() else {}
+        except Exception:
+            info = {}
+        ro = str(info.get("somente_leitura", "1")) == "1"
+        asyncio.run(executar_oracle(api_key, info, ro, objetivo))
         return
 
     # MODO API: a linha 2 vem como "--API--<json>" com os dados da requisicao.
