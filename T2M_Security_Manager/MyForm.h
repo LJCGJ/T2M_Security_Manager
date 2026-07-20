@@ -129,6 +129,7 @@ namespace T2MSecurityManager {
 		int cfgTimeout;      // segundos por operacao
 		int cfgMaxPassos;    // teto de iteracoes da IA (controla custo)
 		int cfgMaxLinhas;    // maximo de linhas retornadas em consultas
+		String^ cfgModeloClaude;  // modelo da Anthropic (custo x capacidade)
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
 		Button^ btnExportarRelatorio;  // exporta a conversa como relatorio HTML
@@ -1231,6 +1232,7 @@ namespace T2MSecurityManager {
 		cfgTimeout = 120;
 		cfgMaxPassos = 15;
 		cfgMaxLinhas = 100;
+		cfgModeloClaude = "claude-sonnet-5";
 		try {
 			String^ caminho = CaminhoApp("configuracoes.txt");
 			if (!File::Exists(caminho)) return;
@@ -1245,6 +1247,7 @@ namespace T2MSecurityManager {
 				else if (chave == "timeout") Int32::TryParse(valor, cfgTimeout);
 				else if (chave == "max_passos") Int32::TryParse(valor, cfgMaxPassos);
 				else if (chave == "max_linhas") Int32::TryParse(valor, cfgMaxLinhas);
+				else if (chave == "modelo_claude" && valor != "") cfgModeloClaude = valor;
 			}
 		}
 		catch (...) {}
@@ -1265,6 +1268,7 @@ namespace T2MSecurityManager {
 			sb->AppendLine("timeout=" + cfgTimeout);
 			sb->AppendLine("max_passos=" + cfgMaxPassos);
 			sb->AppendLine("max_linhas=" + cfgMaxLinhas);
+			sb->AppendLine("modelo_claude=" + cfgModeloClaude);
 			File::WriteAllText(CaminhoApp("configuracoes.txt"), sb->ToString());
 		}
 		catch (Exception^ ex) {
@@ -1275,7 +1279,7 @@ namespace T2MSecurityManager {
 	private: System::Void btnConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
 		Form^ f = gcnew Form();
 		f->Text = L"Configuracoes";
-		f->Size = System::Drawing::Size(700, 430);
+		f->Size = System::Drawing::Size(700, 500);
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
@@ -1355,8 +1359,32 @@ namespace T2MSecurityManager {
 		bScrAbrir->Click += gcnew System::EventHandler(this, &MyForm::abrirPastaConfig_Click);
 		f->Controls->Add(bScrAbrir);
 
+		// Modelo da IA (Claude) - impacta custo por teste
+		y += 40;
+		Label^ lblModelo = gcnew Label();
+		lblModelo->Text = L"Modelo Claude:";
+		lblModelo->Location = System::Drawing::Point(x1, y + 3); lblModelo->AutoSize = true;
+		f->Controls->Add(lblModelo);
+		ComboBox^ cbModelo = gcnew ComboBox();
+		cbModelo->DropDownStyle = ComboBoxStyle::DropDownList;
+		cbModelo->Location = System::Drawing::Point(x1 + 110, y);
+		cbModelo->Size = System::Drawing::Size(200, 22);
+		cbModelo->Items->Add(L"claude-haiku-4-5-20251001");
+		cbModelo->Items->Add(L"claude-sonnet-5");
+		cbModelo->Items->Add(L"claude-opus-4-8");
+		if (cbModelo->Items->Contains(cfgModeloClaude))
+			cbModelo->SelectedIndex = cbModelo->Items->IndexOf(cfgModeloClaude);
+		else cbModelo->SelectedIndex = 1;   // sonnet como padrao equilibrado
+		f->Controls->Add(cbModelo);
+		Label^ dicaModelo = gcnew Label();
+		dicaModelo->Text = L"Haiku = mais barato | Sonnet = equilibrado | Opus = mais capaz e caro";
+		dicaModelo->Location = System::Drawing::Point(x1 + 110, y + 24); dicaModelo->AutoSize = true;
+		dicaModelo->ForeColor = System::Drawing::Color::DimGray;
+		dicaModelo->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		f->Controls->Add(dicaModelo);
+
 		// Secao de limites
-		y += 44;
+		y += 48;
 		Label^ lblSecao2 = gcnew Label();
 		lblSecao2->Text = L"Limites de execucao (afetam custo e duracao)";
 		lblSecao2->Location = System::Drawing::Point(x1, y); lblSecao2->AutoSize = true;
@@ -1418,9 +1446,10 @@ namespace T2MSecurityManager {
 		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
 		f->Controls->Add(btnCancel);
 
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(6);
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(7);
 		campos[0] = txtRel; campos[1] = txtSes; campos[2] = txtScr;
 		campos[3] = numPassos; campos[4] = numLinhas; campos[5] = numTimeout;
+		campos[6] = cbModelo;
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
@@ -1458,6 +1487,7 @@ namespace T2MSecurityManager {
 		cfgMaxPassos = (int)safe_cast<NumericUpDown^>(ctl[3])->Value;
 		cfgMaxLinhas = (int)safe_cast<NumericUpDown^>(ctl[4])->Value;
 		cfgTimeout = (int)safe_cast<NumericUpDown^>(ctl[5])->Value;
+		cfgModeloClaude = safe_cast<ComboBox^>(ctl[6])->Text;
 
 		SalvarConfiguracoesApp();
 		MessageBox::Show(L"Configuracoes salvas.\n\nOs limites passam a valer nas proximas execucoes.",

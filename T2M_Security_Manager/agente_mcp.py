@@ -83,6 +83,11 @@ _CFG = _carregar_configuracoes()
 MAX_ITERACOES = _cfg_int(_CFG, "max_passos", 15, 1, 60)      # teto de passos (custo)
 MAX_LINHAS = _cfg_int(_CFG, "max_linhas", 100, 1, 5000)      # linhas por consulta
 TIMEOUT_OPERACAO = _cfg_int(_CFG, "timeout", 120, 10, 3600)  # segundos
+
+# Modelos usados por provedor. Configuraveis para o usuario equilibrar custo x capacidade.
+# ATENCAO: modelos antigos (ex.: claude-3-5-sonnet) foram aposentados e falham se usados.
+MODELO_CLAUDE = _CFG.get("modelo_claude", "claude-sonnet-5").strip() or "claude-sonnet-5"
+MODELO_OPENAI = _CFG.get("modelo_openai", "gpt-4o-mini").strip() or "gpt-4o-mini"
 HEADLESS = False            # False = voce ve o navegador agindo; True = invisivel
 
 
@@ -175,7 +180,7 @@ async def loop_anthropic(session, api_key, objetivo, mcp_tools):
 
     for passo in range(MAX_ITERACOES):
         resp = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=MODELO_CLAUDE,
             max_tokens=MAX_TOKENS,
             system=system,
             tools=ferramentas,
@@ -232,7 +237,7 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
 
     for passo in range(MAX_ITERACOES):
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=MODELO_OPENAI,
             tools=ferramentas,
             messages=mensagens,
             max_tokens=MAX_TOKENS,
@@ -744,7 +749,7 @@ async def _loop_api_anthropic(api_key, instrucao, schema_http):
                     "input_schema": schema_http}]
     mensagens = [{"role": "user", "content": instrucao}]
     for _ in range(MAX_ITERACOES):
-        resp = client.messages.create(model="claude-3-5-sonnet-20241022",
+        resp = client.messages.create(model=MODELO_CLAUDE,
                                       max_tokens=MAX_TOKENS, tools=ferramentas, messages=mensagens)
         mensagens.append({"role": "assistant", "content": resp.content})
         usos = [b for b in resp.content if b.type == "tool_use"]
@@ -770,7 +775,7 @@ async def _loop_api_openai(api_key, instrucao, schema_http):
         "parameters": schema_http}}]
     mensagens = [{"role": "user", "content": instrucao}]
     for _ in range(MAX_ITERACOES):
-        resp = client.chat.completions.create(model="gpt-4o-mini", tools=ferramentas,
+        resp = client.chat.completions.create(model=MODELO_OPENAI, tools=ferramentas,
                                               messages=mensagens, max_tokens=MAX_TOKENS)
         msg = resp.choices[0].message
         mensagens.append(msg.model_dump(exclude_none=True))
@@ -1024,7 +1029,7 @@ async def _loop_ferramentas_anthropic(api_key, instrucao, ferramentas, despachar
     client = Anthropic(api_key=api_key)
     mensagens = [{"role": "user", "content": instrucao}]
     for _ in range(MAX_ITERACOES):
-        resp = client.messages.create(model="claude-3-5-sonnet-20241022",
+        resp = client.messages.create(model=MODELO_CLAUDE,
                                       max_tokens=MAX_TOKENS, tools=ferramentas, messages=mensagens)
         mensagens.append({"role": "assistant", "content": resp.content})
         usos = [b for b in resp.content if b.type == "tool_use"]
@@ -1047,7 +1052,7 @@ async def _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar):
         for f in ferramentas]
     mensagens = [{"role": "user", "content": instrucao}]
     for _ in range(MAX_ITERACOES):
-        resp = client.chat.completions.create(model="gpt-4o-mini", tools=tools,
+        resp = client.chat.completions.create(model=MODELO_OPENAI, tools=tools,
                                               messages=mensagens, max_tokens=MAX_TOKENS)
         msg = resp.choices[0].message
         mensagens.append(msg.model_dump(exclude_none=True))
