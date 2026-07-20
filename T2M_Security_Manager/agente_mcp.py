@@ -51,8 +51,38 @@ INSTRUCAO_LINGUAGEM = (
 # ------------------------------------------------------------------ #
 # Constantes de seguranca (guardrails de custo - recomendacao 2026)  #
 # ------------------------------------------------------------------ #
-MAX_ITERACOES = 15          # teto de passos no loop (evita custo descontrolado)
 MAX_TOKENS = 2048           # teto por resposta do modelo
+
+
+def _carregar_configuracoes():
+    """Le configuracoes.txt (chave=valor) gravado pelo app e devolve um dict.
+    Permite ao usuario ajustar limites pela tela de Configuracoes."""
+    cfg = {}
+    try:
+        caminho = os.path.join(SCRIPT_DIR, "configuracoes.txt")
+        if os.path.exists(caminho):
+            with open(caminho, "r", encoding="utf-8") as f:
+                for linha in f:
+                    if "=" in linha:
+                        chave, valor = linha.split("=", 1)
+                        cfg[chave.strip()] = valor.strip()
+    except Exception:
+        pass
+    return cfg
+
+
+def _cfg_int(cfg, chave, padrao, minimo, maximo):
+    try:
+        v = int(cfg.get(chave, padrao))
+        return max(minimo, min(maximo, v))
+    except Exception:
+        return padrao
+
+
+_CFG = _carregar_configuracoes()
+MAX_ITERACOES = _cfg_int(_CFG, "max_passos", 15, 1, 60)      # teto de passos (custo)
+MAX_LINHAS = _cfg_int(_CFG, "max_linhas", 100, 1, 5000)      # linhas por consulta
+TIMEOUT_OPERACAO = _cfg_int(_CFG, "timeout", 120, 10, 3600)  # segundos
 HEADLESS = False            # False = voce ve o navegador agindo; True = invisivel
 
 
@@ -593,10 +623,12 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
         responder(f"ERRO no agente de banco: {detalhe}{dica}")
 
 
-def _fazer_requisicao_http(metodo, url, headers, body, timeout=20):
+def _fazer_requisicao_http(metodo, url, headers, body, timeout=None):
     """Executa uma requisicao HTTP real e devolve um dict com o resultado.
     Nao depende de servidor MCP: usa a lib requests localmente."""
     import requests
+    if timeout is None:
+        timeout = TIMEOUT_OPERACAO
     try:
         m = (metodo or "GET").upper()
         h = headers or {}
@@ -855,8 +887,10 @@ def _oracle_ferramentas(somente_leitura):
     ]
 
 
-def _oracle_executar_ferramenta(conn, somente_leitura, nome, args, limite=100):
+def _oracle_executar_ferramenta(conn, somente_leitura, nome, args, limite=None):
     """Executa uma ferramenta Oracle e devolve um dict com o resultado."""
+    if limite is None:
+        limite = MAX_LINHAS
     try:
         cur = conn.cursor()
         if nome == "listar_tabelas":

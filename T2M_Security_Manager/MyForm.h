@@ -57,6 +57,19 @@ namespace T2MSecurityManager {
 			this->btnTemaChat->Click += gcnew System::EventHandler(this, &MyForm::btnTemaChat_Click);
 			this->Controls->Add(this->btnTemaChat);
 
+			// --- BOTAO DE CONFIGURACOES ---
+			this->btnConfiguracoes = (gcnew System::Windows::Forms::Button());
+			this->btnConfiguracoes->Name = L"btnConfiguracoes";
+			this->btnConfiguracoes->Text = L"⚙  Configuracoes";
+			this->btnConfiguracoes->Location = System::Drawing::Point(610, 30);
+			this->btnConfiguracoes->Size = System::Drawing::Size(140, 28);
+			this->btnConfiguracoes->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnConfiguracoes->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
+			this->btnConfiguracoes->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			this->btnConfiguracoes->Cursor = Cursors::Hand;
+			this->btnConfiguracoes->Click += gcnew System::EventHandler(this, &MyForm::btnConfiguracoes_Click);
+			this->Controls->Add(this->btnConfiguracoes);
+
 			scriptPaths = gcnew Dictionary<String^, String^>();
 
 			// Logo (runtime) + icone unificado para todas as janelas
@@ -68,6 +81,7 @@ namespace T2MSecurityManager {
 			CarregarIcone();
 
 			CarregarConfiguracao();
+			CarregarConfiguracoesApp();
 			CarregarScriptsIA();
 
 			// Aplica o tema salvo tambem na janela principal
@@ -95,6 +109,15 @@ namespace T2MSecurityManager {
 		Button^ btnSendChat;
 		Button^ btnTemaChat;     // alterna tema claro/escuro da janela do chat
 		bool temaEscuro;         // estado atual do tema
+
+		Button^ btnConfiguracoes;   // abre a tela de configuracoes
+		// Preferencias do app (persistidas em configuracoes.txt, lidas tambem pelo Python)
+		String^ cfgPastaRelatorios;
+		String^ cfgPastaSessoes;
+		String^ cfgPastaScripts;
+		int cfgTimeout;      // segundos por operacao
+		int cfgMaxPassos;    // teto de iteracoes da IA (controla custo)
+		int cfgMaxLinhas;    // maximo de linhas retornadas em consultas
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
 		Button^ btnExportarRelatorio;  // exporta a conversa como relatorio HTML
@@ -543,7 +566,8 @@ namespace T2MSecurityManager {
 
 	private: void CarregarScriptsIA() {
 		try {
-			String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
+			String^ pastaIA = String::IsNullOrWhiteSpace(cfgPastaScripts)
+				? PastaPadrao("modelos de teste em IA") : cfgPastaScripts;
 			if (!Directory::Exists(pastaIA)) return;
 
 			// Carrega TODOS os tipos de script gerados pelo Copilot (antes so lia .py,
@@ -1103,9 +1127,10 @@ namespace T2MSecurityManager {
 
 		   // Pasta onde as sessoes ficam guardadas.
 	private: String^ PastaSessoes() {
-		String^ p = Path::Combine(
-			Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "sessoes T2M");
-		Directory::CreateDirectory(p);
+		String^ p = String::IsNullOrWhiteSpace(cfgPastaSessoes)
+			? PastaPadrao("sessoes T2M") : cfgPastaSessoes;
+		try { Directory::CreateDirectory(p); }
+		catch (...) {}
 		return p;
 	}
 
@@ -1164,6 +1189,233 @@ namespace T2MSecurityManager {
 		catch (Exception^ ex) {
 			MessageBox::Show(L"Erro ao abrir a sessao: " + ex->Message, L"Erro");
 		}
+	}
+
+		   // ==========================================================================
+		   // --- CONFIGURACOES DO APP ---
+		   // Salvas em configuracoes.txt (chave=valor), lidas tambem pelo agente Python.
+		   // ==========================================================================
+
+	private: String^ PastaPadrao(String^ sub) {
+		return Path::Combine(
+			Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), sub);
+	}
+
+		   // Le as preferencias do disco, aplicando padroes quando ausentes.
+	private: void CarregarConfiguracoesApp() {
+		cfgPastaRelatorios = PastaPadrao("relatorios T2M");
+		cfgPastaSessoes = PastaPadrao("sessoes T2M");
+		cfgPastaScripts = PastaPadrao("modelos de teste em IA");
+		cfgTimeout = 120;
+		cfgMaxPassos = 15;
+		cfgMaxLinhas = 100;
+		try {
+			String^ caminho = CaminhoApp("configuracoes.txt");
+			if (!File::Exists(caminho)) return;
+			for each (String ^ linha in File::ReadAllLines(caminho)) {
+				int ig = linha->IndexOf('=');
+				if (ig <= 0) continue;
+				String^ chave = linha->Substring(0, ig)->Trim();
+				String^ valor = linha->Substring(ig + 1)->Trim();
+				if (chave == "pasta_relatorios" && valor != "") cfgPastaRelatorios = valor;
+				else if (chave == "pasta_sessoes" && valor != "") cfgPastaSessoes = valor;
+				else if (chave == "pasta_scripts" && valor != "") cfgPastaScripts = valor;
+				else if (chave == "timeout") Int32::TryParse(valor, cfgTimeout);
+				else if (chave == "max_passos") Int32::TryParse(valor, cfgMaxPassos);
+				else if (chave == "max_linhas") Int32::TryParse(valor, cfgMaxLinhas);
+			}
+		}
+		catch (...) {}
+		// Limites de sanidade (evita valores absurdos)
+		if (cfgTimeout < 10) cfgTimeout = 10;
+		if (cfgMaxPassos < 1) cfgMaxPassos = 1;
+		if (cfgMaxPassos > 60) cfgMaxPassos = 60;
+		if (cfgMaxLinhas < 1) cfgMaxLinhas = 1;
+		if (cfgMaxLinhas > 5000) cfgMaxLinhas = 5000;
+	}
+
+	private: void SalvarConfiguracoesApp() {
+		try {
+			System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
+			sb->AppendLine("pasta_relatorios=" + cfgPastaRelatorios);
+			sb->AppendLine("pasta_sessoes=" + cfgPastaSessoes);
+			sb->AppendLine("pasta_scripts=" + cfgPastaScripts);
+			sb->AppendLine("timeout=" + cfgTimeout);
+			sb->AppendLine("max_passos=" + cfgMaxPassos);
+			sb->AppendLine("max_linhas=" + cfgMaxLinhas);
+			File::WriteAllText(CaminhoApp("configuracoes.txt"), sb->ToString());
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Nao foi possivel salvar as configuracoes: " + ex->Message, L"Aviso");
+		}
+	}
+
+	private: System::Void btnConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
+		Form^ f = gcnew Form();
+		f->Text = L"Configuracoes";
+		f->Size = System::Drawing::Size(620, 430);
+		f->StartPosition = FormStartPosition::CenterParent;
+		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
+		f->MaximizeBox = false; f->MinimizeBox = false;
+		AplicarIcone(f);
+
+		int x1 = 20, larg = 430, y = 18;
+
+		Label^ lblSecao1 = gcnew Label();
+		lblSecao1->Text = L"Pastas sugeridas ao salvar";
+		lblSecao1->Location = System::Drawing::Point(x1, y); lblSecao1->AutoSize = true;
+		lblSecao1->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+		f->Controls->Add(lblSecao1);
+
+		// Relatorios
+		y += 26;
+		Label^ l1 = gcnew Label(); l1->Text = L"Relatorios:";
+		l1->Location = System::Drawing::Point(x1, y + 3); l1->AutoSize = true;
+		f->Controls->Add(l1);
+		TextBox^ txtRel = gcnew TextBox();
+		txtRel->Location = System::Drawing::Point(x1 + 90, y); txtRel->Size = System::Drawing::Size(larg, 22);
+		txtRel->Text = cfgPastaRelatorios;
+		f->Controls->Add(txtRel);
+		Button^ bRel = gcnew Button(); bRel->Text = L"...";
+		bRel->Location = System::Drawing::Point(x1 + 90 + larg + 6, y - 1);
+		bRel->Size = System::Drawing::Size(34, 24); bRel->FlatStyle = FlatStyle::Flat;
+		bRel->Tag = txtRel;
+		bRel->Click += gcnew System::EventHandler(this, &MyForm::escolherPasta_Click);
+		f->Controls->Add(bRel);
+
+		// Sessoes
+		y += 32;
+		Label^ l2 = gcnew Label(); l2->Text = L"Sessoes:";
+		l2->Location = System::Drawing::Point(x1, y + 3); l2->AutoSize = true;
+		f->Controls->Add(l2);
+		TextBox^ txtSes = gcnew TextBox();
+		txtSes->Location = System::Drawing::Point(x1 + 90, y); txtSes->Size = System::Drawing::Size(larg, 22);
+		txtSes->Text = cfgPastaSessoes;
+		f->Controls->Add(txtSes);
+		Button^ bSes = gcnew Button(); bSes->Text = L"...";
+		bSes->Location = System::Drawing::Point(x1 + 90 + larg + 6, y - 1);
+		bSes->Size = System::Drawing::Size(34, 24); bSes->FlatStyle = FlatStyle::Flat;
+		bSes->Tag = txtSes;
+		bSes->Click += gcnew System::EventHandler(this, &MyForm::escolherPasta_Click);
+		f->Controls->Add(bSes);
+
+		// Scripts
+		y += 32;
+		Label^ l3 = gcnew Label(); l3->Text = L"Scripts:";
+		l3->Location = System::Drawing::Point(x1, y + 3); l3->AutoSize = true;
+		f->Controls->Add(l3);
+		TextBox^ txtScr = gcnew TextBox();
+		txtScr->Location = System::Drawing::Point(x1 + 90, y); txtScr->Size = System::Drawing::Size(larg, 22);
+		txtScr->Text = cfgPastaScripts;
+		f->Controls->Add(txtScr);
+		Button^ bScr = gcnew Button(); bScr->Text = L"...";
+		bScr->Location = System::Drawing::Point(x1 + 90 + larg + 6, y - 1);
+		bScr->Size = System::Drawing::Size(34, 24); bScr->FlatStyle = FlatStyle::Flat;
+		bScr->Tag = txtScr;
+		bScr->Click += gcnew System::EventHandler(this, &MyForm::escolherPasta_Click);
+		f->Controls->Add(bScr);
+
+		// Secao de limites
+		y += 44;
+		Label^ lblSecao2 = gcnew Label();
+		lblSecao2->Text = L"Limites de execucao (afetam custo e duracao)";
+		lblSecao2->Location = System::Drawing::Point(x1, y); lblSecao2->AutoSize = true;
+		lblSecao2->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+		f->Controls->Add(lblSecao2);
+
+		y += 28;
+		Label^ l4 = gcnew Label();
+		l4->Text = L"Passos maximos da IA por tarefa (1-60):";
+		l4->Location = System::Drawing::Point(x1, y + 3); l4->AutoSize = true;
+		f->Controls->Add(l4);
+		NumericUpDown^ numPassos = gcnew NumericUpDown();
+		numPassos->Location = System::Drawing::Point(x1 + 300, y);
+		numPassos->Size = System::Drawing::Size(80, 22);
+		numPassos->Minimum = 1; numPassos->Maximum = 60; numPassos->Value = cfgMaxPassos;
+		f->Controls->Add(numPassos);
+		Label^ dicaPassos = gcnew Label();
+		dicaPassos->Text = L"Menos passos = menos tokens gastos.";
+		dicaPassos->Location = System::Drawing::Point(x1 + 390, y + 3); dicaPassos->AutoSize = true;
+		dicaPassos->ForeColor = System::Drawing::Color::DimGray;
+		dicaPassos->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		f->Controls->Add(dicaPassos);
+
+		y += 32;
+		Label^ l5 = gcnew Label();
+		l5->Text = L"Linhas maximas por consulta (1-5000):";
+		l5->Location = System::Drawing::Point(x1, y + 3); l5->AutoSize = true;
+		f->Controls->Add(l5);
+		NumericUpDown^ numLinhas = gcnew NumericUpDown();
+		numLinhas->Location = System::Drawing::Point(x1 + 300, y);
+		numLinhas->Size = System::Drawing::Size(80, 22);
+		numLinhas->Minimum = 1; numLinhas->Maximum = 5000; numLinhas->Value = cfgMaxLinhas;
+		f->Controls->Add(numLinhas);
+
+		y += 32;
+		Label^ l6 = gcnew Label();
+		l6->Text = L"Timeout por operacao (segundos):";
+		l6->Location = System::Drawing::Point(x1, y + 3); l6->AutoSize = true;
+		f->Controls->Add(l6);
+		NumericUpDown^ numTimeout = gcnew NumericUpDown();
+		numTimeout->Location = System::Drawing::Point(x1 + 300, y);
+		numTimeout->Size = System::Drawing::Size(80, 22);
+		numTimeout->Minimum = 10; numTimeout->Maximum = 3600; numTimeout->Value = cfgTimeout;
+		f->Controls->Add(numTimeout);
+
+		// Botoes
+		y += 48;
+		Button^ btnOk = gcnew Button();
+		btnOk->Text = L"Salvar";
+		btnOk->Location = System::Drawing::Point(x1 + 240, y); btnOk->Size = System::Drawing::Size(120, 30);
+		btnOk->BackColor = System::Drawing::Color::MediumSeaGreen;
+		btnOk->ForeColor = System::Drawing::Color::White; btnOk->FlatStyle = FlatStyle::Flat;
+		f->Controls->Add(btnOk);
+
+		Button^ btnCancel = gcnew Button();
+		btnCancel->Text = L"Cancelar";
+		btnCancel->Location = System::Drawing::Point(x1 + 370, y); btnCancel->Size = System::Drawing::Size(100, 30);
+		btnCancel->FlatStyle = FlatStyle::Flat;
+		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
+		f->Controls->Add(btnCancel);
+
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(6);
+		campos[0] = txtRel; campos[1] = txtSes; campos[2] = txtScr;
+		campos[3] = numPassos; campos[4] = numLinhas; campos[5] = numTimeout;
+		f->Tag = campos;
+		btnOk->Tag = f;
+		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
+
+		AplicarTemaRecursivo(f, temaEscuro);
+		f->ShowDialog();
+	}
+
+		   // Botao "..." de escolher pasta (o TextBox alvo vem no Tag).
+	private: System::Void escolherPasta_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		TextBox^ alvo = safe_cast<TextBox^>(b->Tag);
+		FolderBrowserDialog^ dlg = gcnew FolderBrowserDialog();
+		dlg->Description = L"Escolha a pasta";
+		if (Directory::Exists(alvo->Text)) dlg->SelectedPath = alvo->Text;
+		if (dlg->ShowDialog() == System::Windows::Forms::DialogResult::OK)
+			alvo->Text = dlg->SelectedPath;
+	}
+
+	private: System::Void salvarConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		Form^ f = safe_cast<Form^>(b->Tag);
+		cli::array<Object^>^ ctl = safe_cast<cli::array<Object^>^>(f->Tag);
+
+		cfgPastaRelatorios = safe_cast<TextBox^>(ctl[0])->Text->Trim();
+		cfgPastaSessoes = safe_cast<TextBox^>(ctl[1])->Text->Trim();
+		cfgPastaScripts = safe_cast<TextBox^>(ctl[2])->Text->Trim();
+		cfgMaxPassos = (int)safe_cast<NumericUpDown^>(ctl[3])->Value;
+		cfgMaxLinhas = (int)safe_cast<NumericUpDown^>(ctl[4])->Value;
+		cfgTimeout = (int)safe_cast<NumericUpDown^>(ctl[5])->Value;
+
+		SalvarConfiguracoesApp();
+		MessageBox::Show(L"Configuracoes salvas.\n\nOs limites passam a valer nas proximas execucoes.",
+			L"Configuracoes", MessageBoxButtons::OK, MessageBoxIcon::Information);
+		f->Close();
 	}
 
 		   // ==========================================================================
@@ -2098,9 +2350,10 @@ namespace T2MSecurityManager {
 		   // Funcao compartilhada: gera um HTML formatado e pergunta se quer abrir.
 		   // Usada tanto pelo "Relatorio do Teste" (chat) quanto pelo "Exportar Log Tecnico".
 	private: void ExportarComoHtml(String^ conteudo, String^ titulo, String^ subtitulo, String^ prefixoArquivo) {
-		String^ pasta = Path::Combine(
-			Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "relatorios T2M");
-		Directory::CreateDirectory(pasta);
+		String^ pasta = String::IsNullOrWhiteSpace(cfgPastaRelatorios)
+			? PastaPadrao("relatorios T2M") : cfgPastaRelatorios;
+		try { Directory::CreateDirectory(pasta); }
+		catch (...) {}
 
 		String^ dataHora = DateTime::Now.ToString("yyyy-MM-dd_HH-mm-ss");
 
@@ -2183,8 +2436,10 @@ namespace T2MSecurityManager {
 			if (idxEnd != -1) {
 				String^ codigo = textoCompleto->Substring(idxStart + offset, idxEnd - (idxStart + offset))->Trim();
 
-				String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
-				Directory::CreateDirectory(pastaIA);
+				String^ pastaIA = String::IsNullOrWhiteSpace(cfgPastaScripts)
+					? PastaPadrao("modelos de teste em IA") : cfgPastaScripts;
+				try { Directory::CreateDirectory(pastaIA); }
+				catch (...) {}
 
 				String^ ext = ".txt";
 				if (textoCompleto->LastIndexOf("```python") != -1) ext = ".py";
