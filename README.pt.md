@@ -26,9 +26,9 @@ podendo gerar um script de teste reutilizável.
 O projeto roteia entre **Claude, Gemini e OpenAI** — você escolhe a IA pela chave de
 API que fornece.
 
-> **Status do projeto:** inicial e em desenvolvimento ativo. A interface, a camada de
-> segurança e a fiação dos três modos de automação estão completas. As execuções reais
-> de ponta a ponta dependem de uma IA com capacidade suficiente (veja [Requisitos](#requisitos)).
+> **Status do projeto:** todas as funcionalidades estão construídas e a interface está
+> completa. As execuções de validação de ponta a ponta contra alvos reais ainda estão
+> em andamento — veja o [Roadmap](#roadmap).
 
 ---
 
@@ -40,33 +40,49 @@ API que fornece.
     a passo: navega, clica, digita e valida o comportamento real em páginas dinâmicas.
   - **Teste de API** — monte uma requisição HTTP (método, URL, headers, body) e deixe a
     IA chamá-la e analisar a resposta.
-  - **Teste de Banco de Dados** — conecte a um banco e deixe a IA explorar o schema e
-    executar consultas somente-leitura (via um servidor MCP de banco).
+  - **Teste de Banco de Dados** — a IA explora o schema e executa consultas, somente
+    leitura por padrão.
+- **Sete bancos de dados suportados:**
+
+  | Banco | Como conecta |
+  |---|---|
+  | PostgreSQL, MySQL, MariaDB, SQLite, SQL Server | Servidor MCP DBHub |
+  | Oracle | Driver oficial `python-oracledb` (thin mode — dispensa o Instant Client) |
+  | MongoDB | Servidor MCP oficial da MongoDB |
+
 - **Scan de DOM estático** — leitura rápida e leve da estrutura de uma página, útil para
   análise de segurança e verificações simples.
 - **Roteamento multi-IA** — Claude (`sk-ant-...`), OpenAI (`sk-...`) ou Gemini, escolhido
   automaticamente pelo prefixo da chave, com um indicador visual claro.
-- **Geração de scripts** — a IA pode produzir scripts de teste reutilizáveis (Robot
-  Framework, Python ou SQL) que você salva e executa de novo.
+- **Controle de custo** — escolha o modelo Claude (Haiku / Sonnet / Opus) e limite os
+  passos do agente por tarefa, decidindo o equilíbrio entre capacidade e gasto.
+- **Histórico de sessões** — salve uma conversa e reabra depois, com a formatação intacta.
+- **Relatórios em HTML** — exporte o relatório do teste ou o log técnico como página
+  formatada.
+- **Biblioteca de scripts** — os scripts gerados (Python, Robot Framework, SQL) são
+  salvos e listados para reutilização.
+- **Temas claro e escuro**, aplicados em todas as janelas.
 - **Segurança em primeiro lugar** — chaves de API e senhas de banco são cifradas em
-  disco com o Windows DPAPI; o acesso a banco é somente-leitura por padrão.
+  disco com o Windows DPAPI; o acesso a banco é somente-leitura por padrão; e as
+  credenciais ficam na pasta de perfil do usuário, nunca dentro do diretório do programa.
 
 ---
 
 ## Como funciona
 
 ```
-+-------------------+       +------------------+       +-----------------------+
-|  App Desktop T2M  |       |  Agente Python   |       |    Servidores MCP /   |
-|   (C++/CLI, UI)   | ----> |  (agente_mcp.py) | ----> |    ferramenta HTTP    |
-|                   |       |                  |       |  - Playwright (tela)  |
-|  chat + formularios| stdin|  loop agentico:  |       |  - DBHub (banco)      |
-|                   | <---- |  IA <-> ferramentas| <-- |  - HTTP nativo (API)  |
-+-------------------+ stdout+------------------+       +-----------------------+
++-------------------+       +------------------+       +---------------------------+
+|  App Desktop T2M  |       |  Agente Python   |       |  Servidores MCP / drivers |
+|   (C++/CLI, UI)   | ----> |  (agente_mcp.py) | ----> |  - Playwright (tela)      |
+|                   |       |                  |       |  - DBHub (bancos SQL)     |
+| chat + formularios| stdin |  loop agentico:  |       |  - MongoDB MCP (oficial)  |
+|                   | <---- |  IA <-> tools    | <---- |  - oracledb (Oracle)      |
++-------------------+ stdout+------------------+       |  - HTTP nativo (API)      |
+                                                       +---------------------------+
 ```
 
 O app desktop em C++/CLI coleta a requisição e a passa para um agente Python via stdin.
-O agente sobe o servidor MCP certo (ou usa uma ferramenta HTTP nativa para APIs) e roda
+O agente sobe o servidor MCP certo (ou usa um driver nativo para Oracle e HTTP) e roda
 um **loop agêntico**: a IA raciocina, chama uma ferramenta, observa o resultado real e
 repete até concluir a tarefa — retornando por fim um relatório e, quando útil, um script
 de teste.
@@ -76,25 +92,34 @@ de teste.
 ## Requisitos
 
 - **Windows** (x64)
-- **Node.js 18+** — para os servidores MCP (`npx` inicia Playwright / servidores de banco)
-- **Python 3.10+** com: `mcp`, `anthropic`, `google-generativeai`, `openai`, `requests`
+- **Node.js 18+** — para os servidores MCP (`npx` inicia o Playwright, o DBHub e o
+  servidor do MongoDB)
+- **Python 3.10+**
 - Uma **chave de API** de pelo menos um provedor (Claude, OpenAI ou Gemini)
 
 > **Sobre as IAs:** os modos de automação fazem várias chamadas sequenciais à IA. Chaves
-> gratuitas do Gemini têm limites baixos por minuto que podem interromper execuções mais
+> gratuitas do Gemini têm limites baixos por minuto que interrompem execuções mais
 > longas; uma chave Claude ou OpenAI com crédito disponível dá a experiência mais confiável.
 
 ---
 
 ## Começando
 
+### Opção A — instalador (recomendado)
+
+Baixe o instalador na página de [Releases](https://github.com/LJCGJ/T2M_Security_Manager/releases)
+e execute. Ele instala o app e oferece configurar automaticamente as bibliotecas Python
+e o navegador de testes.
+
+### Opção B — a partir do código
+
 1. Clone o repositório:
    ```bash
    git clone https://github.com/LJCGJ/T2M_Security_Manager.git
    ```
-2. Instale o Node.js 18+ e as dependências Python:
+2. Instale o Node.js 18+ e depois as dependências Python:
    ```bash
-   pip install mcp anthropic google-generativeai openai requests
+   pip install -r requirements.txt
    npx playwright install chromium
    ```
 3. Abra a solução no Visual Studio e compile em **Release / x64**.
@@ -113,19 +138,35 @@ de teste.
    - **Scan DOM** — aponte para uma URL para uma leitura estrutural rápida.
    - **Automação** — escolha Tela, API ou Banco, preencha os detalhes e descreva o que
      validar.
-3. Leia o relatório no chat. Peça à IA para gerar um script e salve com
-   **Extrair e Salvar Script**.
+3. Leia o relatório no chat. Exporte como HTML, salve a sessão para continuar depois, ou
+   extraia o script gerado para reutilizar.
+
+As configurações (pastas, modelo, limites de passos) ficam em **Configuracoes**, na
+janela principal.
+
+---
+
+## Onde ficam seus dados
+
+| O quê | Onde |
+|---|---|
+| Chaves de API, preferências, tema | `%APPDATA%\T2M Security Manager` (cifrado com DPAPI) |
+| Relatórios, sessões, scripts | Pastas que você escolhe em Configurações (padrão: `Documentos`) |
+
+Nada é enviado para lugar nenhum além do provedor de IA cuja chave você fornecer.
 
 ---
 
 ## Roadmap
 
 - [x] Assistente conversacional + três modos de automação (tela / API / banco)
-- [x] Roteamento multi-IA com indicador visual
+- [x] Sete bancos de dados, incluindo Oracle e MongoDB
+- [x] Roteamento multi-IA com indicador visual e escolha de modelo
 - [x] Credenciais cifradas (DPAPI), banco somente-leitura por padrão
+- [x] Histórico de sessões, relatórios HTML, biblioteca de scripts, temas claro/escuro
+- [x] Instalador para Windows com preparação automática de dependências
 - [ ] Execuções de validação de ponta a ponta em todos os modos
-- [ ] Suporte a Oracle e MongoDB (servidores MCP dedicados)
-- [ ] Instalador empacotado (Python + Node embutidos)
+- [ ] Binários publicados em Releases
 
 ---
 

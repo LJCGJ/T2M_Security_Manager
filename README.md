@@ -26,9 +26,9 @@ reusable test script.
 The project routes across **Claude, Gemini, and OpenAI** — you choose the AI by the
 API key you provide.
 
-> **Project status:** early and actively developed. The interface, security layer,
-> and the wiring for all three automation modes are complete. Live end-to-end runs
-> depend on an AI backend with enough capacity (see [Requirements](#requirements)).
+> **Project status:** all features are built and the interface is fully functional.
+> End-to-end validation runs against live targets are still in progress — see the
+> [Roadmap](#roadmap).
 
 ---
 
@@ -40,61 +40,85 @@ API key you provide.
     by step: navigate, click, type, and validate real behavior on dynamic pages.
   - **API testing** — build an HTTP request (method, URL, headers, body) and let the
     AI call it and analyze the response.
-  - **Database testing** — connect to a database and let the AI explore the schema and
-    run read-only queries (via a database MCP server).
+  - **Database testing** — the AI explores the schema and runs queries, read-only by
+    default.
+- **Seven database engines supported:**
+
+  | Engine | How it connects |
+  |---|---|
+  | PostgreSQL, MySQL, MariaDB, SQLite, SQL Server | DBHub MCP server |
+  | Oracle | Official `python-oracledb` driver (thin mode — no Instant Client needed) |
+  | MongoDB | Official MongoDB MCP server |
+
 - **Static DOM scan** — a fast, lightweight read of a page's structure, useful for
   security review and simple checks.
 - **Multi-AI routing** — Claude (`sk-ant-...`), OpenAI (`sk-...`), or Gemini, chosen
   automatically by the key prefix, with a clear on-screen indicator.
-- **Script generation** — the AI can produce reusable test scripts (Robot Framework,
-  Python, or SQL) that you can save and run again.
+- **Cost control** — pick the Claude model (Haiku / Sonnet / Opus) and cap the number
+  of agent steps per task, so you decide the trade-off between capability and spend.
+- **Session history** — save a conversation and reopen it later, formatting intact.
+- **HTML reports** — export the test report or the technical log as a styled HTML file.
+- **Script library** — generated scripts (Python, Robot Framework, SQL) are saved and
+  listed for reuse.
+- **Light and dark themes**, applied across every window.
 - **Security-first** — API keys and database passwords are encrypted at rest with
-  Windows DPAPI; database access defaults to read-only.
+  Windows DPAPI; database access defaults to read-only; credentials are stored in the
+  user's own profile folder, never inside the program directory.
 
 ---
 
 ## How it works
 
 ```
-+-------------------+       +------------------+       +-----------------------+
-|  T2M Desktop App  |       |   Python agent   |       |     MCP servers /     |
-|   (C++/CLI, UI)   | ----> |  (agent_mcp.py)  | ----> |     HTTP tool         |
-|                   |       |                  |       |  - Playwright (screen)|
-|  chat + forms     | stdin |  agentic loop:   |       |  - DBHub (database)   |
-|                   | <---- |  AI <-> tools     | <---- |  - native HTTP (API)  |
-+-------------------+ stdout+------------------+       +-----------------------+
++-------------------+       +------------------+       +--------------------------+
+|  T2M Desktop App  |       |   Python agent   |       |   MCP servers / drivers  |
+|   (C++/CLI, UI)   | ----> |  (agente_mcp.py) | ----> |  - Playwright (screen)   |
+|                   |       |                  |       |  - DBHub (SQL databases) |
+|  chat + forms     | stdin |  agentic loop:   |       |  - MongoDB MCP (official)|
+|                   | <---- |  AI <-> tools    | <---- |  - oracledb (Oracle)     |
++-------------------+ stdout+------------------+       |  - native HTTP (API)     |
+                                                       +--------------------------+
 ```
 
 The C++/CLI desktop app collects the request and passes it to a Python agent over
-stdin. The agent starts the right MCP server (or uses a native HTTP tool for APIs),
-then runs an **agentic loop**: the AI reasons, calls a tool, observes the real result,
-and repeats until the task is done — finally returning a report and, when useful, a
-test script.
+stdin. The agent starts the right MCP server (or uses a native driver for Oracle and
+HTTP), then runs an **agentic loop**: the AI reasons, calls a tool, observes the real
+result, and repeats until the task is done — finally returning a report and, when
+useful, a test script.
 
 ---
 
 ## Requirements
 
 - **Windows** (x64)
-- **Node.js 18+** — for the MCP servers (`npx` launches Playwright / database servers)
-- **Python 3.10+** with: `mcp`, `anthropic`, `google-generativeai`, `openai`, `requests`
+- **Node.js 18+** — for the MCP servers (`npx` launches the Playwright, DBHub and
+  MongoDB servers)
+- **Python 3.10+**
 - An **API key** for at least one provider (Claude, OpenAI, or Gemini)
 
 > **A note on AI backends:** the automation modes make multiple sequential AI calls.
-> Free Gemini keys have low per-minute limits that can interrupt longer runs; a
-> Claude or OpenAI key with available credit gives the most reliable experience.
+> Free Gemini keys have low per-minute limits that interrupt longer runs; a Claude or
+> OpenAI key with available credit gives the most reliable experience.
 
 ---
 
 ## Getting started
 
+### Option A — installer (recommended)
+
+Download the installer from the [Releases](https://github.com/LJCGJ/T2M_Security_Manager/releases)
+page and run it. It installs the app and offers to set up the Python libraries and the
+test browser automatically.
+
+### Option B — from source
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/LJCGJ/T2M_Security_Manager.git
    ```
-2. Install Node.js 18+ and the Python dependencies:
+2. Install Node.js 18+, then the Python dependencies:
    ```bash
-   pip install mcp anthropic google-generativeai openai requests
+   pip install -r requirements.txt
    npx playwright install chromium
    ```
 3. Open the solution in Visual Studio and build in **Release / x64**.
@@ -113,19 +137,34 @@ test script.
    - **DOM Scan** — point at a URL for a quick structural read.
    - **Automation** — choose Screen, API, or Database, fill in the details, and
      describe what to validate.
-3. Read the report in the chat. Ask the AI to generate a script, then save it with
-   **Extract & Save Script**.
+3. Read the report in the chat. Export it as HTML, save the session to continue later,
+   or extract the generated script for reuse.
+
+Settings (folders, model, step limits) live under **Configuracoes** on the main window.
+
+---
+
+## Where your data lives
+
+| What | Where |
+|---|---|
+| API keys, preferences, theme | `%APPDATA%\T2M Security Manager` (encrypted with DPAPI) |
+| Reports, sessions, scripts | Folders you choose in Settings (default: `Documents`) |
+
+Nothing is sent anywhere except to the AI provider whose key you supply.
 
 ---
 
 ## Roadmap
 
 - [x] Conversational assistant + three automation modes (screen / API / database)
-- [x] Multi-AI routing with on-screen indicator
+- [x] Seven database engines, including Oracle and MongoDB
+- [x] Multi-AI routing with on-screen indicator and model selection
 - [x] Encrypted credentials (DPAPI), read-only database default
-- [ ] End-to-end validation runs across all modes
-- [ ] Oracle and MongoDB support (dedicated MCP servers)
-- [ ] Bundled installer (embedded Python + Node)
+- [x] Session history, HTML reports, script library, light/dark themes
+- [x] Windows installer with automatic dependency setup
+- [ ] End-to-end validation runs across all automation modes
+- [ ] Published release binaries
 
 ---
 
