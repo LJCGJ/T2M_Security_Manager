@@ -498,7 +498,7 @@ namespace T2MSecurityManager {
 			StreamWriter^ sw = gcnew StreamWriter(CaminhoApp("config.txt"));
 			sw->WriteLine(txtUrl->Text);
 			sw->WriteLine(ProtegerTexto(txtToken->Text)); // token cifrado (DPAPI)
-			for each (KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
+			for each(KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
 			sw->Close();
 		}
 		catch (...) {}
@@ -526,7 +526,7 @@ namespace T2MSecurityManager {
 			String^ pastaIA = Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), "modelos de teste em IA");
 			if (Directory::Exists(pastaIA)) {
 				array<String^>^ arquivos = Directory::GetFiles(pastaIA, "*.py");
-				for each (String ^ arquivo in arquivos) {
+				for each(String ^ arquivo in arquivos) {
 					String^ nome = Path::GetFileName(arquivo);
 					if (!scriptPaths->ContainsKey(nome)) { scriptPaths->Add(nome, arquivo); lstScripts->Items->Add(nome); }
 				}
@@ -617,7 +617,7 @@ namespace T2MSecurityManager {
 		combo->Items->Clear();
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
-			for each (String ^ linha in linhas) {
+			for each(String ^ linha in linhas) {
 				if (!String::IsNullOrWhiteSpace(linha)) {
 					String^ real = DesprotegerTexto(linha->Trim());
 					if (real->Length >= 10)
@@ -726,7 +726,7 @@ namespace T2MSecurityManager {
 		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 			List<String^>^ chaves = gcnew List<String^>();
-			for each (String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
+			for each(String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
 			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
 		}
 		return "";
@@ -810,7 +810,7 @@ namespace T2MSecurityManager {
 					array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
 					List<String^>^ novasLinhas = gcnew List<String^>();
 					int cont = 0;
-					for each (String ^ linha in linhas) {
+					for each(String ^ linha in linhas) {
 						if (!String::IsNullOrWhiteSpace(linha)) {
 							if (cont != idx) novasLinhas->Add(linha);
 							cont++;
@@ -882,12 +882,15 @@ namespace T2MSecurityManager {
 		btnRemoverChave->Click += gcnew System::EventHandler(this, &MyForm::btnRemoverChave_Click);
 		formIA->Controls->Add(btnRemoverChave);
 
-		// Botao de tema (sol/lua) - fica no canto superior direito da janela do chat
+		// Botao de tema (icone + texto) - canto superior direito, alinhado com o topo
 		btnTemaChat = gcnew Button();
-		btnTemaChat->Location = System::Drawing::Point(680, 12);
-		btnTemaChat->Size = System::Drawing::Size(30, 26);
+		btnTemaChat->Location = System::Drawing::Point(600, 15);
+		btnTemaChat->Size = System::Drawing::Size(110, 26);
 		btnTemaChat->FlatStyle = FlatStyle::Flat;
-		btnTemaChat->Font = gcnew System::Drawing::Font("Segoe UI", 9);
+		btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::Silver;
+		btnTemaChat->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
+		btnTemaChat->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
+		btnTemaChat->Cursor = Cursors::Hand;
 		btnTemaChat->Click += gcnew System::EventHandler(this, &MyForm::btnTemaChat_Click);
 		formIA->Controls->Add(btnTemaChat);
 		dica->SetToolTip(btnTemaChat, L"Alterna entre tema claro e escuro (a preferencia e lembrada).");
@@ -1055,14 +1058,14 @@ namespace T2MSecurityManager {
 			fundoCampo = System::Drawing::Color::FromArgb(24, 26, 31);
 			fundoInput = System::Drawing::Color::FromArgb(44, 47, 54);
 			texto = System::Drawing::Color::Gainsboro;
-			btnTemaChat->Text = L"☀";
+			btnTemaChat->Text = L"☀ Claro";
 		}
 		else {
 			fundo = System::Drawing::Color::WhiteSmoke;
 			fundoCampo = System::Drawing::Color::White;
 			fundoInput = System::Drawing::Color::White;
 			texto = System::Drawing::Color::Black;
-			btnTemaChat->Text = L"🌙";
+			btnTemaChat->Text = L"🌙 Escuro";
 		}
 		formIA->BackColor = fundo;
 		if (rtbChat != nullptr) { rtbChat->BackColor = fundoCampo; rtbChat->ForeColor = texto; }
@@ -1070,7 +1073,7 @@ namespace T2MSecurityManager {
 		btnTemaChat->BackColor = fundoInput;
 		btnTemaChat->ForeColor = texto;
 		// Percorre labels soltos (titulos) para ajustar a cor do texto
-		for each (Control ^ c in formIA->Controls) {
+		for each(Control ^ c in formIA->Controls) {
 			Label^ lbl = dynamic_cast<Label^>(c);
 			if (lbl != nullptr && lbl != lblChatStatus && lbl != lblIndicadorIA) {
 				lbl->ForeColor = texto;
@@ -1813,7 +1816,7 @@ namespace T2MSecurityManager {
 		if (!String::IsNullOrWhiteSpace(apiHeaders)) {
 			array<String^>^ linhas = apiHeaders->Split('\n');
 			bool primeiro = true;
-			for each (String ^ linha in linhas) {
+			for each(String ^ linha in linhas) {
 				String^ l = linha->Trim();
 				int dp = l->IndexOf(':');
 				if (dp > 0) {
