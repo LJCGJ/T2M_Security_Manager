@@ -59,7 +59,14 @@ def _carregar_configuracoes():
     Permite ao usuario ajustar limites pela tela de Configuracoes."""
     cfg = {}
     try:
-        caminho = os.path.join(SCRIPT_DIR, "configuracoes.txt")
+        # Preferencia: pasta gravavel do usuario (mesma que o app usa apos instalado).
+        # Fallback: ao lado do script (modo de desenvolvimento).
+        appdata = os.environ.get("APPDATA", "")
+        candidatos = []
+        if appdata:
+            candidatos.append(os.path.join(appdata, "T2M Security Manager", "configuracoes.txt"))
+        candidatos.append(os.path.join(SCRIPT_DIR, "configuracoes.txt"))
+        caminho = next((c for c in candidatos if os.path.exists(c)), candidatos[-1])
         if os.path.exists(caminho):
             with open(caminho, "r", encoding="utf-8") as f:
                 for linha in f:

@@ -202,6 +202,31 @@ namespace T2MSecurityManager {
 		return Path::Combine(Application::StartupPath, arquivo);
 	}
 
+	// Pasta gravavel do usuario (%APPDATA%\T2M Security Manager).
+	// Necessaria porque, apos a instalacao, a pasta do programa fica em
+	// "Program Files", onde usuarios comuns nao tem permissao de escrita.
+	// Se o arquivo ainda existir ao lado do executavel (versao antiga),
+	// ele e migrado automaticamente na primeira leitura.
+	private: String^ CaminhoDados(String^ arquivo) {
+		String^ pasta = Path::Combine(
+			Environment::GetFolderPath(Environment::SpecialFolder::ApplicationData),
+			"T2M Security Manager");
+		try {
+			Directory::CreateDirectory(pasta);
+			String^ destino = Path::Combine(pasta, arquivo);
+			// Migracao: traz o arquivo da pasta antiga, se existir
+			if (!File::Exists(destino)) {
+				String^ antigo = Path::Combine(Application::StartupPath, arquivo);
+				if (File::Exists(antigo)) File::Copy(antigo, destino, false);
+			}
+			return destino;
+		}
+		catch (...) {
+			// Se algo falhar, volta ao comportamento antigo (nao trava o app)
+			return Path::Combine(Application::StartupPath, arquivo);
+		}
+	}
+
 	// Nome completo da conta do Windows (ex.: "LeonardoJoseCordeiro").
 	private: String^ NomeUsuarioWindows() {
 		String^ nome = Environment::UserName;
@@ -547,9 +572,9 @@ namespace T2MSecurityManager {
 	}
 
 	private: void SalvarConfiguracao() {
-		if (!chkSalvar->Checked) { if (File::Exists(CaminhoApp("config.txt"))) File::Delete(CaminhoApp("config.txt")); return; }
+		if (!chkSalvar->Checked) { if (File::Exists(CaminhoDados("config.txt"))) File::Delete(CaminhoDados("config.txt")); return; }
 		try {
-			StreamWriter^ sw = gcnew StreamWriter(CaminhoApp("config.txt"));
+			StreamWriter^ sw = gcnew StreamWriter(CaminhoDados("config.txt"));
 			sw->WriteLine(txtUrl->Text);
 			sw->WriteLine(ProtegerTexto(txtToken->Text)); // token cifrado (DPAPI)
 			for each(KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
@@ -559,9 +584,9 @@ namespace T2MSecurityManager {
 	}
 
 	private: void CarregarConfiguracao() {
-		if (!File::Exists(CaminhoApp("config.txt"))) return;
+		if (!File::Exists(CaminhoDados("config.txt"))) return;
 		try {
-			StreamReader^ sr = gcnew StreamReader(CaminhoApp("config.txt"));
+			StreamReader^ sr = gcnew StreamReader(CaminhoDados("config.txt"));
 			String^ linha = sr->ReadLine(); if (linha != nullptr) txtUrl->Text = linha;
 			linha = sr->ReadLine(); if (linha != nullptr) txtToken->Text = DesprotegerTexto(linha);
 			while ((linha = sr->ReadLine()) != nullptr) {
@@ -709,8 +734,8 @@ namespace T2MSecurityManager {
 
 	private: void CarregarDropdownAPI(ComboBox^ combo) {
 		combo->Items->Clear();
-		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
-			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
+		if (File::Exists(CaminhoDados("api_keys_ia.txt"))) {
+			array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
 			for each(String ^ linha in linhas) {
 				if (!String::IsNullOrWhiteSpace(linha)) {
 					String^ real = DesprotegerTexto(linha->Trim());
@@ -815,8 +840,8 @@ namespace T2MSecurityManager {
 	private: String^ ObterChaveReal() {
 		int idx = comboModeloChat->SelectedIndex;
 		if (idx < 0) return "";
-		if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
-			array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
+		if (File::Exists(CaminhoDados("api_keys_ia.txt"))) {
+			array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
 			List<String^>^ chaves = gcnew List<String^>();
 			for each(String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
 			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
@@ -884,7 +909,7 @@ namespace T2MSecurityManager {
 			if (formAdd->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
 				String^ novaChave = txtNovaChave->Text->Trim();
 				if (novaChave != "") {
-					StreamWriter^ sw = gcnew StreamWriter(CaminhoApp("api_keys_ia.txt"), true);
+					StreamWriter^ sw = gcnew StreamWriter(CaminhoDados("api_keys_ia.txt"), true);
 					sw->WriteLine(ProtegerTexto(novaChave)); // cifrada em disco (DPAPI)
 					sw->Close();
 					MessageBox::Show(L"Chave salva com sucesso!", L"T2M Copilot");
@@ -899,8 +924,8 @@ namespace T2MSecurityManager {
 		int idx = comboModeloChat->SelectedIndex;
 		if (idx >= 0 && comboModeloChat->SelectedItem->ToString() != L"+ Adicionar Nova API Key..." && comboModeloChat->SelectedItem->ToString() != "-------------------------" && comboModeloChat->SelectedItem->ToString() != L" Nenhuma chave ") {
 			if (MessageBox::Show(L"Tem certeza que deseja excluir esta chave?", L"Confirmar Exclusao", MessageBoxButtons::YesNo, MessageBoxIcon::Warning) == System::Windows::Forms::DialogResult::Yes) {
-				if (File::Exists(CaminhoApp("api_keys_ia.txt"))) {
-					array<String^>^ linhas = File::ReadAllLines(CaminhoApp("api_keys_ia.txt"));
+				if (File::Exists(CaminhoDados("api_keys_ia.txt"))) {
+					array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
 					List<String^>^ novasLinhas = gcnew List<String^>();
 					int cont = 0;
 					for each(String ^ linha in linhas) {
@@ -909,7 +934,7 @@ namespace T2MSecurityManager {
 							cont++;
 						}
 					}
-					File::WriteAllLines(CaminhoApp("api_keys_ia.txt"), novasLinhas->ToArray());
+					File::WriteAllLines(CaminhoDados("api_keys_ia.txt"), novasLinhas->ToArray());
 					CarregarDropdownAPI(comboModeloChat);
 					MessageBox::Show(L"Chave excluida!", L"T2M Copilot");
 				}
@@ -1234,7 +1259,7 @@ namespace T2MSecurityManager {
 		cfgMaxLinhas = 100;
 		cfgModeloClaude = "claude-sonnet-5";
 		try {
-			String^ caminho = CaminhoApp("configuracoes.txt");
+			String^ caminho = CaminhoDados("configuracoes.txt");
 			if (!File::Exists(caminho)) return;
 			for each (String ^ linha in File::ReadAllLines(caminho)) {
 				int ig = linha->IndexOf('=');
@@ -1269,7 +1294,7 @@ namespace T2MSecurityManager {
 			sb->AppendLine("max_passos=" + cfgMaxPassos);
 			sb->AppendLine("max_linhas=" + cfgMaxLinhas);
 			sb->AppendLine("modelo_claude=" + cfgModeloClaude);
-			File::WriteAllText(CaminhoApp("configuracoes.txt"), sb->ToString());
+			File::WriteAllText(CaminhoDados("configuracoes.txt"), sb->ToString());
 		}
 		catch (Exception^ ex) {
 			MessageBox::Show(L"Nao foi possivel salvar as configuracoes: " + ex->Message, L"Aviso");
@@ -1611,7 +1636,7 @@ namespace T2MSecurityManager {
 
 	// Le a preferencia de tema do disco (arquivo simples). Retorna true = escuro.
 	private: bool CarregarPreferenciaTema() {		try {
-			String^ caminho = CaminhoApp("tema.txt");
+			String^ caminho = CaminhoDados("tema.txt");
 			if (File::Exists(caminho)) {
 				String^ v = File::ReadAllText(caminho)->Trim();
 				return v == "escuro";
@@ -1624,7 +1649,7 @@ namespace T2MSecurityManager {
 	// Salva a preferencia de tema no disco.
 	private: void SalvarPreferenciaTema(bool escuro) {
 		try {
-			File::WriteAllText(CaminhoApp("tema.txt"), escuro ? "escuro" : "claro");
+			File::WriteAllText(CaminhoDados("tema.txt"), escuro ? "escuro" : "claro");
 		}
 		catch (...) {}
 	}
@@ -2043,17 +2068,25 @@ namespace T2MSecurityManager {
 		else if (t == "SQLite")     esquema = L"sqlite";
 		else                        esquema = L"postgres"; // fallback
 
-		// SQLite e um arquivo local
+		// SQLite e um arquivo local: usa barras normais e o prefixo de tres barras,
+		// senao caminhos do Windows (C:\pasta\banco.db) sao mal interpretados.
 		if (t == "SQLite") {
 			String^ caminho = !String::IsNullOrWhiteSpace(dbNome) ? dbNome : dbHost;
-			return L"sqlite://" + caminho;
+			caminho = caminho->Replace("\\", "/");
+			return L"sqlite:///" + caminho;
 		}
 
-		String^ userInfo = dbUsuario;
-		if (!String::IsNullOrEmpty(senha)) userInfo += L":" + senha;
+		// Usuario e senha precisam ser codificados: caracteres como @ : / # sao
+		// separadores na URL e quebrariam a string de conexao.
+		String^ userInfo = L"";
+		if (!String::IsNullOrWhiteSpace(dbUsuario)) {
+			userInfo = Uri::EscapeDataString(dbUsuario);
+			if (!String::IsNullOrEmpty(senha)) userInfo += L":" + Uri::EscapeDataString(senha);
+			userInfo += L"@";
+		}
 		String^ hostPorta = dbHost;
 		if (!String::IsNullOrWhiteSpace(dbPorta)) hostPorta += L":" + dbPorta;
-		return esquema + L"://" + userInfo + L"@" + hostPorta + L"/" + dbNome;
+		return esquema + L"://" + userInfo + hostPorta + L"/" + dbNome;
 	}
 
 	// Salva a conexao: valida por tipo (borda vermelha + texto embaixo), cifra a senha.
@@ -2093,7 +2126,8 @@ namespace T2MSecurityManager {
 			if (String::IsNullOrWhiteSpace(txtHost->Text)) {
 				MarcarErroCampo(txtHost, errHost, L"Campo obrigatorio"); ok = false;
 			}
-			if (String::IsNullOrWhiteSpace(txtUser->Text)) {
+			// MongoDB local frequentemente roda sem autenticacao: usuario e opcional.
+			if (tipo != "MongoDB" && String::IsNullOrWhiteSpace(txtUser->Text)) {
 				MarcarErroCampo(txtUser, errUser, L"Campo obrigatorio"); ok = false;
 			}
 			if (String::IsNullOrWhiteSpace(txtNome->Text)) {
