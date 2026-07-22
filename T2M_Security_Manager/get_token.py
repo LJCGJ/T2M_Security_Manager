@@ -14,8 +14,6 @@ SAIDA:
 import sys
 import time
 
-URL_PADRAO = "https://sgidd.t2mlab.com/auth"
-
 # Nomes de chave mais comuns onde sistemas guardam o token.
 CHAVES_COMUNS = [
     "token", "access_token", "accessToken", "authToken", "auth_token",
@@ -31,7 +29,8 @@ def log(msg):
 
 
 def ler_url():
-    """Le a URL do stdin (contrato com o app). Cai para argv ou padrao."""
+    """Le a URL do stdin (contrato com o app); aceita tambem argv em uso manual.
+    Nao existe endereco padrao: a URL e sempre informada por quem usa."""
     url = ""
     try:
         if not sys.stdin.isatty():
@@ -40,7 +39,7 @@ def ler_url():
         url = ""
     if not url and len(sys.argv) > 1:
         url = sys.argv[1].strip()
-    return url or URL_PADRAO
+    return url
 
 
 def procurar_token(driver):
@@ -78,6 +77,12 @@ def procurar_token(driver):
 
 def main():
     url = ler_url()
+    if not url:
+        log("Nenhuma URL informada. Preencha a URL do sistema onde deseja fazer login.")
+        return 1
+    if not (url.startswith("http://") or url.startswith("https://")):
+        log(f"URL invalida: {url}. Ela deve comecar com http:// ou https://")
+        return 1
     log(f">>> URL alvo: {url}")
 
     try:

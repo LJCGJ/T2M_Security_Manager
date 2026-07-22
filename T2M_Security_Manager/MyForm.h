@@ -554,10 +554,19 @@ namespace T2MSecurityManager {
 	}
 
 	private: System::Void btnLoginAuto_Click(System::Object^ sender, System::EventArgs^ e) {
-		String^ urlAlvo = txtUrl->Text;
+		String^ urlAlvo = txtUrl->Text->Trim();
 		if (String::IsNullOrWhiteSpace(urlAlvo)) {
-			urlAlvo = "https://sgidd.t2mlab.com/auth";
-			txtUrl->Text = urlAlvo;
+			MessageBox::Show(
+				L"Preencha a URL Alvo com o endereco da tela de login do sistema "
+				L"que voce quer testar.\n\nExemplo: https://meusistema.com/login",
+				L"URL necessaria", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			return;
+		}
+		if (!(urlAlvo->StartsWith("http://") || urlAlvo->StartsWith("https://"))) {
+			MessageBox::Show(
+				L"A URL deve comecar com http:// ou https://\n\nExemplo: https://meusistema.com/login",
+				L"URL invalida", MessageBoxButtons::OK, MessageBoxIcon::Warning);
+			return;
 		}
 		txtUrl->Enabled = false; txtToken->Enabled = false;
 		chkHabilitarLogin->Enabled = false; btnLoginAuto->Enabled = false;
@@ -631,7 +640,7 @@ namespace T2MSecurityManager {
 			StreamWriter^ sw = gcnew StreamWriter(CaminhoDados("config.txt"));
 			sw->WriteLine(txtUrl->Text);
 			sw->WriteLine(ProtegerTexto(txtToken->Text)); // token cifrado (DPAPI)
-			for each(KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
+			for each (KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
 			sw->Close();
 		}
 		catch (...) {}
@@ -664,15 +673,15 @@ namespace T2MSecurityManager {
 			// entao scripts .robot/.sql/.txt sumiam da lista ao reabrir o app).
 			List<String^>^ todos = gcnew List<String^>();
 			array<String^>^ extensoes = gcnew array<String^>{ "*.py", "*.robot", "*.sql", "*.txt" };
-			for each(String ^ padrao in extensoes) {
-				for each(String ^ arquivo in Directory::GetFiles(pastaIA, padrao))
+			for each (String ^ padrao in extensoes) {
+				for each (String ^ arquivo in Directory::GetFiles(pastaIA, padrao))
 					todos->Add(arquivo);
 			}
 
 			// Ordena por data de modificacao: mais recentes primeiro
 			todos->Sort(gcnew Comparison<String^>(&MyForm::CompararPorDataDesc));
 
-			for each(String ^ arquivo in todos) {
+			for each (String ^ arquivo in todos) {
 				String^ nome = Path::GetFileName(arquivo);
 				if (!scriptPaths->ContainsKey(nome)) {
 					scriptPaths->Add(nome, arquivo);
@@ -790,7 +799,7 @@ namespace T2MSecurityManager {
 		combo->Items->Clear();
 		if (File::Exists(CaminhoDados("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
-			for each(String ^ linha in linhas) {
+			for each (String ^ linha in linhas) {
 				if (!String::IsNullOrWhiteSpace(linha)) {
 					String^ real = DesprotegerTexto(linha->Trim());
 					if (real->Length >= 10)
@@ -899,7 +908,7 @@ namespace T2MSecurityManager {
 		if (File::Exists(CaminhoDados("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
 			List<String^>^ chaves = gcnew List<String^>();
-			for each(String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
+			for each (String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
 			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
 		}
 		return "";
@@ -984,7 +993,7 @@ namespace T2MSecurityManager {
 					array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
 					List<String^>^ novasLinhas = gcnew List<String^>();
 					int cont = 0;
-					for each(String ^ linha in linhas) {
+					for each (String ^ linha in linhas) {
 						if (!String::IsNullOrWhiteSpace(linha)) {
 							if (cont != idx) novasLinhas->Add(linha);
 							cont++;
@@ -1318,7 +1327,7 @@ namespace T2MSecurityManager {
 		try {
 			String^ caminho = CaminhoDados("configuracoes.txt");
 			if (!File::Exists(caminho)) return;
-			for each(String ^ linha in File::ReadAllLines(caminho)) {
+			for each (String ^ linha in File::ReadAllLines(caminho)) {
 				int ig = linha->IndexOf('=');
 				if (ig <= 0) continue;
 				String^ chave = linha->Substring(0, ig)->Trim();
@@ -1624,7 +1633,7 @@ namespace T2MSecurityManager {
 		// A area de conversa usa um fundo um pouco mais escuro que os campos
 		if (rtbChat != nullptr) { rtbChat->BackColor = fundoCampo; rtbChat->ForeColor = texto; }
 		// Percorre labels soltos (titulos) para ajustar a cor do texto
-		for each(Control ^ c in formIA->Controls) {
+		for each (Control ^ c in formIA->Controls) {
 			Label^ lbl = dynamic_cast<Label^>(c);
 			if (lbl != nullptr && lbl != lblChatStatus && lbl != lblIndicadorIA) {
 				lbl->ForeColor = texto;
@@ -1647,7 +1656,7 @@ namespace T2MSecurityManager {
 			? System::Drawing::Color::Gainsboro
 			: System::Drawing::Color::Black;
 
-		for each(Control ^ c in raiz->Controls) {
+		for each (Control ^ c in raiz->Controls) {
 			// Console de log: mantem a identidade propria (fundo escuro, texto verde)
 			if (c == txtOutput) continue;
 
@@ -2463,7 +2472,7 @@ namespace T2MSecurityManager {
 		if (!String::IsNullOrWhiteSpace(apiHeaders)) {
 			array<String^>^ linhas = apiHeaders->Split('\n');
 			bool primeiro = true;
-			for each(String ^ linha in linhas) {
+			for each (String ^ linha in linhas) {
 				String^ l = linha->Trim();
 				int dp = l->IndexOf(':');
 				if (dp > 0) {
