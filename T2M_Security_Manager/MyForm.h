@@ -174,6 +174,12 @@ namespace T2MSecurityManager {
 		System::Text::StringBuilder^ bufSaidaProc;
 		System::Text::StringBuilder^ bufErroProc;
 
+		// Captura de token em segundo plano (a espera pelo login pode levar minutos)
+		System::ComponentModel::BackgroundWorker^ workerLogin;
+		String^ loginUrl;
+		System::Text::StringBuilder^ bufLoginSaida;
+		System::Text::StringBuilder^ bufLoginErro;
+
 		System::ComponentModel::BackgroundWorker^ workerChat;
 		int modoWorker;          // 0 = chat normal, 1 = scan DOM, 2 = MCP ao vivo
 		String^ payloadWorker;   // texto que sera enviado ao Python (montado antes de rodar)
@@ -514,7 +520,7 @@ namespace T2MSecurityManager {
 			this->Controls->Add(this->btnExport);
 			this->Name = L"MyForm";
 			this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
-			this->Text = L"T2M Security Manager v4.0 (MCP Edition)";
+			this->Text = L"T2M Security Manager v4.1 (MCP Edition)";
 			this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
 			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->EndInit();
 			this->ResumeLayout(false);
@@ -574,6 +580,12 @@ namespace T2MSecurityManager {
 			L"navegador e se o sistema realmente usa token JWT.";
 	}
 
+	// ==========================================================================
+	// --- CAPTURA DE TOKEN (em segundo plano) ---
+	// A espera pelo login pode levar minutos. Antes isso rodava na thread da
+	// interface e a janela ficava congelada, parecendo travada. Agora roda em
+	// segundo plano e as mensagens de progresso aparecem ao vivo.
+	// ==========================================================================
 	private: System::Void btnLoginAuto_Click(System::Object^ sender, System::EventArgs^ e) {
 		String^ urlAlvo = txtUrl->Text->Trim();
 		if (String::IsNullOrWhiteSpace(urlAlvo)) {
@@ -589,78 +601,129 @@ namespace T2MSecurityManager {
 				L"URL invalida", MessageBoxButtons::OK, MessageBoxIcon::Warning);
 			return;
 		}
+
+		if (workerLogin != nullptr && workerLogin->IsBusy) return;
+
 		txtUrl->Enabled = false; txtToken->Enabled = false;
 		chkHabilitarLogin->Enabled = false; btnLoginAuto->Enabled = false;
 		btnLoginAuto->Text = L"⏳ Aguarde...";
-		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO LOGIN AUTOMATICO...\n");
+		txtOutput->Clear();
+		txtOutput->AppendText(">>> INICIANDO LOGIN AUTOMATICO...\n");
+		txtOutput->AppendText(">>> A janela do navegador vai abrir. Faca o login por la.\n");
 
+		loginUrl = urlAlvo;
+		bufLoginSaida = gcnew System::Text::StringBuilder();
+		bufLoginErro = gcnew System::Text::StringBuilder();
+
+		if (workerLogin == nullptr) {
+			workerLogin = gcnew System::ComponentModel::BackgroundWorker();
+			workerLogin->DoWork += gcnew System::ComponentModel::DoWorkEventHandler(
+				this, &MyForm::workerLogin_DoWork);
+			workerLogin->RunWorkerCompleted += gcnew System::ComponentModel::RunWorkerCompletedEventHandler(
+				this, &MyForm::workerLogin_Completed);
+		}
+		workerLogin->RunWorkerAsync();
+	}
+
+	// Roda em outra thread: nao pode tocar em controles da interface.
+	private: System::Void workerLogin_DoWork(System::Object^ sender, System::ComponentModel::DoWorkEventArgs^ e) {
 		Process^ pLogin = gcnew Process();
 		try {
 			ProcessStartInfo^ psi = gcnew ProcessStartInfo();
 			psi->FileName = "python";
 			psi->Arguments = "-u \"" + CaminhoApp("get_token.py") + "\"";
 			psi->UseShellExecute = false;
-			psi->RedirectStandardInput = true;   // URL enviada por stdin
+			psi->RedirectStandardInput = true;
 			psi->RedirectStandardOutput = true;
-			psi->RedirectStandardError = true;   // sem isso, o motivo real da falha se perde
+			psi->RedirectStandardError = true;
 			psi->CreateNoWindow = true;
 			psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
 			psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
 			pLogin->StartInfo = psi;
 
-			// Le durante a execucao: o script escreve avisos de progresso enquanto
-			// espera o login, e esperar para ler so no fim poderia travar o processo.
-			bufSaidaProc = gcnew System::Text::StringBuilder();
-			bufErroProc = gcnew System::Text::StringBuilder();
-			pLogin->OutputDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procSaida_Handler);
-			pLogin->ErrorDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procErro_Handler);
+			pLogin->OutputDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procLoginSaida_Handler);
+			pLogin->ErrorDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procLoginErro_Handler);
 
 			try { pLogin->Start(); }
 			catch (System::ComponentModel::Win32Exception^) {
-				txtOutput->AppendText("\n>>> ERRO: 'python' nao encontrado no PATH.\n");
+				e->Result = L"ERRO_PYTHON";
 				return;
 			}
 			pLogin->BeginOutputReadLine();
 			pLogin->BeginErrorReadLine();
 
-			array<System::Byte>^ bytes = System::Text::Encoding::UTF8->GetBytes(urlAlvo);
+			array<System::Byte>^ bytes = System::Text::Encoding::UTF8->GetBytes(loginUrl);
 			pLogin->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
 			pLogin->StandardInput->Close();
 
-			// Login pode levar ate ~60s (script espera o usuario logar). Teto de 180s.
-			if (!pLogin->WaitForExit(180000)) {
+			// O script espera ate 180s pelo login; damos uma folga extra.
+			if (!pLogin->WaitForExit(240000)) {
 				try { pLogin->Kill(); } catch (...) {}
-				txtOutput->AppendText("\n>>> Tempo esgotado no login.\n");
+				e->Result = L"TEMPO_ESGOTADO";
 				return;
 			}
-
-			String^ output = bufSaidaProc->ToString();
-			String^ erros = bufErroProc->ToString();
-
-			if (output->Contains("TOKEN_ENCONTRADO_INICIO")) {
-				array<String^>^ partes = output->Split(gcnew array<String^>{"TOKEN_ENCONTRADO_INICIO", "TOKEN_ENCONTRADO_FIM"}, StringSplitOptions::None);
-				if (partes->Length >= 2) {
-					txtToken->Text = partes[1]->Trim();
-					txtOutput->AppendText("\n>>> SUCESSO! Token capturado.\n");
-				}
-			}
-			else {
-				// Mostra o MOTIVO real, nao apenas "token nao encontrado"
-				String^ bruto = output + "\n" + erros;
-				String^ amigavel = DiagnosticarFalha(bruto);
-				txtOutput->AppendText("\n>>> " + amigavel + "\n");
-				// Detalhe tecnico fica disponivel, mas sem poluir a mensagem principal
-				if (!String::IsNullOrWhiteSpace(bruto)) {
-					txtOutput->AppendText("\n--- detalhe tecnico ---\n" + bruto->Trim() + "\n");
-				}
-			}
+			e->Result = L"OK";
 		}
-		catch (Exception^ ex) { MessageBox::Show(L"Erro: " + ex->Message); }
+		catch (Exception^ ex) {
+			e->Result = L"EXCECAO:" + ex->Message;
+		}
 		finally {
-			pLogin->Close();
-			txtUrl->Enabled = true; txtToken->Enabled = true; chkHabilitarLogin->Enabled = true;
-			btnLoginAuto->Enabled = true; btnLoginAuto->Text = L"🔑 Login Automatico";
+			try { pLogin->Close(); } catch (...) {}
 		}
+	}
+
+	// Volta para a thread da interface: aqui pode atualizar a tela.
+	private: System::Void workerLogin_Completed(System::Object^ sender, System::ComponentModel::RunWorkerCompletedEventArgs^ e) {
+		String^ estado = (e->Error != nullptr) ? (L"EXCECAO:" + e->Error->Message)
+			: safe_cast<String^>(e->Result);
+		String^ output = (bufLoginSaida != nullptr) ? bufLoginSaida->ToString() : L"";
+		String^ erros = (bufLoginErro != nullptr) ? bufLoginErro->ToString() : L"";
+
+		if (estado == "ERRO_PYTHON") {
+			txtOutput->AppendText("\n>>> ERRO: 'python' nao encontrado no PATH.\n");
+		}
+		else if (estado == "TEMPO_ESGOTADO") {
+			txtOutput->AppendText("\n>>> Tempo esgotado aguardando o login.\n");
+		}
+		else if (estado->StartsWith("EXCECAO:")) {
+			txtOutput->AppendText("\n>>> Erro: " + estado->Substring(8) + "\n");
+		}
+		else if (output->Contains("TOKEN_ENCONTRADO_INICIO")) {
+			array<String^>^ partes = output->Split(
+				gcnew array<String^>{"TOKEN_ENCONTRADO_INICIO", "TOKEN_ENCONTRADO_FIM"},
+				StringSplitOptions::None);
+			if (partes->Length >= 2) {
+				txtToken->Text = partes[1]->Trim();
+				txtOutput->AppendText("\n>>> SUCESSO! Token capturado.\n");
+			}
+		}
+		else {
+			String^ bruto = output + "\n" + erros;
+			txtOutput->AppendText("\n>>> " + DiagnosticarFalha(bruto) + "\n");
+		}
+
+		txtUrl->Enabled = true; txtToken->Enabled = true; chkHabilitarLogin->Enabled = true;
+		btnLoginAuto->Enabled = true; btnLoginAuto->Text = L"🔑 Login Automatico";
+	}
+
+	// Saida do script de token: guarda no buffer (o token vem por aqui).
+	private: void procLoginSaida_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
+		if (e->Data == nullptr || bufLoginSaida == nullptr) return;
+		System::Threading::Monitor::Enter(bufLoginSaida);
+		try { bufLoginSaida->AppendLine(e->Data); }
+		finally { System::Threading::Monitor::Exit(bufLoginSaida); }
+	}
+
+	// Mensagens de progresso: guarda no buffer E mostra na tela ao vivo.
+	private: void procLoginErro_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
+		if (e->Data == nullptr || bufLoginErro == nullptr) return;
+		System::Threading::Monitor::Enter(bufLoginErro);
+		try { bufLoginErro->AppendLine(e->Data); }
+		finally { System::Threading::Monitor::Exit(bufLoginErro); }
+		// Atualiza a interface pela thread correta
+		if (this->IsDisposed || !this->IsHandleCreated) return;
+		try { this->BeginInvoke(gcnew Action<String^>(this, &MyForm::AppendLog), e->Data); }
+		catch (...) {}
 	}
 
 	private: void SalvarConfiguracao() {
@@ -860,6 +923,27 @@ namespace T2MSecurityManager {
 		System::Threading::Monitor::Enter(bufErroProc);
 		try { bufErroProc->AppendLine(e->Data); }
 		finally { System::Threading::Monitor::Exit(bufErroProc); }
+
+		// Mostra o progresso NA HORA. O agente escreve cada passo aqui; sem isso,
+		// uma automacao de varios minutos parece travada ate terminar.
+		// Filtra so as linhas de progresso (">>>"), ignorando avisos tecnicos.
+		String^ linha = e->Data->Trim();
+		if (!linha->StartsWith(">>>")) return;
+		if (formIA == nullptr || formIA->IsDisposed || !formIA->IsHandleCreated) return;
+		try { formIA->BeginInvoke(gcnew Action<String^>(this, &MyForm::MostrarProgressoChat), linha); }
+		catch (...) {}
+	}
+
+	// Escreve uma linha de progresso no chat, em cinza, para nao competir com
+	// as mensagens da conversa.
+	private: void MostrarProgressoChat(String^ linha) {
+		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
+		rtbChat->SelectionColor = System::Drawing::Color::Gray;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Italic);
+		rtbChat->AppendText(linha + "\n");
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+		rtbChat->SelectionColor = System::Drawing::Color::Black;
+		rtbChat->ScrollToCaret();
 	}
 
 	private: String^ ChamarAgentePython(String^ apiKey, String^ prompt, String^ url) {
