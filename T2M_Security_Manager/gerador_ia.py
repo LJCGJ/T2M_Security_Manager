@@ -2,15 +2,16 @@
 """
 T2M Copilot - Motor de IA (roteador multi-provedor)
 
-MUDANCA IMPORTANTE DE SEGURANCA:
-    A entrada agora chega por STDIN em JSON, e nao mais por sys.argv.
-    Isso resolve tres problemas da versao anterior:
-      1) A API key nao aparece mais na lista de processos (Gerenciador de Tarefas).
-      2) Prompts/conversas longas nao esbarram no limite da linha de comando (~32KB).
-      3) Aspas e caracteres especiais no prompt nao quebram mais o parsing.
+SEGURANCA:
+    A entrada chega por STDIN, e nao por sys.argv. Isso resolve tres problemas:
+      - A API key nao aparece na lista de processos (Gerenciador de Tarefas).
+      - Prompts longos nao esbarram no limite da linha de comando (~32KB).
+      - Aspas e caracteres especiais no prompt nao quebram o parsing.
 
-    Contrato de entrada (stdin, UTF-8):
-        {"api_key": "...", "prompt": "...", "url": "..."}
+    Contrato de entrada (stdin, UTF-8) - 3 linhas, igual ao agente_mcp.py:
+        linha 1: chave de API
+        linha 2: URL alvo
+        linha 3+: prompt do usuario
 
     Contrato de saida (stdout):
         CHAT_MSG_INICIO
@@ -27,6 +28,37 @@ import subprocess
 # (diretorio do script) para que chat e automacao ao vivo vejam a mesma conversa.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_MEMORIA = os.path.join(SCRIPT_DIR, "memoria_chat.json")
+
+
+def _carregar_configuracoes():
+    """Le configuracoes.txt gravado pelo app (tela de Configuracoes).
+    Procura primeiro na pasta de dados do usuario, depois ao lado do script."""
+    cfg = {}
+    try:
+        appdata = os.environ.get("APPDATA", "")
+        candidatos = []
+        if appdata:
+            candidatos.append(os.path.join(appdata, "T2M Security Manager", "configuracoes.txt"))
+        candidatos.append(os.path.join(SCRIPT_DIR, "configuracoes.txt"))
+        caminho = next((c for c in candidatos if os.path.exists(c)), None)
+        if caminho:
+            with open(caminho, "r", encoding="utf-8") as f:
+                for linha in f:
+                    if "=" in linha:
+                        chave, valor = linha.split("=", 1)
+                        cfg[chave.strip()] = valor.strip()
+    except Exception:
+        pass
+    return cfg
+
+
+_CFG = _carregar_configuracoes()
+
+# ATENCAO: modelos antigos foram APOSENTADOS e retornam erro.
+# claude-3-haiku-20240307 saiu do ar em abril/2026 - nao usar.
+MODELO_CLAUDE = _CFG.get("modelo_claude", "claude-haiku-4-5-20251001").strip() \
+    or "claude-haiku-4-5-20251001"
+MODELO_OPENAI = _CFG.get("modelo_openai", "gpt-4o-mini").strip() or "gpt-4o-mini"
 
 
 # ==============================================================================
@@ -102,21 +134,59 @@ def extrair_contexto_dom(url):
         forms = soup.find_all('form')
         links = soup.find_all('a')
 
-        linhas = [f"=== CONTEXTO EXTRAIDO DA URL ({url}) ==="]
-        linhas.append(f"Total de Formularios: {len(forms)}")
-        linhas.append(f"Total de Links: {len(links)}")
-        linhas.append("Inputs encontrados:")
-        for i in inputs:
-            linhas.append(
-                f" - Tipo: {i.get('type', 'N/A')} | "
-                f"ID: {i.get('id', 'N/A')} | "
-                f"Name: {i.get('name', 'N/A')} | "
-                f"Placeholder: {i.get('placeholder', 'N/A')}"
-            )
-        linhas.append("Botoes encontrados:")
-        for b in botoes:
-            texto = (b.get_text() or "").strip()[:60]
-            linhas.append(f" - Texto: {texto} | ID: {b.get('id', 'N/A')}")
+        scripts = soup.find_all('script')
+        total_elementos = len(inputs) + len(botoes) + len(forms)
+
+        # DETECCAO DE PAGINA DINAMICA (SPA):
+        # Aplicacoes React/Vue/Angular entregam um HTML quase vazio e montam a
+        # interface no navegador, via JavaScript. Como esta leitura e estatica,
+        # ela veria "nenhum campo" e o modelo concluiria que a pagina e vazia -
+        # uma conclusao errada dita com confianca. Melhor admitir a limitacao.
+        marcadores_spa = ('id="root"', "id='root'", 'id="app"', "id='app'",
+                          '__NEXT_DATA__', 'ng-version', 'data-reactroot')
+        html_bruto = req.text
+        parece_spa = (total_elementos <= 1 and len(scripts) >= 1) or \
+                     any(m in html_bruto for m in marcadores_spa)
+
+        linhas = [f"=== LEITURA ESTATICA DA PAGINA ({url}) ==="]
+
+        if parece_spa and total_elementos <= 2:
+            linhas.append("")
+            linhas.append("ATENCAO - LIMITACAO DESTA LEITURA:")
+            linhas.append("Esta pagina monta a interface por JavaScript no navegador "
+                          "(aplicacao de pagina unica). A leitura estatica do HTML nao "
+                          "enxerga os elementos criados em tempo de execucao.")
+            linhas.append("NAO conclua que a pagina nao tem campos ou botoes: eles "
+                          "provavelmente existem, mas so aparecem apos o carregamento.")
+            linhas.append("Para mapear esta pagina de verdade, use o modo Automacao > "
+                          "Teste de Tela, que abre um navegador real.")
+            linhas.append("")
+
+        linhas.append(f"Formularios no HTML estatico: {len(forms)}")
+        linhas.append(f"Links no HTML estatico: {len(links)}")
+        linhas.append(f"Scripts carregados: {len(scripts)}")
+
+        if inputs:
+            linhas.append("Campos de entrada encontrados:")
+            for i in inputs:
+                linhas.append(
+                    f" - Tipo: {i.get('type', 'N/A')} | "
+                    f"ID: {i.get('id', 'N/A')} | "
+                    f"Name: {i.get('name', 'N/A')} | "
+                    f"Placeholder: {i.get('placeholder', 'N/A')}"
+                )
+        else:
+            linhas.append("Campos de entrada: nenhum no HTML estatico"
+                          + (" (provavelmente criados por JavaScript)" if parece_spa else ""))
+
+        if botoes:
+            linhas.append("Botoes encontrados:")
+            for b in botoes:
+                texto = (b.get_text() or "").strip()[:60]
+                linhas.append(f" - Texto: {texto} | ID: {b.get('id', 'N/A')}")
+        else:
+            linhas.append("Botoes: nenhum no HTML estatico"
+                          + (" (provavelmente criados por JavaScript)" if parece_spa else ""))
 
         linhas.append("=======================================")
         return "\n".join(linhas) + "\n"
@@ -256,9 +326,8 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
         if api_key.startswith("sk-ant-"):
             from anthropic import Anthropic
             client = Anthropic(api_key=api_key)
-            # Dica: voce pode trocar por um modelo mais novo quando quiser.
             response = client.messages.create(
-                model="claude-3-haiku-20240307",
+                model=MODELO_CLAUDE,
                 max_tokens=2048,
                 system=sistema,
                 messages=memoria,
@@ -270,7 +339,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             from openai import OpenAI
             client = OpenAI(api_key=api_key)
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=MODELO_OPENAI,
                 messages=[{"role": "system", "content": sistema}] + memoria,
             )
             resposta_ia = response.choices[0].message.content.strip()

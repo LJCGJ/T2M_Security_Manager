@@ -2295,7 +2295,7 @@ namespace T2MSecurityManager {
 		rtbChat->SelectionColor = (modoWorker == 2)
 			? System::Drawing::Color::DarkSlateBlue
 			: System::Drawing::Color::DarkGreen;
-		String^ prefixo = (modoWorker == 2) ? L"T2M Copilot (MCP ao vivo):\n" : L"T2M Copilot Arquiteto:\n";
+		String^ prefixo = (modoWorker == 2) ? L"T2M Copilot (automacao ao vivo):\n" : L"T2M Copilot:\n";
 		rtbChat->AppendText(L"\n" + prefixo + resposta + L"\n\n");
 		rtbChat->ScrollToCaret();
 
