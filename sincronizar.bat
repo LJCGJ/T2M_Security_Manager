@@ -31,7 +31,7 @@ REM ---- MyForm.h: so no codigo-fonte ----
 call :COPIA "MyForm.h" "%SRC%" "codigo-fonte"
 
 REM ---- Scripts Python: nos dois lugares ----
-for %%A in (agente_mcp.py gerador_ia.py get_token.py) do (
+for %%A in (agente_mcp.py gerador_ia.py get_token.py listar_modelos.py) do (
   call :COPIA "%%A" "%SRC%" "codigo-fonte"
   call :COPIA "%%A" "%REL%" "Release"
 )
@@ -46,7 +46,7 @@ for %%A in (instalador_t2m.iss requirements.txt instalar_dependencias.bat README
 )
 
 REM ---- Utilitarios de teste: Release ----
-for %%A in (teste_ia.py teste_chat.py) do (
+for %%A in (teste_ia.py teste_chat.py teste_completo.py criar_banco_teste.py) do (
   call :COPIA "%%A" "%REL%" "Release"
 )
 

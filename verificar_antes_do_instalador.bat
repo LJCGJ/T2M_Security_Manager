@@ -24,6 +24,7 @@ call :CHECA "%REL%\T2M_Security_Manager.exe" "Executavel principal" E
 call :CHECA "%REL%\agente_mcp.py"            "Agente MCP em Python" E
 call :CHECA "%REL%\gerador_ia.py"            "Gerador IA em Python" A
 call :CHECA "%REL%\get_token.py"             "Script get_token"     A
+call :CHECA "%REL%\listar_modelos.py"        "Buscador de modelos"  A
 call :CHECA "%REL%\T2M_logo-03.png"          "Logo do app"          A
 call :CHECA "%SRC%\icon2.ico"                "Icone do app"         A
 

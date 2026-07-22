@@ -52,8 +52,13 @@ Name: "instalardeps"; Description: "Preparar o ambiente agora (bibliotecas Pytho
 [Files]
 ; Executavel principal
 Source: "{#PastaRelease}\{#ExeApp}"; DestDir: "{app}"; Flags: ignoreversion
-; Scripts Python do agente
-Source: "{#PastaRelease}\*.py"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; Scripts Python do agente - listados UM A UM de proposito.
+; Um curinga (*.py) levaria junto utilitarios de teste e diagnostico que
+; ficam na pasta de trabalho e nao fazem parte do produto.
+Source: "{#PastaRelease}\agente_mcp.py";     DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PastaRelease}\gerador_ia.py";     DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PastaRelease}\get_token.py";      DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PastaRelease}\listar_modelos.py"; DestDir: "{app}"; Flags: ignoreversion
 ; Imagens e icones usados pelo app
 Source: "{#PastaRelease}\*.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#PastaRelease}\*.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
