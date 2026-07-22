@@ -130,6 +130,7 @@ namespace T2MSecurityManager {
 		int cfgMaxPassos;    // teto de iteracoes da IA (controla custo)
 		int cfgMaxLinhas;    // maximo de linhas retornadas em consultas
 		String^ cfgModeloClaude;  // modelo da Anthropic (custo x capacidade)
+		int cfgMaxHistorico;      // mensagens reenviadas a IA por chamada
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
 		Button^ btnExportarRelatorio;  // exporta a conversa como relatorio HTML
@@ -1223,6 +1224,21 @@ namespace T2MSecurityManager {
 		btnRemoverChave->Click += gcnew System::EventHandler(this, &MyForm::btnRemoverChave_Click);
 		formIA->Controls->Add(btnRemoverChave);
 
+		// --- NOVA CONVERSA (limpa a tela e o historico enviado a IA) ---
+		Button^ btnNovaConversa = gcnew Button();
+		btnNovaConversa->Text = L"✚ Nova conversa";
+		btnNovaConversa->Location = System::Drawing::Point(282, 13);
+		btnNovaConversa->Size = System::Drawing::Size(140, 23);
+		btnNovaConversa->FlatStyle = FlatStyle::Flat;
+		btnNovaConversa->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		btnNovaConversa->Cursor = Cursors::Hand;
+		btnNovaConversa->Click += gcnew System::EventHandler(this, &MyForm::btnNovaConversa_Click);
+		formIA->Controls->Add(btnNovaConversa);
+		dica->SetToolTip(btnNovaConversa,
+			L"Comeca uma conversa do zero.\n"
+			L"Util ao mudar de assunto ou de site: evita que o contexto antigo "
+			L"influencie as respostas e reduz o custo por mensagem.");
+
 		// --- HISTORICO DE SESSOES (salvar / abrir conversas) ---
 		Button^ btnSalvarSessao = gcnew Button();
 		btnSalvarSessao->Text = L"💾 Salvar Sessao";
@@ -1397,6 +1413,32 @@ namespace T2MSecurityManager {
 	// --- HISTORICO DE SESSOES (salvar / reabrir conversas) ---
 	// ==========================================================================
 
+	// Limpa a conversa atual e o historico que e enviado a IA.
+	private: System::Void btnNovaConversa_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (workerChat->IsBusy) return;
+
+		if (!String::IsNullOrWhiteSpace(rtbChat->Text)) {
+			System::Windows::Forms::DialogResult r = MessageBox::Show(
+				L"Isto apaga a conversa atual e o contexto que a IA usa.\n\n"
+				L"Se quiser guardar esta conversa, cancele e use 'Salvar Sessao' antes.\n\n"
+				L"Comecar do zero?",
+				L"Nova conversa", MessageBoxButtons::YesNo, MessageBoxIcon::Question);
+			if (r == System::Windows::Forms::DialogResult::No) return;
+		}
+
+		// Remove a memoria compartilhada com o agente Python
+		try {
+			String^ mem = CaminhoApp("memoria_chat.json");
+			if (File::Exists(mem)) File::Delete(mem);
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Nao foi possivel limpar o historico: " + ex->Message, L"Aviso");
+		}
+
+		rtbChat->Clear();
+		formIA_Shown(nullptr, nullptr);   // reexibe a mensagem de boas-vindas
+	}
+
 	// Pasta onde as sessoes ficam guardadas.
 	private: String^ PastaSessoes() {
 		String^ p = String::IsNullOrWhiteSpace(cfgPastaSessoes)
@@ -1481,6 +1523,7 @@ namespace T2MSecurityManager {
 		cfgMaxPassos = 15;
 		cfgMaxLinhas = 100;
 		cfgModeloClaude = "claude-sonnet-5";
+		cfgMaxHistorico = 20;
 		try {
 			String^ caminho = CaminhoDados("configuracoes.txt");
 			if (!File::Exists(caminho)) return;
@@ -1496,6 +1539,7 @@ namespace T2MSecurityManager {
 				else if (chave == "max_passos") Int32::TryParse(valor, cfgMaxPassos);
 				else if (chave == "max_linhas") Int32::TryParse(valor, cfgMaxLinhas);
 				else if (chave == "modelo_claude" && valor != "") cfgModeloClaude = valor;
+				else if (chave == "max_historico") Int32::TryParse(valor, cfgMaxHistorico);
 			}
 		}
 		catch (...) {}
@@ -1505,6 +1549,8 @@ namespace T2MSecurityManager {
 		if (cfgMaxPassos > 60) cfgMaxPassos = 60;
 		if (cfgMaxLinhas < 1) cfgMaxLinhas = 1;
 		if (cfgMaxLinhas > 5000) cfgMaxLinhas = 5000;
+		if (cfgMaxHistorico < 2) cfgMaxHistorico = 2;
+		if (cfgMaxHistorico > 200) cfgMaxHistorico = 200;
 	}
 
 	private: void SalvarConfiguracoesApp() {
@@ -1517,6 +1563,7 @@ namespace T2MSecurityManager {
 			sb->AppendLine("max_passos=" + cfgMaxPassos);
 			sb->AppendLine("max_linhas=" + cfgMaxLinhas);
 			sb->AppendLine("modelo_claude=" + cfgModeloClaude);
+			sb->AppendLine("max_historico=" + cfgMaxHistorico);
 			File::WriteAllText(CaminhoDados("configuracoes.txt"), sb->ToString());
 		}
 		catch (Exception^ ex) {
@@ -1527,7 +1574,7 @@ namespace T2MSecurityManager {
 	private: System::Void btnConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
 		Form^ f = gcnew Form();
 		f->Text = L"Configuracoes";
-		f->Size = System::Drawing::Size(700, 500);
+		f->Size = System::Drawing::Size(700, 540);
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
@@ -1668,6 +1715,23 @@ namespace T2MSecurityManager {
 		f->Controls->Add(numLinhas);
 
 		y += 32;
+		Label^ l7 = gcnew Label();
+		l7->Text = L"Mensagens mantidas no historico (2-200):";
+		l7->Location = System::Drawing::Point(x1, y + 3); l7->AutoSize = true;
+		f->Controls->Add(l7);
+		NumericUpDown^ numHist = gcnew NumericUpDown();
+		numHist->Location = System::Drawing::Point(x1 + 300, y);
+		numHist->Size = System::Drawing::Size(80, 22);
+		numHist->Minimum = 2; numHist->Maximum = 200; numHist->Value = cfgMaxHistorico;
+		f->Controls->Add(numHist);
+		Label^ dicaHist = gcnew Label();
+		dicaHist->Text = L"Historico menor = respostas mais baratas.";
+		dicaHist->Location = System::Drawing::Point(x1 + 390, y + 3); dicaHist->AutoSize = true;
+		dicaHist->ForeColor = System::Drawing::Color::DimGray;
+		dicaHist->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		f->Controls->Add(dicaHist);
+
+		y += 32;
 		Label^ l6 = gcnew Label();
 		l6->Text = L"Timeout por operacao (segundos):";
 		l6->Location = System::Drawing::Point(x1, y + 3); l6->AutoSize = true;
@@ -1694,10 +1758,10 @@ namespace T2MSecurityManager {
 		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
 		f->Controls->Add(btnCancel);
 
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(7);
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(8);
 		campos[0] = txtRel; campos[1] = txtSes; campos[2] = txtScr;
 		campos[3] = numPassos; campos[4] = numLinhas; campos[5] = numTimeout;
-		campos[6] = cbModelo;
+		campos[6] = cbModelo; campos[7] = numHist;
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
@@ -1736,6 +1800,7 @@ namespace T2MSecurityManager {
 		cfgMaxLinhas = (int)safe_cast<NumericUpDown^>(ctl[4])->Value;
 		cfgTimeout = (int)safe_cast<NumericUpDown^>(ctl[5])->Value;
 		cfgModeloClaude = safe_cast<ComboBox^>(ctl[6])->Text;
+		cfgMaxHistorico = (int)safe_cast<NumericUpDown^>(ctl[7])->Value;
 
 		SalvarConfiguracoesApp();
 		MessageBox::Show(L"Configuracoes salvas.\n\nOs limites passam a valer nas proximas execucoes.",

@@ -90,6 +90,15 @@ _CFG = _carregar_configuracoes()
 MAX_ITERACOES = _cfg_int(_CFG, "max_passos", 15, 1, 60)      # teto de passos (custo)
 MAX_LINHAS = _cfg_int(_CFG, "max_linhas", 100, 1, 5000)      # linhas por consulta
 TIMEOUT_OPERACAO = _cfg_int(_CFG, "timeout", 120, 10, 3600)  # segundos
+MAX_HISTORICO = _cfg_int(_CFG, "max_historico", 20, 2, 200)  # mensagens guardadas
+
+
+def limitar_memoria(memoria):
+    """Evita que memoria_chat.json cresca indefinidamente: mantem o inicio da
+    conversa (contexto) e as mensagens mais recentes."""
+    if len(memoria) <= MAX_HISTORICO:
+        return memoria
+    return memoria[:2] + memoria[-(MAX_HISTORICO - 2):]
 
 # Modelos usados por provedor. Configuraveis para o usuario equilibrar custo x capacidade.
 # ATENCAO: modelos antigos (ex.: claude-3-5-sonnet) foram aposentados e falham se usados.
@@ -736,7 +745,7 @@ async def executar_api(api_key, req, objetivo):
                             "content": f"[TESTE DE API] {metodo0} {url0} - objetivo: {objetivo}"})
             memoria.append({"role": "assistant", "content": resultado})
             with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
-                json.dump(memoria, f, ensure_ascii=False, indent=4)
+                json.dump(limitar_memoria(memoria), f, ensure_ascii=False, indent=4)
         except Exception as e:
             log(f">>> Aviso: nao foi possivel gravar na memoria: {e}")
 
@@ -1013,7 +1022,7 @@ async def executar_oracle(api_key, info, somente_leitura, objetivo):
             memoria.append({"role": "user", "content": f"[ORACLE] {objetivo}"})
             memoria.append({"role": "assistant", "content": resultado})
             with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
-                json.dump(memoria, f, ensure_ascii=False, indent=4)
+                json.dump(limitar_memoria(memoria), f, ensure_ascii=False, indent=4)
         except Exception as e:
             log(f">>> Aviso: nao foi possivel gravar na memoria: {e}")
 

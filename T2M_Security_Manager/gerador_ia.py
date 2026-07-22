@@ -30,6 +30,12 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_MEMORIA = os.path.join(SCRIPT_DIR, "memoria_chat.json")
 
 
+def log(msg):
+    """Mensagens de progresso vao para stderr; o app as exibe ao vivo no chat.
+    O stdout fica reservado para a resposta final (marcadores CHAT_MSG_*)."""
+    print(msg, file=sys.stderr, flush=True)
+
+
 def _carregar_configuracoes():
     """Le configuracoes.txt gravado pelo app (tela de Configuracoes).
     Procura primeiro na pasta de dados do usuario, depois ao lado do script."""
@@ -59,6 +65,23 @@ _CFG = _carregar_configuracoes()
 MODELO_CLAUDE = _CFG.get("modelo_claude", "claude-haiku-4-5-20251001").strip() \
     or "claude-haiku-4-5-20251001"
 MODELO_OPENAI = _CFG.get("modelo_openai", "gpt-4o-mini").strip() or "gpt-4o-mini"
+
+# Quantas mensagens do historico sao reenviadas a cada chamada.
+# Sem limite, a conversa cresce para sempre: cada pergunta nova reenviaria toda
+# a conversa anterior, ficando progressivamente mais lenta e mais cara.
+try:
+    MAX_HISTORICO = max(2, min(200, int(_CFG.get("max_historico", 20))))
+except Exception:
+    MAX_HISTORICO = 20
+
+
+def limitar_historico(memoria):
+    """Mantem apenas as ultimas mensagens, preservando o inicio da conversa
+    (onde costuma estar o contexto mais importante)."""
+    if len(memoria) <= MAX_HISTORICO:
+        return memoria
+    # Guarda as 2 primeiras (contexto inicial) + as mais recentes
+    return memoria[:2] + memoria[-(MAX_HISTORICO - 2):]
 
 
 # ==============================================================================
@@ -123,6 +146,7 @@ def extrair_contexto_dom(url):
     try:
         import requests
         from bs4 import BeautifulSoup
+        log(f">>> Lendo a estrutura de {url}...")
 
         headers = {'User-Agent': 'Mozilla/5.0 (T2M-QA-Scanner)'}
         req = requests.get(url, headers=headers, timeout=8)
@@ -297,6 +321,13 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                     memoria = []
             memoria.append({"role": "user", "content": prompt_usuario})
 
+        # Corta o historico antes de enviar (controla custo e tempo)
+        total_antes = len(memoria)
+        memoria = limitar_historico(memoria)
+        if total_antes > len(memoria):
+            log(f">>> Historico longo: enviando as {len(memoria)} mensagens mais "
+                f"relevantes de {total_antes}.")
+
         resposta_ia = ""
         sistema = (
             "Voce e o T2M Copilot, um assistente especialista em automacao de testes, "
@@ -324,6 +355,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
 
         # --- ROTA ANTHROPIC (CLAUDE) ---
         if api_key.startswith("sk-ant-"):
+            log(f">>> Consultando o Claude ({MODELO_CLAUDE})...")
             from anthropic import Anthropic
             client = Anthropic(api_key=api_key)
             response = client.messages.create(
@@ -336,6 +368,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
 
         # --- ROTA OPENAI (CHATGPT) ---
         elif api_key.startswith("sk-"):
+            log(f">>> Consultando a OpenAI ({MODELO_OPENAI})...")
             from openai import OpenAI
             client = OpenAI(api_key=api_key)
             response = client.chat.completions.create(
@@ -360,6 +393,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             erros = []
             for nome_modelo in modelos:
                 try:
+                    log(f">>> Consultando o Gemini ({nome_modelo})...")
                     model = genai.GenerativeModel(nome_modelo)
                     response = model.generate_content(mensagens)
                     resposta_ia = response.text.strip()
@@ -368,6 +402,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                 except Exception as e:
                     # Guarda o erro de CADA modelo, para diagnostico (nao so o ultimo)
                     erros.append(f"{nome_modelo}: {str(e)[:150]}")
+                    log(f">>> {nome_modelo} indisponivel, tentando o proximo...")
                     continue
             if not sucesso:
                 detalhe = " || ".join(erros)
@@ -382,6 +417,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
         except Exception:
             pass
 
+        log(">>> Resposta recebida.")
         print("CHAT_MSG_INICIO")
         print(resposta_ia)
         print("CHAT_MSG_FIM")
