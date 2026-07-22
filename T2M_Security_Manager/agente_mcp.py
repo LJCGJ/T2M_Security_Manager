@@ -912,6 +912,20 @@ def _oracle_executar_ferramenta(conn, somente_leitura, nome, args, limite=None):
     """Executa uma ferramenta Oracle e devolve um dict com o resultado."""
     if limite is None:
         limite = MAX_LINHAS
+
+    # TRAVA DE SEGURANCA ANTES DE QUALQUER CONTATO COM O BANCO.
+    # Validar aqui (e nao depois de abrir cursor) garante que um comando
+    # destrutivo seja recusado mesmo que algo mais falhe no caminho.
+    if nome == "executar_sql" and somente_leitura:
+        sql_bruto = (args.get("sql") or "").strip().rstrip(";")
+        primeiro = sql_bruto.split()[0].upper() if sql_bruto.split() else ""
+        if primeiro not in ("SELECT", "WITH"):
+            return {"erro": "Conexao em modo somente-leitura: apenas SELECT e permitido. "
+                            f"Comando recusado: {primeiro or '(vazio)'}"}
+
+    if conn is None:
+        return {"erro": "Sem conexao ativa com o banco."}
+
     try:
         cur = conn.cursor()
         if nome == "listar_tabelas":
@@ -938,12 +952,7 @@ def _oracle_executar_ferramenta(conn, somente_leitura, nome, args, limite=None):
             if not sql:
                 cur.close()
                 return {"erro": "SQL vazio."}
-            # Trava de seguranca: em modo somente-leitura, so SELECT/WITH passam
-            primeira = sql.split()[0].upper() if sql.split() else ""
-            if somente_leitura and primeira not in ("SELECT", "WITH"):
-                cur.close()
-                return {"erro": "Conexao em modo somente-leitura: apenas SELECT e permitido. "
-                                f"Comando recusado: {primeira}"}
+            # (a trava de somente-leitura ja foi aplicada no inicio da funcao)
             cur.execute(sql)
             if cur.description is None:
                 conn.commit()
