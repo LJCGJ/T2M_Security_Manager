@@ -168,6 +168,12 @@ namespace T2MSecurityManager {
 
 		// Execucao NAO-BLOQUEANTE: o Python roda numa thread separada via BackgroundWorker,
 		// para a janela nao congelar durante o chat ou o MCP ao vivo.
+		// Buffers para ler a saida do Python ENQUANTO ele roda.
+		// Sem isso, respostas maiores que o canal de comunicacao (~4KB) travavam:
+		// o Python ficava bloqueado tentando escrever e o C++ esperando ele terminar.
+		System::Text::StringBuilder^ bufSaidaProc;
+		System::Text::StringBuilder^ bufErroProc;
+
 		System::ComponentModel::BackgroundWorker^ workerChat;
 		int modoWorker;          // 0 = chat normal, 1 = scan DOM, 2 = MCP ao vivo
 		String^ payloadWorker;   // texto que sera enviado ao Python (montado antes de rodar)
@@ -602,11 +608,20 @@ namespace T2MSecurityManager {
 			psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
 			pLogin->StartInfo = psi;
 
+			// Le durante a execucao: o script escreve avisos de progresso enquanto
+			// espera o login, e esperar para ler so no fim poderia travar o processo.
+			bufSaidaProc = gcnew System::Text::StringBuilder();
+			bufErroProc = gcnew System::Text::StringBuilder();
+			pLogin->OutputDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procSaida_Handler);
+			pLogin->ErrorDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procErro_Handler);
+
 			try { pLogin->Start(); }
 			catch (System::ComponentModel::Win32Exception^) {
 				txtOutput->AppendText("\n>>> ERRO: 'python' nao encontrado no PATH.\n");
 				return;
 			}
+			pLogin->BeginOutputReadLine();
+			pLogin->BeginErrorReadLine();
 
 			array<System::Byte>^ bytes = System::Text::Encoding::UTF8->GetBytes(urlAlvo);
 			pLogin->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
@@ -619,8 +634,8 @@ namespace T2MSecurityManager {
 				return;
 			}
 
-			String^ output = pLogin->StandardOutput->ReadToEnd();
-			String^ erros = pLogin->StandardError->ReadToEnd();
+			String^ output = bufSaidaProc->ToString();
+			String^ erros = bufErroProc->ToString();
 
 			if (output->Contains("TOKEN_ENCONTRADO_INICIO")) {
 				array<String^>^ partes = output->Split(gcnew array<String^>{"TOKEN_ENCONTRADO_INICIO", "TOKEN_ENCONTRADO_FIM"}, StringSplitOptions::None);
@@ -832,6 +847,21 @@ namespace T2MSecurityManager {
 		   // --- MOTOR DE CHAT COPILOT ---
 		   // =========================================================================
 
+	// Recebe cada linha da saida do Python assim que ela e produzida.
+	private: void procSaida_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
+		if (e->Data == nullptr || bufSaidaProc == nullptr) return;
+		System::Threading::Monitor::Enter(bufSaidaProc);
+		try { bufSaidaProc->AppendLine(e->Data); }
+		finally { System::Threading::Monitor::Exit(bufSaidaProc); }
+	}
+
+	private: void procErro_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
+		if (e->Data == nullptr || bufErroProc == nullptr) return;
+		System::Threading::Monitor::Enter(bufErroProc);
+		try { bufErroProc->AppendLine(e->Data); }
+		finally { System::Threading::Monitor::Exit(bufErroProc); }
+	}
+
 	private: String^ ChamarAgentePython(String^ apiKey, String^ prompt, String^ url) {
 		Process^ p = gcnew Process();
 		try {
@@ -841,14 +871,24 @@ namespace T2MSecurityManager {
 			psi->UseShellExecute = false;
 			psi->RedirectStandardInput = true;   // chave + prompt via stdin (nunca em argv)
 			psi->RedirectStandardOutput = true;
+			psi->RedirectStandardError = true;
 			psi->CreateNoWindow = true;
 			psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
+			psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
 			p->StartInfo = psi;
+
+			// Le a saida enquanto o processo roda (evita o impasse do canal cheio)
+			bufSaidaProc = gcnew System::Text::StringBuilder();
+			bufErroProc = gcnew System::Text::StringBuilder();
+			p->OutputDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procSaida_Handler);
+			p->ErrorDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procErro_Handler);
 
 			try { p->Start(); }
 			catch (System::ComponentModel::Win32Exception^) {
 				return L"Erro: 'python' nao encontrado no PATH. Instale o Python marcando 'Add to PATH'.";
 			}
+			p->BeginOutputReadLine();
+			p->BeginErrorReadLine();
 
 			// linha 1 = chave | linha 2 = url | resto = prompt (pode ser multilinha)
 			String^ payload = apiKey + "\n" + url + "\n" + prompt;
@@ -856,12 +896,18 @@ namespace T2MSecurityManager {
 			p->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
 			p->StandardInput->Close();
 
-			if (!p->WaitForExit(120000)) { // teto de 120s: nunca congela para sempre
+			// Usa o timeout definido em Configuracoes (antes era fixo em 120s,
+			// entao mudar a configuracao nao tinha efeito nenhum aqui).
+			int limite = (cfgTimeout > 0 ? cfgTimeout : 120);
+			if (!p->WaitForExit(limite * 1000)) {
 				try { p->Kill(); } catch (...) {}
-				return L"Tempo esgotado (120s) aguardando a IA. Verifique a conexao ou a chave.";
+				return L"Tempo esgotado (" + limite + L"s) aguardando a IA.\n\n"
+					L"Possiveis causas: chave de API invalida ou revogada, sem conexao, "
+					L"ou a tarefa e longa demais.\n"
+					L"Voce pode aumentar o tempo em Configuracoes.";
 			}
 
-			String^ output = p->StandardOutput->ReadToEnd();
+			String^ output = bufSaidaProc->ToString();
 			int startIdx = output->IndexOf("CHAT_MSG_INICIO");
 			int endIdx = output->IndexOf("CHAT_MSG_FIM");
 			if (startIdx != -1 && endIdx != -1) {
@@ -885,27 +931,43 @@ namespace T2MSecurityManager {
 			psi->UseShellExecute = false;
 			psi->RedirectStandardInput = true;
 			psi->RedirectStandardOutput = true;
+			psi->RedirectStandardError = true;
 			psi->CreateNoWindow = true;
 			psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
+			psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
 			p->StartInfo = psi;
+
+			// A automacao produz MUITA saida (cada passo do agente): ler durante a
+			// execucao e essencial para nao travar no meio.
+			bufSaidaProc = gcnew System::Text::StringBuilder();
+			bufErroProc = gcnew System::Text::StringBuilder();
+			p->OutputDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procSaida_Handler);
+			p->ErrorDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procErro_Handler);
 
 			try { p->Start(); }
 			catch (System::ComponentModel::Win32Exception^) {
 				return L"Erro: 'python' nao encontrado no PATH.";
 			}
+			p->BeginOutputReadLine();
+			p->BeginErrorReadLine();
 
 			String^ payload = apiKey + "\n" + url + "\n" + objetivo;
 			array<System::Byte>^ bytes = System::Text::Encoding::UTF8->GetBytes(payload);
 			p->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
 			p->StandardInput->Close();
 
-			// Loop ao vivo e lento: teto de 5 minutos
-			if (!p->WaitForExit(300000)) {
+			// A automacao roda varios passos, entao recebe o triplo do tempo
+			// configurado (com um minimo de 5 minutos para nao interromper cedo demais).
+			int limiteAuto = (cfgTimeout > 0 ? cfgTimeout * 3 : 300);
+			if (limiteAuto < 300) limiteAuto = 300;
+			if (!p->WaitForExit(limiteAuto * 1000)) {
 				try { p->Kill(); } catch (...) {}
-				return L"Tempo esgotado (5 min) no agente MCP.";
+				return L"Tempo esgotado (" + (limiteAuto / 60) + L" min) na automacao.\n\n"
+					L"A tarefa pode ser complexa demais para o limite atual. Tente dividir "
+					L"em passos menores, ou aumente o tempo em Configuracoes.";
 			}
 
-			String^ output = p->StandardOutput->ReadToEnd();
+			String^ output = bufSaidaProc->ToString();
 			int i = output->IndexOf("CHAT_MSG_INICIO");
 			int f = output->IndexOf("CHAT_MSG_FIM");
 			if (i != -1 && f != -1) return output->Substring(i + 15, f - (i + 15))->Trim();
