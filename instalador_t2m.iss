@@ -9,7 +9,7 @@
 ; ============================================================
 
 #define NomeApp        "T2M Security Manager"
-#define VersaoApp      "4.1"
+#define VersaoApp      "4.2"
 #define AutorApp       "Leonardo Gonzaga"
 #define UrlApp         "https://github.com/LJCGJ/T2M_Security_Manager"
 #define ExeApp         "T2M_Security_Manager.exe"
@@ -47,7 +47,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho na Area de Trabalho"; GroupDescription: "Atalhos:"
-Name: "instalardeps"; Description: "Preparar o ambiente agora (bibliotecas Python e navegador de testes)"; GroupDescription: "Dependencias:"
+Name: "instalardeps"; Description: "Preparar o ambiente agora (instala Python, Node.js e as bibliotecas necessarias)"; GroupDescription: "Dependencias:"
 
 [Files]
 ; Executavel principal
@@ -117,8 +117,11 @@ begin
   if Faltando <> '' then
     MsgBox('O T2M precisa destes programas para a automacao funcionar:' + #13#10#13#10
            + Faltando + #13#10
-           + 'Voce pode instalar o T2M agora e adicionar essas dependencias depois — '
-           + 'use o atalho "Preparar ambiente" no menu Iniciar quando estiver pronto.',
+           + 'Nao se preocupe: ao final da instalacao, o preparador de ambiente '
+           + 'pode instala-los automaticamente para voce (basta aceitar quando '
+           + 'ele perguntar).' + #13#10#13#10
+           + 'Se preferir, instale por conta propria e depois use o atalho '
+           + '"Preparar ambiente" no menu Iniciar.',
            mbInformation, MB_OK);
 
   Result := True;  // segue com a instalacao de qualquer forma
