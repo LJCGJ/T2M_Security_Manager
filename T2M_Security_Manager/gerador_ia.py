@@ -394,7 +394,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             for nome_modelo in modelos:
                 try:
                     log(f">>> Consultando o Gemini ({nome_modelo})...")
-                    model = genai.GenerativeModel(nome_modelo)
+                    model = genai.GenerativeModel(nome_modelo, system_instruction=sistema)
                     response = model.generate_content(mensagens)
                     resposta_ia = response.text.strip()
                     sucesso = True

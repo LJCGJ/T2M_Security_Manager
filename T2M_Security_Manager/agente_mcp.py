@@ -102,7 +102,7 @@ def limitar_memoria(memoria):
 
 # Modelos usados por provedor. Configuraveis para o usuario equilibrar custo x capacidade.
 # ATENCAO: modelos antigos (ex.: claude-3-5-sonnet) foram aposentados e falham se usados.
-MODELO_CLAUDE = _CFG.get("modelo_claude", "claude-sonnet-5").strip() or "claude-sonnet-5"
+MODELO_CLAUDE = _CFG.get("modelo_claude", "claude-sonnet-4-6").strip() or "claude-sonnet-4-6"
 MODELO_OPENAI = _CFG.get("modelo_openai", "gpt-4o-mini").strip() or "gpt-4o-mini"
 HEADLESS = False            # False = voce ve o navegador agindo; True = invisivel
 
@@ -522,6 +522,7 @@ async def executar(api_key, url_alvo, objetivo):
                     log(f">>> Aviso: nao foi possivel gravar na memoria do chat: {e}")
 
                 responder(resultado)
+    except FileNotFoundError:
         responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
     except BaseException as e:
         # ExceptionGroup (TaskGroup) esconde a causa real; desempacota para mostrar.
@@ -615,6 +616,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
                     log(f">>> Aviso: nao foi possivel gravar na memoria do chat: {e}")
 
                 responder(resultado)
+    except FileNotFoundError:
         responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
     except BaseException as e:
         import traceback
