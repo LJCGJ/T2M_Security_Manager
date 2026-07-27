@@ -1825,6 +1825,18 @@ namespace T2MSecurityManager {
 		Button^ b = safe_cast<Button^>(sender);
 		ComboBox^ alvo = safe_cast<ComboBox^>(b->Tag);
 
+		// Esta consulta reaproveita bufSaidaProc/bufErroProc - os MESMOS buffers que
+		// capturam a saida das automacoes. Reatribui-los com uma automacao rodando
+		// corromperia a captura em andamento (relatorio truncado ou vazio).
+		if (workerChat != nullptr && workerChat->IsBusy) {
+			MessageBox::Show(
+				L"Ha uma automacao em andamento.\n\n"
+				L"Aguarde ela terminar para buscar a lista de modelos: as duas operacoes "
+				L"usam o mesmo canal de captura de saida.",
+				L"Automacao em andamento", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			return;
+		}
+
 		String^ chave = ObterChaveReal();
 		if (String::IsNullOrWhiteSpace(chave)) {
 			MessageBox::Show(
@@ -2959,35 +2971,75 @@ namespace T2MSecurityManager {
 
 	private: System::Void btnSaveScript_Click(System::Object^ sender, System::EventArgs^ e) {
 		String^ textoCompleto = rtbChat->Text;
-		int idxStart = textoCompleto->LastIndexOf("```");
-		int offset = 3;
 
-		if (textoCompleto->LastIndexOf("```python") != -1) {
-			idxStart = textoCompleto->LastIndexOf("```python");
-			offset = 9;
+		// Percorre TODAS as cercas ``` na ordem em que aparecem e as pareia: a 1a abre,
+		// a 2a fecha, a 3a abre, a 4a fecha... e fica com o ULTIMO par completo.
+		// Assim vale a RECENCIA, e nao a preferencia de linguagem: antes um bloco
+		// ```python antigo vencia um ```robot recem-gerado. De quebra, linguagens fora
+		// da lista fixa (js, java, sh...) passam a funcionar - antes elas caiam no
+		// LastIndexOf("```") generico, que achava a cerca de FECHAMENTO e terminava
+		// em "bloco nao finalizado".
+		List<int>^ cercas = gcnew List<int>();
+		int posCerca = textoCompleto->IndexOf("```");
+		while (posCerca != -1) {
+			cercas->Add(posCerca);
+			posCerca = textoCompleto->IndexOf("```", posCerca + 3);
 		}
-		else if (textoCompleto->LastIndexOf("```robot") != -1) {
-			idxStart = textoCompleto->LastIndexOf("```robot");
-			offset = 8;
+
+		int idxStart = -1;
+		int idxEnd = -1;
+		for (int k = 0; k + 1 < cercas->Count; k += 2) {
+			idxStart = cercas[k];
+			idxEnd = cercas[k + 1];
 		}
-		else if (textoCompleto->LastIndexOf("```sql") != -1) {
-			idxStart = textoCompleto->LastIndexOf("```sql");
-			offset = 6;
+
+		// Rotulo da linguagem = o texto entre ``` e o fim daquela linha.
+		String^ lang = "";
+		int inicioCodigo = -1;
+		if (idxStart != -1) {
+			int fimLinha = textoCompleto->IndexOf(L'\n', idxStart);
+			if (fimLinha < 0 || fimLinha > idxEnd) {
+				inicioCodigo = idxStart + 3;            // cerca sem quebra de linha
+			}
+			else {
+				lang = textoCompleto->Substring(idxStart + 3, fimLinha - (idxStart + 3))->Trim()->ToLowerInvariant();
+				inicioCodigo = fimLinha + 1;
+			}
 		}
 
 		if (idxStart != -1) {
-			int idxEnd = textoCompleto->IndexOf("```", idxStart + offset);
-			if (idxEnd != -1) {
-				String^ codigo = textoCompleto->Substring(idxStart + offset, idxEnd - (idxStart + offset))->Trim();
+			if (idxEnd != -1 && idxEnd >= inicioCodigo) {
+				String^ codigo = textoCompleto->Substring(inicioCodigo, idxEnd - inicioCodigo)->Trim();
 
 				String^ pastaIA = String::IsNullOrWhiteSpace(cfgPastaScripts)
 					? PastaPadrao("modelos de teste em IA") : cfgPastaScripts;
 				try { Directory::CreateDirectory(pastaIA); } catch (...) {}
 
+				// Um rotulo "simples" (so letras/digitos, curto) pode virar extensao direta,
+				// para nao engessar a lista quando a IA escolher outra linguagem.
+				bool rotuloUsavel = (lang->Length > 0 && lang->Length <= 12);
+				for (int ci = 0; ci < lang->Length && rotuloUsavel; ci++) {
+					if (!Char::IsLetterOrDigit(lang[ci])) rotuloUsavel = false;
+				}
+
+				// Extensao pelo rotulo do bloco; sem rotulo, deduz pelo conteudo.
 				String^ ext = ".txt";
-				if (textoCompleto->LastIndexOf("```python") != -1) ext = ".py";
-				else if (textoCompleto->LastIndexOf("```robot") != -1 || codigo->Contains("*** Settings ***") || codigo->Contains("*** Test Cases ***")) ext = ".robot";
-				else if (textoCompleto->LastIndexOf("```sql") != -1 || codigo->StartsWith("SELECT", StringComparison::OrdinalIgnoreCase) || codigo->StartsWith("UPDATE", StringComparison::OrdinalIgnoreCase)) ext = ".sql";
+				if (lang == "python" || lang == "py") ext = ".py";
+				else if (lang == "robot" || lang == "robotframework") ext = ".robot";
+				else if (lang == "sql") ext = ".sql";
+				else if (lang == "javascript" || lang == "js") ext = ".js";
+				else if (lang == "typescript" || lang == "ts") ext = ".ts";
+				else if (lang == "java") ext = ".java";
+				else if (lang == "csharp" || lang == "cs") ext = ".cs";
+				else if (lang == "bash" || lang == "sh" || lang == "shell") ext = ".sh";
+				else if (lang == "powershell" || lang == "ps1") ext = ".ps1";
+				else if (lang == "yaml" || lang == "yml") ext = ".yaml";
+				else if (lang == "json") ext = ".json";
+				else if (lang == "xml") ext = ".xml";
+				else if (lang == "html") ext = ".html";
+				else if (rotuloUsavel) ext = "." + lang;
+				else if (codigo->Contains("*** Settings ***") || codigo->Contains("*** Test Cases ***")) ext = ".robot";
+				else if (codigo->StartsWith("SELECT", StringComparison::OrdinalIgnoreCase) || codigo->StartsWith("UPDATE", StringComparison::OrdinalIgnoreCase)) ext = ".sql";
 
 				// Pergunta ao usuario onde salvar (sugere a pasta padrao da biblioteca)
 				SaveFileDialog^ dlg = gcnew SaveFileDialog();

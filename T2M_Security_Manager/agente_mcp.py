@@ -517,7 +517,7 @@ async def executar(api_key, url_alvo, objetivo):
                     })
                     memoria.append({"role": "assistant", "content": resultado})
                     with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
-                        json.dump(memoria, f, ensure_ascii=False, indent=4)
+                        json.dump(limitar_memoria(memoria), f, ensure_ascii=False, indent=4)
                 except Exception as e:
                     log(f">>> Aviso: nao foi possivel gravar na memoria do chat: {e}")
 
@@ -611,7 +611,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
                     })
                     memoria.append({"role": "assistant", "content": resultado})
                     with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
-                        json.dump(memoria, f, ensure_ascii=False, indent=4)
+                        json.dump(limitar_memoria(memoria), f, ensure_ascii=False, indent=4)
                 except Exception as e:
                     log(f">>> Aviso: nao foi possivel gravar na memoria do chat: {e}")
 
@@ -1216,7 +1216,7 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
                                     "content": f"[MONGODB] {objetivo}"})
                     memoria.append({"role": "assistant", "content": resultado})
                     with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
-                        json.dump(memoria, f, ensure_ascii=False, indent=4)
+                        json.dump(limitar_memoria(memoria), f, ensure_ascii=False, indent=4)
                 except Exception as e:
                     log(f">>> Aviso: nao foi possivel gravar na memoria: {e}")
 
