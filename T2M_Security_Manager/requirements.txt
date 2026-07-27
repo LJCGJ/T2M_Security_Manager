@@ -1,7 +1,4 @@
-requests
-beautifulsoup4
-selenium
-webdriver-manager
-google-generativeai
-anthropic
-openai
+# As dependencias do projeto ficam num arquivo UNICO na raiz do repositorio.
+# Este arquivo apenas o inclui, para as duas listas nunca divergirem.
+# (Rode:  pip install -r requirements.txt  a partir desta pasta.)
+-r ../requirements.txt

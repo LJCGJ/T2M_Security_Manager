@@ -1540,7 +1540,7 @@ namespace T2MSecurityManager {
 		cfgTimeout = 120;
 		cfgMaxPassos = 15;
 		cfgMaxLinhas = 100;
-		cfgModeloClaude = "claude-sonnet-5";
+		cfgModeloClaude = "claude-sonnet-4-6";
 		cfgMaxHistorico = 20;
 		try {
 			String^ caminho = CaminhoDados("configuracoes.txt");
@@ -1686,11 +1686,11 @@ namespace T2MSecurityManager {
 		cbModelo->Location = System::Drawing::Point(x1 + 110, y);
 		cbModelo->Size = System::Drawing::Size(230, 22);
 		cbModelo->Items->Add(L"claude-haiku-4-5-20251001");
-		cbModelo->Items->Add(L"claude-sonnet-5");
+		cbModelo->Items->Add(L"claude-sonnet-4-6");
 		cbModelo->Items->Add(L"claude-opus-4-8");
 		cbModelo->Items->Add(L"claude-fable-5");
 		cbModelo->Text = String::IsNullOrWhiteSpace(cfgModeloClaude)
-			? L"claude-sonnet-5" : cfgModeloClaude;
+			? L"claude-sonnet-4-6" : cfgModeloClaude;
 		f->Controls->Add(cbModelo);
 
 		// Busca a lista direto no provedor: evita depender de uma lista fixa no
@@ -1937,7 +1937,7 @@ namespace T2MSecurityManager {
 		cfgMaxLinhas = (int)safe_cast<NumericUpDown^>(ctl[4])->Value;
 		cfgTimeout = (int)safe_cast<NumericUpDown^>(ctl[5])->Value;
 		String^ modeloEscolhido = safe_cast<ComboBox^>(ctl[6])->Text->Trim();
-		if (String::IsNullOrWhiteSpace(modeloEscolhido)) modeloEscolhido = L"claude-sonnet-5";
+		if (String::IsNullOrWhiteSpace(modeloEscolhido)) modeloEscolhido = L"claude-sonnet-4-6";
 		// Aviso: modelos antigos foram aposentados e retornam erro na API
 		if (modeloEscolhido->StartsWith("claude-3") || modeloEscolhido->StartsWith("claude-2")) {
 			MessageBox::Show(
