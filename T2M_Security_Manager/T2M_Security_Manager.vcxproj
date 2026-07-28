@@ -141,6 +141,7 @@
     <None Include="gerador_ia.py" />
     <None Include="get_token.py" />
     <None Include="listar_modelos.py" />
+    <None Include="servidor_http_mcp.py" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="T2M_Security_Manager1.rc" />

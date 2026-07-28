@@ -59,6 +59,8 @@ Source: "{#PastaRelease}\agente_mcp.py";     DestDir: "{app}"; Flags: ignorevers
 Source: "{#PastaRelease}\gerador_ia.py";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PastaRelease}\get_token.py";      DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PastaRelease}\listar_modelos.py"; DestDir: "{app}"; Flags: ignoreversion
+; Servidor MCP proprio do modo API (sobe como subprocesso do agente_mcp.py)
+Source: "{#PastaRelease}\servidor_http_mcp.py"; DestDir: "{app}"; Flags: ignoreversion
 ; Imagens e icones usados pelo app
 Source: "{#PastaRelease}\*.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#PastaRelease}\*.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
@@ -78,10 +80,22 @@ Name: "{group}\Desinstalar {#NomeApp}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#NomeApp}"; Filename: "{app}\{#ExeApp}"; IconFilename: "{app}\icon2.ico"; Tasks: desktopicon
 
 [Run]
-; Prepara o ambiente (se o usuario marcou a tarefa)
+; Prepara o ambiente (se o usuario marcou a tarefa).
+;
+; runasoriginaluser: quando o Setup roda elevado (instalacao em Program Files),
+;   tudo que ele dispara herda a conta do ADMINISTRADOR. Sem esta flag, o winget
+;   instalava o Python em C:\Users\<admin>\AppData, o pip gravava no site-packages
+;   do admin e o "npx playwright install" baixava o Chromium no perfil do admin.
+;   O usuario real fazia login depois, abria o app, e NADA estava instalado.
+;
+; postinstall: sem ela o Description era ignorado e o .bat rodava DURANTE a
+;   instalacao. Como ele termina em "pause" e faz perguntas com "set /p", o
+;   instalador parecia travado, com o console escondido atras da janela.
+;
+; nowait: nao prender o instalador esperando o .bat terminar (ele e interativo).
 Filename: "{app}\instalar_dependencias.bat"; \
-  Description: "Preparar ambiente"; \
-  Flags: shellexec waituntilterminated; \
+  Description: "Preparar ambiente agora (Python, Node.js e bibliotecas)"; \
+  Flags: shellexec postinstall skipifsilent nowait runasoriginaluser; \
   Tasks: instalardeps
 ; Abre o app ao final
 Filename: "{app}\{#ExeApp}"; \
@@ -89,7 +103,11 @@ Filename: "{app}\{#ExeApp}"; \
   Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; Arquivos tecnicos gerados ao lado do programa (seguro apagar sempre)
+; Arquivos tecnicos gerados ao lado do programa (seguro apagar sempre).
+; A memoria do chat NAO fica mais aqui: passou para %APPDATA%\T2M Security
+; Manager, junto das configuracoes, porque a pasta do programa e somente
+; leitura para o usuario comum. A remocao dela e oferecida no desinstalador.
+; A linha antiga fica so para limpar instalacoes anteriores.
 Type: files; Name: "{app}\memoria_chat.json"
 Type: files; Name: "{app}\__pycache__\*"
 Type: dirifempty; Name: "{app}\__pycache__"

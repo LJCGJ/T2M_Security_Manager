@@ -29,6 +29,13 @@ REM  O Node usa o identificador LTS, que acompanha sozinho a versao
 REM  de suporte estendido atual.
 set "NODE_WINGET_ID=OpenJS.NodeJS.LTS"
 
+REM  Suporte OPCIONAL a Oracle via MCP (servidor oficial da Oracle, no SQLcl).
+REM  Exige Java 17+ e SQLcl 25.2+. So e instalado se o usuario pedir - quem nao
+REM  testa Oracle nao precisa de nada disso, e o app continua usando o driver
+REM  nativo (oracledb, thin mode) quando o SQLcl nao estiver presente.
+set "JAVA_WINGET_ID=EclipseAdoptium.Temurin.17.JRE"
+set "SQLCL_WINGET_ID=Oracle.SQLcl"
+
 REM  Importante: NAO mexemos no PATH aqui. O PATH herdado do terminal
 REM  ja funciona, e altera-lo sem necessidade quebrava a deteccao
 REM  (a variavel crescia alem do limite do Windows e perdia entradas).
@@ -48,7 +55,7 @@ if not errorlevel 1 set TEM_WINGET=1
 REM ============================================================
 REM  1. PYTHON
 REM ============================================================
-echo [1/4] Verificando Python...
+echo [1/6] Verificando Python...
 python --version >nul 2>&1
 if errorlevel 1 goto PY_AUSENTE
 
@@ -106,7 +113,7 @@ REM  2. NODE.JS
 REM ============================================================
 :NODE
 echo.
-echo [2/4] Verificando Node.js...
+echo [2/6] Verificando Node.js...
 where npx >nul 2>&1
 if errorlevel 1 goto NODE_AUSENTE
 
@@ -166,10 +173,16 @@ REM ============================================================
 REM  3. BIBLIOTECAS PYTHON
 REM ============================================================
 echo.
-echo [3/4] Instalando as bibliotecas Python...
+echo [3/6] Instalando as bibliotecas Python...
 echo       ^(pode levar alguns minutos na primeira vez^)
 python -m pip install --upgrade pip >nul 2>&1
 python -m pip install -r "%~dp0requirements.txt"
+if errorlevel 1 (
+  echo    [!] Falhou. Tentando instalar no perfil do usuario...
+  REM  Acontece quando o Python esta em Program Files e este script roda sem
+  REM  elevacao. O --user grava em %%APPDATA%%\Python e resolve sem exigir admin.
+  python -m pip install --user -r "%~dp0requirements.txt"
+)
 if errorlevel 1 (
   echo    [X] Falha ao instalar as bibliotecas.
   echo        Tente manualmente: python -m pip install -r requirements.txt
@@ -183,7 +196,7 @@ REM ============================================================
 REM  4. NAVEGADOR DE TESTES
 REM ============================================================
 echo.
-echo [4/4] Instalando o navegador de testes ^(Chromium^)...
+echo [4/6] Instalando o navegador de testes ^(Chromium^)...
 echo.
 echo       Observacao: o Playwright vai exibir um aviso amarelo sugerindo
 echo       rodar "npm install". Pode ignorar - ele assume que voce esta num
@@ -198,6 +211,61 @@ if errorlevel 1 (
   echo    [OK] Navegador pronto.
 )
 
+REM ============================================================
+REM  5 e 6. SUPORTE A ORACLE VIA MCP (OPCIONAL)
+REM
+REM  O modo Oracle funciona SEM isto, usando o driver nativo oracledb.
+REM  Instalar Java + SQLcl habilita o servidor MCP oficial da Oracle, que
+REM  registra a atividade da IA na tabela DBTOOLS$MCP_LOG - util para
+REM  auditoria em ambiente corporativo.
+REM ============================================================
+echo.
+echo [5/6] Suporte a Oracle via MCP ^(opcional^)
+echo.
+echo       Necessario APENAS se voce for testar bancos Oracle com o
+echo       servidor MCP oficial. Sem isso, o modo Oracle continua
+echo       funcionando normalmente pelo driver nativo.
+echo       Baixa cerca de 250 MB ^(Java 17 + SQLcl^).
+echo.
+if "%TEM_WINGET%"=="0" (
+  echo    [i] winget indisponivel; pulando. Para instalar manualmente:
+  echo        Java 17+ e SQLcl 25.2+ ^(oracle.com/database/sqldeveloper/technologies/sqlcl^)
+  goto FIM_OK
+)
+set /p RESP3="    Instalar o suporte a Oracle via MCP agora? (S/N): "
+if /i not "!RESP3!"=="S" (
+  echo    [i] Pulado. Voce pode rodar este arquivo de novo depois.
+  goto FIM_OK
+)
+
+java -version >nul 2>&1
+if not errorlevel 1 (
+  echo    [OK] Java ja instalado.
+) else (
+  echo    Instalando o Java 17...
+  winget install --id !JAVA_WINGET_ID! --source winget --silent --accept-package-agreements --accept-source-agreements
+  call :ACRESCENTAR_CAMINHOS
+)
+
+echo.
+echo [6/6] Instalando o SQLcl...
+where sql >nul 2>&1
+if not errorlevel 1 (
+  echo    [OK] SQLcl ja instalado.
+) else (
+  winget install --id !SQLCL_WINGET_ID! --source winget --silent --accept-package-agreements --accept-source-agreements
+  call :ACRESCENTAR_CAMINHOS
+)
+where sql >nul 2>&1
+if errorlevel 1 (
+  echo    [!] SQLcl instalado, mas ainda nao reconhecido nesta janela.
+  echo        Feche e abra o terminal, ou informe o caminho do sql.exe
+  echo        na tela de Configuracoes do T2M.
+) else (
+  echo    [OK] Suporte a Oracle via MCP pronto.
+)
+
+:FIM_OK
 echo.
 echo ============================================================
 echo   Ambiente pronto. Voce ja pode usar o T2M.
@@ -219,6 +287,11 @@ if "%INSTALOU%"=="1" (
   echo  DICA: algo foi instalado agora. Feche este terminal, abra
   echo  outro e rode de novo - o Windows so reconhece programas
   echo  novos em janelas abertas depois da instalacao.
+  echo.
+  echo  Se mesmo assim o Python nao for reconhecido, o culpado costuma
+  echo  ser o atalho da Microsoft Store: abra "Gerenciar aliases de
+  echo  execucao de aplicativo" nas Configuracoes do Windows e DESLIGUE
+  echo  as entradas python.exe e python3.exe.
 )
 echo ------------------------------------------------------------
 echo.
@@ -233,12 +306,25 @@ REM  Nao copiamos o PATH inteiro do registro: a variavel crescia
 REM  alem do limite do Windows e entradas do fim da lista sumiam.
 REM ============================================================
 :ACRESCENTAR_CAMINHOS
-if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%PATH%;%ProgramFiles%\nodejs"
-if exist "%APPDATA%\npm\npx.cmd" set "PATH=%PATH%;%APPDATA%\npm"
+REM  IMPORTANTE: acrescenta no INICIO do PATH, nao no fim.
+REM  O Windows 10/11 trazem um "stub" em %LOCALAPPDATA%\Microsoft\WindowsApps
+REM  que se chama python.exe mas so abre a Microsoft Store. Como ele ja esta no
+REM  PATH, acrescentar o Python real no FIM deixava o stub vencendo a ordem de
+REM  busca: o script instalava o Python e mesmo assim dizia "ainda nao
+REM  reconhecido nesta janela", num laco que nao terminava nunca.
 for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*") do (
-  if exist "%%D\python.exe" set "PATH=!PATH!;%%D;%%D\Scripts"
+  if exist "%%D\python.exe" set "PATH=%%D;%%D\Scripts;!PATH!"
 )
 for /d %%D in ("%ProgramFiles%\Python3*") do (
-  if exist "%%D\python.exe" set "PATH=!PATH!;%%D;%%D\Scripts"
+  if exist "%%D\python.exe" set "PATH=%%D;%%D\Scripts;!PATH!"
+)
+if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;!PATH!"
+if exist "%APPDATA%\npm\npx.cmd" set "PATH=%APPDATA%\npm;!PATH!"
+REM  Java e SQLcl (suporte opcional a Oracle via MCP)
+for /d %%D in ("%ProgramFiles%\Eclipse Adoptium\jre-17*" "%ProgramFiles%\Eclipse Adoptium\jdk-17*") do (
+  if exist "%%D\bin\java.exe" set "PATH=%%D\bin;!PATH!"
+)
+for /d %%D in ("%ProgramFiles%\Oracle\sqlcl*" "%LOCALAPPDATA%\Programs\sqlcl*" "%ProgramFiles%\sqlcl*") do (
+  if exist "%%D\bin\sql.exe" set "PATH=%%D\bin;!PATH!"
 )
 exit /b

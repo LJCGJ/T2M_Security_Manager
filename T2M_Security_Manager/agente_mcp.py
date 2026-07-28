@@ -313,15 +313,40 @@ def tem_lib(modulo):
 # Conversao de schema MCP -> Gemini (o velho clean_schema, agora util)#
 # Gemini nao aceita algumas chaves do JSON Schema.                    #
 # ------------------------------------------------------------------ #
-def limpar_schema_gemini(schema):
-    """
-    O SDK antigo google.generativeai so aceita um subconjunto pequeno do JSON
-    Schema. Em vez de listar campos proibidos (e descobrir um novo a cada erro),
-    usamos uma WHITELIST: so passam os campos que o Gemini reconhece. Qualquer
-    campo exotico (propertyNames, anyOf, $ref, etc.) e removido automaticamente.
+def limpar_schema_gemini(schema, _raiz=True):
+    """Converte um JSON Schema do MCP para o subconjunto que o Gemini aceita.
+
+    Duas armadilhas resolvidas aqui, ambas descobertas ao migrar o modo API
+    para servidor MCP proprio:
+
+    1) anyOf / oneOf. O Gemini nao entende essas chaves, e elas aparecem SEMPRE
+       que um parametro e opcional - "str | None" vira anyOf[string, null].
+       A versao antiga apenas DESCARTAVA a chave pela whitelist, e a propriedade
+       ficava sem "type" nenhum: o Gemini recusava a declaracao inteira com
+       InvalidArgument e o usuario via somente "O modelo Gemini falhou", sem
+       pista do motivo. Agora escolhemos a primeira alternativa que nao seja
+       "null" (por isso as anotacoes do nosso servidor comecam por str).
+
+    2) Objeto de forma livre. Um campo como "headers", declarado apenas como
+       {"type": "object"} sem propriedades, chegava ao Gemini como um objeto
+       vazio - e a IA nao conseguia enviar NADA dentro dele, nem um
+       Authorization. Todo teste de API autenticada voltava 401 e o laudo
+       culpava a API. Como o nosso servidor aceita esses campos tambem em texto
+       JSON, declaramos como string. Nao vale para a raiz do schema: uma
+       ferramenta sem parametros ({"type":"object","properties":{}}) e legitima.
     """
     if not isinstance(schema, dict):
         return schema
+
+    for chave in ("anyOf", "oneOf", "allOf"):
+        alternativas = schema.get(chave)
+        if isinstance(alternativas, list):
+            uteis = [a for a in alternativas
+                     if isinstance(a, dict) and a.get("type") != "null"]
+            escolhida = dict(uteis[0]) if uteis else {"type": "string"}
+            if schema.get("description") and "description" not in escolhida:
+                escolhida["description"] = schema["description"]
+            return limpar_schema_gemini(escolhida, _raiz=_raiz)
 
     permitidas = {"type", "description", "properties", "items",
                   "required", "enum", "nullable"}
@@ -331,18 +356,27 @@ def limpar_schema_gemini(schema):
         if k not in permitidas:
             continue
         if k == "properties" and isinstance(v, dict):
-            # Limpa recursivamente cada propriedade
-            limpo[k] = {nome: limpar_schema_gemini(sub) for nome, sub in v.items()}
+            limpo[k] = {nome: limpar_schema_gemini(sub, _raiz=False)
+                        for nome, sub in v.items()}
         elif isinstance(v, dict):
-            limpo[k] = limpar_schema_gemini(v)
+            limpo[k] = limpar_schema_gemini(v, _raiz=False)
         elif isinstance(v, list):
-            limpo[k] = [limpar_schema_gemini(i) if isinstance(i, dict) else i for i in v]
+            limpo[k] = [limpar_schema_gemini(i, _raiz=False) if isinstance(i, dict) else i
+                        for i in v]
         else:
             limpo[k] = v
 
-    # Se sobrou um 'properties' vazio de type object, mantem coerencia
-    if limpo.get("type") == "object" and "properties" not in limpo:
-        limpo["properties"] = {}
+    if limpo.get("type") == "object" and not limpo.get("properties"):
+        if _raiz:
+            # Ferramenta sem parametros: mantem objeto vazio, que e valido.
+            limpo["properties"] = {}
+        else:
+            descricao = (limpo.get("description", "") + " (envie como JSON em texto)").strip()
+            return {"type": "string", "description": descricao}
+
+    if "type" not in limpo:
+        limpo["type"] = "string"   # ultima rede: nunca devolver campo sem tipo
+
     return limpo
 
 
@@ -906,48 +940,29 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
         responder(f"ERRO no agente de banco: {detalhe}{dica}")
 
 
-def _fazer_requisicao_http(metodo, url, headers, body, timeout=None):
-    """Executa uma requisicao HTTP real e devolve um dict com o resultado.
-    Nao depende de servidor MCP: usa a lib requests localmente."""
-    import requests
-    if timeout is None:
-        timeout = TIMEOUT_OPERACAO
-    try:
-        m = (metodo or "GET").upper()
-        h = headers or {}
-        # body pode ser string (json cru) ou dict
-        data = None
-        json_data = None
-        if body:
-            if isinstance(body, (dict, list)):
-                json_data = body
-            else:
-                # tenta interpretar como JSON; se falhar, envia como texto
-                try:
-                    json_data = json.loads(body)
-                except Exception:
-                    data = body
-        resp = requests.request(m, url, headers=h, json=json_data, data=data, timeout=timeout)
-        # limita o corpo para nao estourar o contexto do modelo
-        texto = resp.text[:6000] if resp.text else ""
-        return {
-            "status_code": resp.status_code,
-            "ok": resp.ok,
-            "headers": dict(resp.headers),
-            "body": texto,
-            "url_final": resp.url,
-            "tempo_ms": int(resp.elapsed.total_seconds() * 1000),
-        }
-    except Exception as e:
-        return {"erro": f"{type(e).__name__}: {e}"}
-
-
 async def executar_api(api_key, req, objetivo):
-    """Testa uma API HTTP. A IA recebe uma ferramenta 'fazer_requisicao_http'
-    (mesmo padrao de tool-use das outras funcoes) e a usa para chamar a API e
-    analisar a resposta. req = dict com metodo/url/headers/body iniciais."""
+    """Testa uma API HTTP atraves do NOSSO servidor MCP (servidor_http_mcp.py).
+
+    Antes este modo usava uma ferramenta local e tres lacos de tool-use proprios,
+    duplicando o que os modos Tela/Banco/Mongo ja faziam. Agora ele sobe um
+    servidor MCP como os demais e reaproveita os mesmos lacos - um formato so
+    para os cinco modos.
+    """
+    if not tem_lib("mcp"):
+        responder("Biblioteca ausente: mcp. Rode: pip install mcp")
+        return
     if not tem_lib("requests"):
         responder("Biblioteca ausente: requests. Rode: pip install requests")
+        return
+
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    caminho_servidor = os.path.join(SCRIPT_DIR, "servidor_http_mcp.py")
+    if not os.path.exists(caminho_servidor):
+        responder("Arquivo ausente: servidor_http_mcp.py.\n\n"
+                  f"Ele deveria estar em: {SCRIPT_DIR}\n"
+                  "Reinstale o T2M ou recompile o projeto (o build copia os .py).")
         return
 
     metodo0 = req.get("metodo", "GET")
@@ -955,181 +970,69 @@ async def executar_api(api_key, req, objetivo):
     headers0 = req.get("headers", {})
     body0 = req.get("body", "")
 
-    contexto_req = (
+    objetivo_completo = (
         f"Requisicao base montada pelo usuario:\n"
         f"  Metodo: {metodo0}\n  URL: {url0}\n"
         f"  Headers: {json.dumps(headers0, ensure_ascii=False)}\n"
-        f"  Body: {body0 if body0 else '(vazio)'}\n\n")
-
-    instrucao = (
-        contexto_req +
+        f"  Body: {body0 if body0 else '(vazio)'}\n\n"
         f"Objetivo do teste: {objetivo}\n\n"
         f"Use a ferramenta fazer_requisicao_http para executar a chamada (pode ajustar "
-        f"metodo/url/headers/body conforme o objetivo). Analise status, headers e corpo, "
-        f"e relate se a API se comportou como esperado. Se fizer sentido, gere um script "
-        f"de teste (Python requests, Robot Framework RequestsLibrary, ou similar) em blocos "
-        f"```linguagem ... ```."
-        + REGRA_CONTEUDO_NAO_CONFIAVEL)
+        f"metodo, URL, cabecalhos e corpo conforme o objetivo). Analise status, "
+        f"cabecalhos e corpo, e relate se a API se comportou como esperado."
+        + INSTRUCAO_LINGUAGEM + REGRA_CONTEUDO_NAO_CONFIAVEL)
 
-    # A ferramenta HTTP exposta a IA (mesmo schema para os 3 provedores)
-    schema_http = {
-        "type": "object",
-        "properties": {
-            "metodo": {"type": "string", "description": "GET, POST, PUT, DELETE, PATCH..."},
-            "url": {"type": "string", "description": "URL completa do endpoint"},
-            "headers": {"type": "object", "description": "Cabecalhos HTTP (opcional)"},
-            "body": {"type": "string", "description": "Corpo da requisicao, JSON como texto (opcional)"},
-        },
-        "required": ["metodo", "url"],
-    }
+    # sys.executable: o MESMO interpretador que roda este script. Usar "python"
+    # pegaria o primeiro do PATH, que pode ser outro (ou o atalho da Store).
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-u", caminho_servidor],
+        env={"T2M_TIMEOUT": str(TIMEOUT_OPERACAO)})
 
-    log(">>> Modo API: ferramenta HTTP local pronta.")
+    log(">>> Subindo servidor MCP de HTTP (T2M)...")
     try:
-        if api_key.startswith("sk-ant-"):
-            if not tem_lib("anthropic"):
-                responder("Biblioteca ausente: anthropic."); return
-            resultado = await _loop_api_anthropic(api_key, instrucao, schema_http)
-        elif api_key.startswith("sk-"):
-            if not tem_lib("openai"):
-                responder("Biblioteca ausente: openai."); return
-            resultado = await _loop_api_openai(api_key, instrucao, schema_http)
-        else:
-            if not tem_lib("google.generativeai"):
-                responder("Biblioteca ausente: google-generativeai."); return
-            resultado = await _loop_api_gemini(api_key, instrucao, schema_http)
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                tools_resp = await session.list_tools()
+                mcp_tools = tools_resp.tools
+                log(f">>> MCP HTTP conectado. {len(mcp_tools)} ferramenta(s) disponivel(is).")
 
-        # Grava na memoria compartilhada
-        try:
-            memoria = []
-            if os.path.exists(ARQUIVO_MEMORIA):
-                with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
-                    memoria = json.load(f)
-            memoria.append({"role": "user",
-                            "content": f"[TESTE DE API] {metodo0} {url0} - objetivo: {objetivo}"})
-            memoria.append({"role": "assistant",
-                            "content": _relatorio_para_memoria(resultado)})
-            with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
-                json.dump(limitar_memoria(memoria), f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            log(f">>> Aviso: nao foi possivel gravar na memoria: {e}")
+                if api_key.startswith("sk-ant-"):
+                    if not tem_lib("anthropic"):
+                        responder("Biblioteca ausente: anthropic."); return
+                    resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
+                elif api_key.startswith("sk-"):
+                    if not tem_lib("openai"):
+                        responder("Biblioteca ausente: openai."); return
+                    resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
+                else:
+                    if not tem_lib("google.generativeai"):
+                        responder("Biblioteca ausente: google-generativeai."); return
+                    resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
-        responder(resultado)
-    except Exception as e:
+                try:
+                    memoria = []
+                    if os.path.exists(ARQUIVO_MEMORIA):
+                        with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
+                            memoria = json.load(f)
+                    memoria.append({"role": "user",
+                                    "content": f"[TESTE DE API] {metodo0} {url0} - objetivo: {objetivo}"})
+                    memoria.append({"role": "assistant",
+                                    "content": _relatorio_para_memoria(resultado)})
+                    with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
+                        json.dump(limitar_memoria(memoria), f, ensure_ascii=False, indent=4)
+                except Exception as e:
+                    log(f">>> Aviso: nao foi possivel gravar na memoria: {e}")
+
+                responder(resultado)
+    except FileNotFoundError:
+        responder("Erro: nao foi possivel iniciar o Python para subir o servidor "
+                  "MCP de HTTP. Verifique a instalacao do Python.")
+    except BaseException as e:
         import traceback
+        log("=== TRACEBACK COMPLETO (api) ===")
         log(traceback.format_exc())
-        responder(f"ERRO no teste de API: {type(e).__name__}: {e}")
-
-
-# --- Loops de API por provedor (ferramenta unica: fazer_requisicao_http) ---
-async def _loop_api_anthropic(api_key, instrucao, schema_http):
-    from anthropic import Anthropic
-    client = Anthropic(api_key=api_key)
-    ferramentas = [{"name": "fazer_requisicao_http",
-                    "description": "Executa uma requisicao HTTP e retorna status, headers e corpo.",
-                    "input_schema": schema_http}]
-    mensagens = [{"role": "user", "content": instrucao}]
-    for _ in range(MAX_ITERACOES):
-        resp = client.messages.create(model=MODELO_CLAUDE,
-                                      max_tokens=MAX_TOKENS, tools=ferramentas, messages=mensagens)
-        mensagens.append({"role": "assistant", "content": resp.content})
-        usos = [b for b in resp.content if b.type == "tool_use"]
-        if not usos:
-            return "".join(b.text for b in resp.content if b.type == "text").strip() or "(sem resposta)"
-        resultados = []
-        for uso in usos:
-            r = _fazer_requisicao_http(uso.input.get("metodo"), uso.input.get("url"),
-                                       uso.input.get("headers"), uso.input.get("body"))
-            log(f">>> [Claude] HTTP {uso.input.get('metodo')} {uso.input.get('url')}")
-            resultados.append({"type": "tool_result", "tool_use_id": uso.id,
-                               "content": json.dumps(r, ensure_ascii=False)[:6000]})
-        mensagens.append({"role": "user", "content": resultados})
-    return "Limite de passos atingido no teste de API."
-
-
-async def _loop_api_openai(api_key, instrucao, schema_http):
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key)
-    ferramentas = [{"type": "function", "function": {
-        "name": "fazer_requisicao_http",
-        "description": "Executa uma requisicao HTTP e retorna status, headers e corpo.",
-        "parameters": schema_http}}]
-    mensagens = [{"role": "user", "content": instrucao}]
-    for _ in range(MAX_ITERACOES):
-        resp = client.chat.completions.create(model=MODELO_OPENAI, tools=ferramentas,
-                                              messages=mensagens, max_tokens=MAX_TOKENS)
-        msg = resp.choices[0].message
-        mensagens.append(msg.model_dump(exclude_none=True))
-        if not msg.tool_calls:
-            return (msg.content or "(sem resposta)").strip()
-        for tc in msg.tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except Exception:
-                args = {}
-            r = _fazer_requisicao_http(args.get("metodo"), args.get("url"),
-                                       args.get("headers"), args.get("body"))
-            log(f">>> [GPT] HTTP {args.get('metodo')} {args.get('url')}")
-            mensagens.append({"role": "tool", "tool_call_id": tc.id,
-                              "content": json.dumps(r, ensure_ascii=False)[:6000]})
-    return "Limite de passos atingido no teste de API."
-
-
-async def _loop_api_gemini(api_key, instrucao, schema_http):
-    import google.generativeai as genai
-    genai.configure(api_key=api_key)
-    tools_gemini = [{"function_declarations": [{
-        "name": "fazer_requisicao_http",
-        "description": "Executa uma requisicao HTTP e retorna status, headers e corpo.",
-        "parameters": limpar_schema_gemini(schema_http)}]}]
-    modelos = _modelos_gemini()
-    model = None
-    for nm in modelos:
-        try:
-            model = genai.GenerativeModel(nm, tools=tools_gemini); break
-        except Exception:
-            continue
-    if model is None:
-        return "Falha ao iniciar o modelo Gemini para o teste de API."
-    chat = model.start_chat()
-    proxima = instrucao
-    ultimo = ""
-    for passo in range(MAX_ITERACOES):
-        if passo > 0:
-            time.sleep(4)
-        try:
-            resp = chat.send_message(proxima)
-        except Exception as e:
-            if "ResourceExhausted" in type(e).__name__ or "429" in str(e):
-                return (ultimo or "") + "\n[Limite de uso da IA atingido. Aguarde 1-2 min.]"
-            return f"O modelo Gemini falhou: {type(e).__name__}"
-        texto_parcial = _texto_do_modelo(resp)
-        if texto_parcial:
-            ultimo = texto_parcial
-        chamadas = []
-        try:
-            for cand in resp.candidates:
-                for parte in cand.content.parts:
-                    fc = getattr(parte, "function_call", None)
-                    if fc and fc.name:
-                        chamadas.append(fc)
-        except Exception:
-            pass
-        if not chamadas:
-            try:
-                return (resp.text or ultimo or "(sem resposta)").strip()
-            except Exception:
-                return ultimo or "(sem resposta)"
-        respostas = []
-        for fc in chamadas:
-            args = dict(fc.args) if fc.args else {}
-            r = _fazer_requisicao_http(args.get("metodo"), args.get("url"),
-                                       args.get("headers"), args.get("body"))
-            log(f">>> [Gemini] HTTP {args.get('metodo')} {args.get('url')}")
-            respostas.append(genai.protos.Part(function_response=genai.protos.FunctionResponse(
-                name=fc.name, response={"resultado": r})))
-        proxima = respostas
-    return _relatorio_parcial_gemini(chat, ultimo,
-                                     "[Limite de passos atingido no teste de API.]")
+        responder(f"ERRO no teste de API: {_detalhar_excecao(e)}")
 
 
 def _oracle_abrir_conexao(info):
