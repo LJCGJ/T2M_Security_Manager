@@ -158,6 +158,17 @@ def limitar_memoria(memoria):
 # ATENCAO: modelos antigos (ex.: claude-3-5-sonnet) foram aposentados e falham se usados.
 MODELO_CLAUDE = _CFG.get("modelo_claude", "claude-sonnet-4-6").strip() or "claude-sonnet-4-6"
 MODELO_OPENAI = _CFG.get("modelo_openai", "gpt-4o-mini").strip() or "gpt-4o-mini"
+MODELO_GEMINI = _CFG.get("modelo_gemini", "").strip()
+
+
+def _modelos_gemini():
+    """Modelos Gemini a tentar, com o escolhido em Configuracoes na frente.
+    Antes os modos MCP usavam uma lista fixa e ignoravam a configuracao."""
+    padrao = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    if not MODELO_GEMINI:
+        return padrao
+    return [MODELO_GEMINI] + [m for m in padrao if m != MODELO_GEMINI]
+
 HEADLESS = False            # False = voce ve o navegador agindo; True = invisivel
 
 
@@ -381,7 +392,7 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     # No tier gratuito o limite por minuto e baixo (ex.: 5-10 req/min). Uma automacao
     # MCP faz varias chamadas seguidas, entao: (1) preferimos modelos com mais folga,
     # (2) pausamos entre passos, (3) tratamos ResourceExhausted com mensagem clara.
-    modelos_tentar = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    modelos_tentar = _modelos_gemini()
     model = None
     erro_modelo = ""
     for nome_m in modelos_tentar:
@@ -891,7 +902,7 @@ async def _loop_api_gemini(api_key, instrucao, schema_http):
         "name": "fazer_requisicao_http",
         "description": "Executa uma requisicao HTTP e retorna status, headers e corpo.",
         "parameters": limpar_schema_gemini(schema_http)}]}]
-    modelos = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    modelos = _modelos_gemini()
     model = None
     for nm in modelos:
         try:
@@ -1261,7 +1272,7 @@ async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
     decls = [{"name": f["name"], "description": f["description"],
               "parameters": limpar_schema_gemini(f["input_schema"])} for f in ferramentas]
     tools_gemini = [{"function_declarations": decls}]
-    modelos = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    modelos = _modelos_gemini()
     model = None
     for nm in modelos:
         try:

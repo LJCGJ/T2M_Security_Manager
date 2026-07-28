@@ -130,6 +130,8 @@ namespace T2MSecurityManager {
 		int cfgMaxPassos;    // teto de iteracoes da IA (controla custo)
 		int cfgMaxLinhas;    // maximo de linhas retornadas em consultas
 		String^ cfgModeloClaude;  // modelo da Anthropic (custo x capacidade)
+		String^ cfgModeloOpenAI;  // modelo da OpenAI
+		String^ cfgModeloGemini;  // modelo do Google Gemini
 		int cfgMaxHistorico;      // mensagens reenviadas a IA por chamada
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
@@ -1585,6 +1587,8 @@ namespace T2MSecurityManager {
 		cfgMaxPassos = 15;
 		cfgMaxLinhas = 100;
 		cfgModeloClaude = "claude-sonnet-4-6";
+		cfgModeloOpenAI = "gpt-4o-mini";
+		cfgModeloGemini = "gemini-2.5-flash";
 		cfgMaxHistorico = 20;
 		try {
 			String^ caminho = CaminhoDados("configuracoes.txt");
@@ -1601,6 +1605,8 @@ namespace T2MSecurityManager {
 				else if (chave == "max_passos") Int32::TryParse(valor, cfgMaxPassos);
 				else if (chave == "max_linhas") Int32::TryParse(valor, cfgMaxLinhas);
 				else if (chave == "modelo_claude" && valor != "") cfgModeloClaude = valor;
+				else if (chave == "modelo_openai" && valor != "") cfgModeloOpenAI = valor;
+				else if (chave == "modelo_gemini" && valor != "") cfgModeloGemini = valor;
 				else if (chave == "max_historico") Int32::TryParse(valor, cfgMaxHistorico);
 			}
 		}
@@ -1625,6 +1631,8 @@ namespace T2MSecurityManager {
 			sb->AppendLine("max_passos=" + cfgMaxPassos);
 			sb->AppendLine("max_linhas=" + cfgMaxLinhas);
 			sb->AppendLine("modelo_claude=" + cfgModeloClaude);
+			sb->AppendLine("modelo_openai=" + cfgModeloOpenAI);
+			sb->AppendLine("modelo_gemini=" + cfgModeloGemini);
 			sb->AppendLine("max_historico=" + cfgMaxHistorico);
 			File::WriteAllText(CaminhoDados("configuracoes.txt"), sb->ToString());
 		}
@@ -1716,10 +1724,18 @@ namespace T2MSecurityManager {
 		bScrAbrir->Click += gcnew System::EventHandler(this, &MyForm::abrirPastaConfig_Click);
 		f->Controls->Add(bScrAbrir);
 
-		// Modelo da IA (Claude) - impacta custo por teste
+		// Modelo da IA - impacta custo por teste.
+		// O campo segue a CHAVE selecionada: cada provedor tem o seu proprio
+		// modelo salvo. Antes havia um unico campo, sempre gravado em
+		// "modelo_claude": quem escolhesse um modelo da OpenAI acabava mandando
+		// esse nome para a API da Anthropic (404), enquanto a rota OpenAI
+		// continuava presa no padrao e a do Gemini ignorava a configuracao.
+		String^ provedorModelo = DetectarIA(ObterChaveReal());
+		if (String::IsNullOrWhiteSpace(provedorModelo)) provedorModelo = L"Claude";
+
 		y += 40;
 		Label^ lblModelo = gcnew Label();
-		lblModelo->Text = L"Modelo Claude:";
+		lblModelo->Text = L"Modelo " + provedorModelo + L":";
 		lblModelo->Location = System::Drawing::Point(x1, y + 3); lblModelo->AutoSize = true;
 		f->Controls->Add(lblModelo);
 		// Lista EDITAVEL de proposito: modelos sao aposentados com frequencia
@@ -1729,12 +1745,43 @@ namespace T2MSecurityManager {
 		cbModelo->DropDownStyle = ComboBoxStyle::DropDown;   // permite digitar
 		cbModelo->Location = System::Drawing::Point(x1 + 110, y);
 		cbModelo->Size = System::Drawing::Size(230, 22);
-		cbModelo->Items->Add(L"claude-haiku-4-5-20251001");
-		cbModelo->Items->Add(L"claude-sonnet-4-6");
-		cbModelo->Items->Add(L"claude-opus-4-8");
-		cbModelo->Items->Add(L"claude-fable-5");
-		cbModelo->Text = String::IsNullOrWhiteSpace(cfgModeloClaude)
-			? L"claude-sonnet-4-6" : cfgModeloClaude;
+		cbModelo->Tag = provedorModelo;   // lido na hora de salvar
+
+		String^ dicaTexto;
+		if (provedorModelo == "OpenAI") {
+			cbModelo->Items->Add(L"gpt-4o-mini");
+			cbModelo->Items->Add(L"gpt-4o");
+			cbModelo->Items->Add(L"gpt-4.1-mini");
+			cbModelo->Items->Add(L"gpt-4.1");
+			cbModelo->Text = String::IsNullOrWhiteSpace(cfgModeloOpenAI)
+				? L"gpt-4o-mini" : cfgModeloOpenAI;
+			dicaTexto =
+				L"Modelo usado quando a chave selecionada e da OpenAI (sk-...).\n"
+				L"Os modelos \"mini\" custam bem menos e costumam bastar para automacao.";
+		}
+		else if (provedorModelo == "Gemini") {
+			cbModelo->Items->Add(L"gemini-2.5-flash");
+			cbModelo->Items->Add(L"gemini-2.0-flash");
+			cbModelo->Items->Add(L"gemini-2.5-flash-lite");
+			cbModelo->Items->Add(L"gemini-flash-latest");
+			cbModelo->Text = String::IsNullOrWhiteSpace(cfgModeloGemini)
+				? L"gemini-2.5-flash" : cfgModeloGemini;
+			dicaTexto =
+				L"Modelo usado quando a chave selecionada e do Google (AIza... / AQ...).\n"
+				L"No plano gratuito o limite por minuto e baixo; os \"flash\" tem mais folga.";
+		}
+		else {
+			cbModelo->Items->Add(L"claude-haiku-4-5-20251001");
+			cbModelo->Items->Add(L"claude-sonnet-4-6");
+			cbModelo->Items->Add(L"claude-opus-4-8");
+			cbModelo->Items->Add(L"claude-fable-5");
+			cbModelo->Text = String::IsNullOrWhiteSpace(cfgModeloClaude)
+				? L"claude-sonnet-4-6" : cfgModeloClaude;
+			dicaTexto =
+				L"Custo por milhao de tokens (entrada/saida):  "
+				L"Haiku ~$1/$5  |  Sonnet ~$3/$15  |  Opus ~$5/$25  |  Fable ~$10/$50\n"
+				L"Para automacao de testes, Haiku costuma bastar. Pode digitar outro modelo.";
+		}
 		f->Controls->Add(cbModelo);
 
 		// Busca a lista direto no provedor: evita depender de uma lista fixa no
@@ -1751,10 +1798,7 @@ namespace T2MSecurityManager {
 		f->Controls->Add(btnBuscarModelos);
 
 		Label^ dicaModelo = gcnew Label();
-		dicaModelo->Text =
-			L"Custo por milhao de tokens (entrada/saida):  "
-			L"Haiku ~$1/$5  |  Sonnet ~$3/$15  |  Opus ~$5/$25  |  Fable ~$10/$50\n"
-			L"Para automacao de testes, Haiku costuma bastar. Pode digitar outro modelo.";
+		dicaModelo->Text = dicaTexto;
 		dicaModelo->Location = System::Drawing::Point(x1 + 110, y + 24);
 		dicaModelo->Size = System::Drawing::Size(520, 32);
 		dicaModelo->ForeColor = System::Drawing::Color::DimGray;
@@ -1998,17 +2042,33 @@ namespace T2MSecurityManager {
 		cfgMaxPassos = (int)safe_cast<NumericUpDown^>(ctl[3])->Value;
 		cfgMaxLinhas = (int)safe_cast<NumericUpDown^>(ctl[4])->Value;
 		cfgTimeout = (int)safe_cast<NumericUpDown^>(ctl[5])->Value;
-		String^ modeloEscolhido = safe_cast<ComboBox^>(ctl[6])->Text->Trim();
-		if (String::IsNullOrWhiteSpace(modeloEscolhido)) modeloEscolhido = L"claude-sonnet-4-6";
-		// Aviso: modelos antigos foram aposentados e retornam erro na API
-		if (modeloEscolhido->StartsWith("claude-3") || modeloEscolhido->StartsWith("claude-2")) {
-			MessageBox::Show(
-				L"O modelo \"" + modeloEscolhido + L"\" pertence a uma geracao ja aposentada "
-				L"e as chamadas vao falhar.\n\nUse um modelo atual, como claude-haiku-4-5-20251001.",
-				L"Modelo aposentado", MessageBoxButtons::OK, MessageBoxIcon::Warning);
-			return;   // nao salva
+		ComboBox^ cbMod = safe_cast<ComboBox^>(ctl[6]);
+		String^ provModelo = (cbMod->Tag == nullptr) ? L"Claude" : cbMod->Tag->ToString();
+		String^ modeloEscolhido = cbMod->Text->Trim();
+
+		// Grava no campo do PROVEDOR correspondente. Antes ia sempre para
+		// modelo_claude, entao escolher um modelo da OpenAI fazia o app mandar
+		// esse nome para a API da Anthropic (404 not_found_error).
+		if (provModelo == "OpenAI") {
+			if (String::IsNullOrWhiteSpace(modeloEscolhido)) modeloEscolhido = L"gpt-4o-mini";
+			cfgModeloOpenAI = modeloEscolhido;
 		}
-		cfgModeloClaude = modeloEscolhido;
+		else if (provModelo == "Gemini") {
+			if (String::IsNullOrWhiteSpace(modeloEscolhido)) modeloEscolhido = L"gemini-2.5-flash";
+			cfgModeloGemini = modeloEscolhido;
+		}
+		else {
+			if (String::IsNullOrWhiteSpace(modeloEscolhido)) modeloEscolhido = L"claude-sonnet-4-6";
+			// Aviso: geracoes antigas do Claude foram aposentadas e retornam erro
+			if (modeloEscolhido->StartsWith("claude-3") || modeloEscolhido->StartsWith("claude-2")) {
+				MessageBox::Show(
+					L"O modelo \"" + modeloEscolhido + L"\" pertence a uma geracao ja aposentada "
+					L"e as chamadas vao falhar.\n\nUse um modelo atual, como claude-haiku-4-5-20251001.",
+					L"Modelo aposentado", MessageBoxButtons::OK, MessageBoxIcon::Warning);
+				return;   // nao salva
+			}
+			cfgModeloClaude = modeloEscolhido;
+		}
 		cfgMaxHistorico = (int)safe_cast<NumericUpDown^>(ctl[7])->Value;
 
 		SalvarConfiguracoesApp();

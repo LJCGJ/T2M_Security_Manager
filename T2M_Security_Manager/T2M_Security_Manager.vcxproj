@@ -133,7 +133,6 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="..\..\..\..\Downloads\ChatGPT Image 27 de jan. de 2026, 17_33_38.png" />
     <Image Include="icon2.ico" />
     <Image Include="T2M_logo-03.png" />
   </ItemGroup>
@@ -141,6 +140,7 @@
     <None Include="agente_mcp.py" />
     <None Include="gerador_ia.py" />
     <None Include="get_token.py" />
+    <None Include="listar_modelos.py" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="T2M_Security_Manager1.rc" />
@@ -151,4 +151,22 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <Target Name="CopiarArquivosDeApoio" AfterTargets="Build">
+    <!-- Os scripts Python sao lidos em tempo de execucao via CaminhoApp(), ou seja,
+         a partir da pasta do executavel. Sem esta copia eles so chegavam la pelo
+         sincronizar.bat (que copia da pasta Downloads, nao do codigo-fonte): quem
+         clonasse o repositorio e compilasse tinha TODA funcao de IA falhando com
+         "python: can't open file", e a geracao do instalador abortava por falta
+         dos .py na pasta Release. -->
+    <ItemGroup>
+      <ArquivosDeApoio Include="$(ProjectDir)*.py" />
+      <ArquivosDeApoio Include="$(ProjectDir)icon2.ico" />
+      <ArquivosDeApoio Include="$(ProjectDir)T2M_logo-03.png" />
+      <ArquivosDeApoio Include="$(ProjectDir)..\requirements.txt" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ArquivosDeApoio)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          ContinueOnError="true" />
+  </Target>
 </Project>

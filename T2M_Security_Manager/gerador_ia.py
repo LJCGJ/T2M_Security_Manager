@@ -93,6 +93,9 @@ _CFG = _carregar_configuracoes()
 MODELO_CLAUDE = _CFG.get("modelo_claude", "claude-haiku-4-5-20251001").strip() \
     or "claude-haiku-4-5-20251001"
 MODELO_OPENAI = _CFG.get("modelo_openai", "gpt-4o-mini").strip() or "gpt-4o-mini"
+# A rota Gemini ignorava a configuracao e usava sempre uma lista fixa: o que o
+# usuario escolhesse na tela nao tinha efeito nenhum para chaves do Google.
+MODELO_GEMINI = _CFG.get("modelo_gemini", "").strip()
 
 # Quantas mensagens do historico sao reenviadas a cada chamada.
 # Sem limite, a conversa cresce para sempre: cada pergunta nova reenviaria toda
@@ -441,6 +444,9 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             # Modelos estaveis primeiro. gemini-flash-latest é um alias que o
             # Google mantem sempre apontando para a versao flash atual (bom fallback).
             modelos = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest']
+            # O modelo escolhido em Configuracoes entra na frente; o resto vira fallback.
+            if MODELO_GEMINI:
+                modelos = [MODELO_GEMINI] + [m for m in modelos if m != MODELO_GEMINI]
             sucesso = False
             erros = []
             for nome_modelo in modelos:
