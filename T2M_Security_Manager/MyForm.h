@@ -184,6 +184,12 @@ namespace T2MSecurityManager {
 		System::Text::StringBuilder^ bufLoginErro;
 
 		System::ComponentModel::BackgroundWorker^ workerChat;
+		// Processo Python da execucao em andamento. Guardado em campo para que o
+		// fechamento da janela consiga encerra-lo: antes o Process era local a
+		// funcao, entao fechar o Copilot no meio de uma automacao deixava o
+		// python.exe e o navegador do Playwright orfaos, rodando e gastando
+		// tokens da API sem nenhuma janela para mostrar o resultado.
+		Process^ procChatAtual;
 		int modoWorker;          // 0 = chat normal, 1 = scan DOM, 2 = MCP ao vivo
 		String^ payloadWorker;   // texto que sera enviado ao Python (montado antes de rodar)
 
@@ -208,7 +214,7 @@ namespace T2MSecurityManager {
 
 		// P/Invoke para liberar handle de icone gerado a partir de bitmap
 		[System::Runtime::InteropServices::DllImport("user32.dll", SetLastError = true)]
-		static bool DestroyIcon(System::IntPtr handle);
+			static bool DestroyIcon(System::IntPtr handle);
 
 		// =====================================================================
 		// --- HELPERS DE CAMINHO, ICONE E CRIPTOGRAFIA ---
@@ -217,11 +223,11 @@ namespace T2MSecurityManager {
 		return Path::Combine(Application::StartupPath, arquivo);
 	}
 
-	// Pasta gravavel do usuario (%APPDATA%\T2M Security Manager).
-	// Necessaria porque, apos a instalacao, a pasta do programa fica em
-	// "Program Files", onde usuarios comuns nao tem permissao de escrita.
-	// Se o arquivo ainda existir ao lado do executavel (versao antiga),
-	// ele e migrado automaticamente na primeira leitura.
+		   // Pasta gravavel do usuario (%APPDATA%\T2M Security Manager).
+		   // Necessaria porque, apos a instalacao, a pasta do programa fica em
+		   // "Program Files", onde usuarios comuns nao tem permissao de escrita.
+		   // Se o arquivo ainda existir ao lado do executavel (versao antiga),
+		   // ele e migrado automaticamente na primeira leitura.
 	private: String^ CaminhoDados(String^ arquivo) {
 		String^ pasta = Path::Combine(
 			Environment::GetFolderPath(Environment::SpecialFolder::ApplicationData),
@@ -242,15 +248,15 @@ namespace T2MSecurityManager {
 		}
 	}
 
-	// Nome completo da conta do Windows (ex.: "LeonardoJoseCordeiro").
+		   // Nome completo da conta do Windows (ex.: "LeonardoJoseCordeiro").
 	private: String^ NomeUsuarioWindows() {
 		String^ nome = Environment::UserName;
 		if (String::IsNullOrWhiteSpace(nome)) return L"Operador";
 		return nome->Trim();
 	}
 
-	// Primeiro nome "amigavel" para a saudacao. Tenta separar nomes grudados em
-	// CamelCase (LeonardoJoseCordeiro -> Leonardo) ou por espaco/ponto.
+		   // Primeiro nome "amigavel" para a saudacao. Tenta separar nomes grudados em
+		   // CamelCase (LeonardoJoseCordeiro -> Leonardo) ou por espaco/ponto.
 	private: String^ PrimeiroNomeUsuario() {
 		String^ nome = NomeUsuarioWindows();
 		// separadores comuns
@@ -273,12 +279,12 @@ namespace T2MSecurityManager {
 		return nome;
 	}
 
-	// Carrega o icone da aplicacao tentando, em ordem:
-	//  1. arquivo icon2.ico ao lado do executavel  - permite trocar sem recompilar
-	//  2. icone embutido no proprio .exe           - sempre existe apos o build
-	//  3. conversao do logo PNG                    - ultimo recurso
-	// Antes so havia a 1 e a 3: se o .ico nao fosse copiado para a pasta de
-	// execucao, o app ficava com o icone generico do Windows.
+		   // Carrega o icone da aplicacao tentando, em ordem:
+		   //  1. arquivo icon2.ico ao lado do executavel  - permite trocar sem recompilar
+		   //  2. icone embutido no proprio .exe           - sempre existe apos o build
+		   //  3. conversao do logo PNG                    - ultimo recurso
+		   // Antes so havia a 1 e a 3: se o .ico nao fosse copiado para a pasta de
+		   // execucao, o app ficava com o icone generico do Windows.
 	private: void CarregarIcone() {
 		try {
 			String^ ico = CaminhoApp("icon2.ico");
@@ -337,201 +343,201 @@ namespace T2MSecurityManager {
 	}
 
 #pragma region Windows Form Designer generated code
-		void InitializeComponent(void)
-		{
-			this->picLogo = (gcnew System::Windows::Forms::PictureBox());
-			this->lstScripts = (gcnew System::Windows::Forms::ListBox());
-			this->btnAdd = (gcnew System::Windows::Forms::Button());
-			this->btnRemove = (gcnew System::Windows::Forms::Button());
-			this->btnAbrirPasta = (gcnew System::Windows::Forms::Button());
-			this->txtOutput = (gcnew System::Windows::Forms::RichTextBox());
-			this->lblUrl = (gcnew System::Windows::Forms::Label());
-			this->txtUrl = (gcnew System::Windows::Forms::TextBox());
-			this->lblToken = (gcnew System::Windows::Forms::Label());
-			this->txtToken = (gcnew System::Windows::Forms::TextBox());
-			this->btnLoginAuto = (gcnew System::Windows::Forms::Button());
-			this->chkHabilitarLogin = (gcnew System::Windows::Forms::CheckBox());
-			this->chkSalvar = (gcnew System::Windows::Forms::CheckBox());
-			this->btnStart = (gcnew System::Windows::Forms::Button());
-			this->btnStop = (gcnew System::Windows::Forms::Button());
-			this->btnExport = (gcnew System::Windows::Forms::Button());
-			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->BeginInit();
-			this->SuspendLayout();
+		   void InitializeComponent(void)
+		   {
+			   this->picLogo = (gcnew System::Windows::Forms::PictureBox());
+			   this->lstScripts = (gcnew System::Windows::Forms::ListBox());
+			   this->btnAdd = (gcnew System::Windows::Forms::Button());
+			   this->btnRemove = (gcnew System::Windows::Forms::Button());
+			   this->btnAbrirPasta = (gcnew System::Windows::Forms::Button());
+			   this->txtOutput = (gcnew System::Windows::Forms::RichTextBox());
+			   this->lblUrl = (gcnew System::Windows::Forms::Label());
+			   this->txtUrl = (gcnew System::Windows::Forms::TextBox());
+			   this->lblToken = (gcnew System::Windows::Forms::Label());
+			   this->txtToken = (gcnew System::Windows::Forms::TextBox());
+			   this->btnLoginAuto = (gcnew System::Windows::Forms::Button());
+			   this->chkHabilitarLogin = (gcnew System::Windows::Forms::CheckBox());
+			   this->chkSalvar = (gcnew System::Windows::Forms::CheckBox());
+			   this->btnStart = (gcnew System::Windows::Forms::Button());
+			   this->btnStop = (gcnew System::Windows::Forms::Button());
+			   this->btnExport = (gcnew System::Windows::Forms::Button());
+			   (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->BeginInit();
+			   this->SuspendLayout();
 
-			this->picLogo->BackColor = System::Drawing::Color::Transparent;
-			this->picLogo->Location = System::Drawing::Point(20, 15);
-			this->picLogo->Name = L"picLogo";
-			this->picLogo->Size = System::Drawing::Size(200, 60);
-			this->picLogo->SizeMode = System::Windows::Forms::PictureBoxSizeMode::Zoom;
-			this->picLogo->TabIndex = 0;
-			this->picLogo->TabStop = false;
+			   this->picLogo->BackColor = System::Drawing::Color::Transparent;
+			   this->picLogo->Location = System::Drawing::Point(20, 15);
+			   this->picLogo->Name = L"picLogo";
+			   this->picLogo->Size = System::Drawing::Size(200, 60);
+			   this->picLogo->SizeMode = System::Windows::Forms::PictureBoxSizeMode::Zoom;
+			   this->picLogo->TabIndex = 0;
+			   this->picLogo->TabStop = false;
 
-			this->lstScripts->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			this->lstScripts->ItemHeight = 17;
-			this->lstScripts->Location = System::Drawing::Point(20, 140);
-			this->lstScripts->Name = L"lstScripts";
-			this->lstScripts->Size = System::Drawing::Size(200, 514);
-			this->lstScripts->TabIndex = 1;
+			   this->lstScripts->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
+			   this->lstScripts->ItemHeight = 17;
+			   this->lstScripts->Location = System::Drawing::Point(20, 140);
+			   this->lstScripts->Name = L"lstScripts";
+			   this->lstScripts->Size = System::Drawing::Size(200, 514);
+			   this->lstScripts->TabIndex = 1;
 
-			this->btnAdd->BackColor = System::Drawing::Color::LightGreen;
-			this->btnAdd->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			this->btnAdd->Location = System::Drawing::Point(20, 90);
-			this->btnAdd->Name = L"btnAdd";
-			this->btnAdd->Size = System::Drawing::Size(80, 35);
-			this->btnAdd->TabIndex = 2;
-			this->btnAdd->Text = L"➕ Add";
-			this->btnAdd->UseVisualStyleBackColor = false;
-			this->btnAdd->Click += gcnew System::EventHandler(this, &MyForm::btnAdd_Click);
+			   this->btnAdd->BackColor = System::Drawing::Color::LightGreen;
+			   this->btnAdd->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnAdd->Location = System::Drawing::Point(20, 90);
+			   this->btnAdd->Name = L"btnAdd";
+			   this->btnAdd->Size = System::Drawing::Size(80, 35);
+			   this->btnAdd->TabIndex = 2;
+			   this->btnAdd->Text = L"➕ Add";
+			   this->btnAdd->UseVisualStyleBackColor = false;
+			   this->btnAdd->Click += gcnew System::EventHandler(this, &MyForm::btnAdd_Click);
 
-			this->btnRemove->BackColor = System::Drawing::Color::LightCoral;
-			this->btnRemove->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			this->btnRemove->Location = System::Drawing::Point(105, 90);
-			this->btnRemove->Name = L"btnRemove";
-			this->btnRemove->Size = System::Drawing::Size(75, 35);
-			this->btnRemove->TabIndex = 3;
-			this->btnRemove->Text = L"🗑 Remover";
-			this->btnRemove->UseVisualStyleBackColor = false;
-			this->btnRemove->Click += gcnew System::EventHandler(this, &MyForm::btnRemove_Click);
+			   this->btnRemove->BackColor = System::Drawing::Color::LightCoral;
+			   this->btnRemove->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnRemove->Location = System::Drawing::Point(105, 90);
+			   this->btnRemove->Name = L"btnRemove";
+			   this->btnRemove->Size = System::Drawing::Size(75, 35);
+			   this->btnRemove->TabIndex = 3;
+			   this->btnRemove->Text = L"🗑 Remover";
+			   this->btnRemove->UseVisualStyleBackColor = false;
+			   this->btnRemove->Click += gcnew System::EventHandler(this, &MyForm::btnRemove_Click);
 
-			this->btnAbrirPasta->BackColor = System::Drawing::Color::LightSkyBlue;
-			this->btnAbrirPasta->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			this->btnAbrirPasta->Location = System::Drawing::Point(185, 90);
-			this->btnAbrirPasta->Name = L"btnAbrirPasta";
-			this->btnAbrirPasta->Size = System::Drawing::Size(35, 35);
-			this->btnAbrirPasta->TabIndex = 4;
-			this->btnAbrirPasta->Text = L"📂";
-			this->btnAbrirPasta->UseVisualStyleBackColor = false;
-			this->btnAbrirPasta->Click += gcnew System::EventHandler(this, &MyForm::btnAbrirPasta_Click);
+			   this->btnAbrirPasta->BackColor = System::Drawing::Color::LightSkyBlue;
+			   this->btnAbrirPasta->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnAbrirPasta->Location = System::Drawing::Point(185, 90);
+			   this->btnAbrirPasta->Name = L"btnAbrirPasta";
+			   this->btnAbrirPasta->Size = System::Drawing::Size(35, 35);
+			   this->btnAbrirPasta->TabIndex = 4;
+			   this->btnAbrirPasta->Text = L"📂";
+			   this->btnAbrirPasta->UseVisualStyleBackColor = false;
+			   this->btnAbrirPasta->Click += gcnew System::EventHandler(this, &MyForm::btnAbrirPasta_Click);
 
-			this->txtOutput->BackColor = System::Drawing::Color::FromArgb(static_cast<System::Int32>(static_cast<System::Byte>(30)), static_cast<System::Int32>(static_cast<System::Byte>(30)),
-				static_cast<System::Int32>(static_cast<System::Byte>(30)));
-			this->txtOutput->Font = (gcnew System::Drawing::Font(L"Consolas", 10));
-			this->txtOutput->ForeColor = System::Drawing::Color::LimeGreen;
-			this->txtOutput->Location = System::Drawing::Point(240, 90);
-			this->txtOutput->Name = L"txtOutput";
-			this->txtOutput->ReadOnly = true;
-			this->txtOutput->Size = System::Drawing::Size(660, 360);
-			this->txtOutput->TabIndex = 5;
-			this->txtOutput->Text = L"";
+			   this->txtOutput->BackColor = System::Drawing::Color::FromArgb(static_cast<System::Int32>(static_cast<System::Byte>(30)), static_cast<System::Int32>(static_cast<System::Byte>(30)),
+				   static_cast<System::Int32>(static_cast<System::Byte>(30)));
+			   this->txtOutput->Font = (gcnew System::Drawing::Font(L"Consolas", 10));
+			   this->txtOutput->ForeColor = System::Drawing::Color::LimeGreen;
+			   this->txtOutput->Location = System::Drawing::Point(240, 90);
+			   this->txtOutput->Name = L"txtOutput";
+			   this->txtOutput->ReadOnly = true;
+			   this->txtOutput->Size = System::Drawing::Size(660, 360);
+			   this->txtOutput->TabIndex = 5;
+			   this->txtOutput->Text = L"";
 
-			this->lblUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
-			this->lblUrl->ForeColor = System::Drawing::Color::DarkRed;
-			this->lblUrl->Location = System::Drawing::Point(240, 460);
-			this->lblUrl->Name = L"lblUrl";
-			this->lblUrl->Size = System::Drawing::Size(100, 20);
-			this->lblUrl->TabIndex = 6;
-			this->lblUrl->Text = L"URL Alvo:";
+			   this->lblUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			   this->lblUrl->ForeColor = System::Drawing::Color::DarkRed;
+			   this->lblUrl->Location = System::Drawing::Point(240, 460);
+			   this->lblUrl->Name = L"lblUrl";
+			   this->lblUrl->Size = System::Drawing::Size(100, 20);
+			   this->lblUrl->TabIndex = 6;
+			   this->lblUrl->Text = L"URL Alvo:";
 
-			this->txtUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			this->txtUrl->Location = System::Drawing::Point(240, 480);
-			this->txtUrl->Name = L"txtUrl";
-			this->txtUrl->Size = System::Drawing::Size(660, 25);
-			this->txtUrl->TabIndex = 7;
+			   this->txtUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
+			   this->txtUrl->Location = System::Drawing::Point(240, 480);
+			   this->txtUrl->Name = L"txtUrl";
+			   this->txtUrl->Size = System::Drawing::Size(660, 25);
+			   this->txtUrl->TabIndex = 7;
 
-			this->lblToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
-			this->lblToken->ForeColor = System::Drawing::Color::DarkBlue;
-			this->lblToken->Location = System::Drawing::Point(240, 515);
-			this->lblToken->Name = L"lblToken";
-			this->lblToken->Size = System::Drawing::Size(100, 20);
-			this->lblToken->TabIndex = 8;
-			this->lblToken->Text = L"Token JWT:";
+			   this->lblToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			   this->lblToken->ForeColor = System::Drawing::Color::DarkBlue;
+			   this->lblToken->Location = System::Drawing::Point(240, 515);
+			   this->lblToken->Name = L"lblToken";
+			   this->lblToken->Size = System::Drawing::Size(100, 20);
+			   this->lblToken->TabIndex = 8;
+			   this->lblToken->Text = L"Token JWT:";
 
-			this->txtToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			this->txtToken->Location = System::Drawing::Point(240, 535);
-			this->txtToken->Name = L"txtToken";
-			this->txtToken->Size = System::Drawing::Size(660, 25);
-			this->txtToken->UseSystemPasswordChar = true; // nao expoe o JWT na tela
-			this->txtToken->TabIndex = 11;
+			   this->txtToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
+			   this->txtToken->Location = System::Drawing::Point(240, 535);
+			   this->txtToken->Name = L"txtToken";
+			   this->txtToken->Size = System::Drawing::Size(660, 25);
+			   this->txtToken->UseSystemPasswordChar = true; // nao expoe o JWT na tela
+			   this->txtToken->TabIndex = 11;
 
-			this->btnLoginAuto->BackColor = System::Drawing::Color::SteelBlue;
-			this->btnLoginAuto->Enabled = false;
-			this->btnLoginAuto->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			this->btnLoginAuto->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
-			this->btnLoginAuto->Location = System::Drawing::Point(740, 510);
-			this->btnLoginAuto->Name = L"btnLoginAuto";
-			this->btnLoginAuto->Size = System::Drawing::Size(160, 25);
-			this->btnLoginAuto->TabIndex = 10;
-			this->btnLoginAuto->Text = L"🔑 Login Automatico";
-			this->btnLoginAuto->UseVisualStyleBackColor = false;
-			this->btnLoginAuto->Click += gcnew System::EventHandler(this, &MyForm::btnLoginAuto_Click);
+			   this->btnLoginAuto->BackColor = System::Drawing::Color::SteelBlue;
+			   this->btnLoginAuto->Enabled = false;
+			   this->btnLoginAuto->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnLoginAuto->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			   this->btnLoginAuto->Location = System::Drawing::Point(740, 510);
+			   this->btnLoginAuto->Name = L"btnLoginAuto";
+			   this->btnLoginAuto->Size = System::Drawing::Size(160, 25);
+			   this->btnLoginAuto->TabIndex = 10;
+			   this->btnLoginAuto->Text = L"🔑 Login Automatico";
+			   this->btnLoginAuto->UseVisualStyleBackColor = false;
+			   this->btnLoginAuto->Click += gcnew System::EventHandler(this, &MyForm::btnLoginAuto_Click);
 
-			this->chkHabilitarLogin->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
-			this->chkHabilitarLogin->Location = System::Drawing::Point(660, 513);
-			this->chkHabilitarLogin->Name = L"chkHabilitarLogin";
-			this->chkHabilitarLogin->Size = System::Drawing::Size(80, 20);
-			this->chkHabilitarLogin->TabIndex = 9;
-			this->chkHabilitarLogin->Text = L"Ativar";
-			this->chkHabilitarLogin->CheckedChanged += gcnew System::EventHandler(this, &MyForm::chkHabilitarLogin_CheckedChanged);
+			   this->chkHabilitarLogin->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
+			   this->chkHabilitarLogin->Location = System::Drawing::Point(660, 513);
+			   this->chkHabilitarLogin->Name = L"chkHabilitarLogin";
+			   this->chkHabilitarLogin->Size = System::Drawing::Size(80, 20);
+			   this->chkHabilitarLogin->TabIndex = 9;
+			   this->chkHabilitarLogin->Text = L"Ativar";
+			   this->chkHabilitarLogin->CheckedChanged += gcnew System::EventHandler(this, &MyForm::chkHabilitarLogin_CheckedChanged);
 
-			this->chkSalvar->Checked = true;
-			this->chkSalvar->CheckState = System::Windows::Forms::CheckState::Checked;
-			this->chkSalvar->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9));
-			this->chkSalvar->Location = System::Drawing::Point(240, 570);
-			this->chkSalvar->Name = L"chkSalvar";
-			this->chkSalvar->Size = System::Drawing::Size(300, 25);
-			this->chkSalvar->TabIndex = 12;
-			this->chkSalvar->Text = L"Salvar configuracoes ao sair";
+			   this->chkSalvar->Checked = true;
+			   this->chkSalvar->CheckState = System::Windows::Forms::CheckState::Checked;
+			   this->chkSalvar->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9));
+			   this->chkSalvar->Location = System::Drawing::Point(240, 570);
+			   this->chkSalvar->Name = L"chkSalvar";
+			   this->chkSalvar->Size = System::Drawing::Size(300, 25);
+			   this->chkSalvar->TabIndex = 12;
+			   this->chkSalvar->Text = L"Salvar configuracoes ao sair";
 
-			this->btnStart->BackColor = System::Drawing::Color::YellowGreen;
-			this->btnStart->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			this->btnStart->Location = System::Drawing::Point(240, 600);
-			this->btnStart->Name = L"btnStart";
-			this->btnStart->Size = System::Drawing::Size(180, 45);
-			this->btnStart->TabIndex = 13;
-			this->btnStart->Text = L"▶ INICIAR TESTE";
-			this->btnStart->UseVisualStyleBackColor = false;
-			this->btnStart->Click += gcnew System::EventHandler(this, &MyForm::btnStart_Click);
+			   this->btnStart->BackColor = System::Drawing::Color::YellowGreen;
+			   this->btnStart->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnStart->Location = System::Drawing::Point(240, 600);
+			   this->btnStart->Name = L"btnStart";
+			   this->btnStart->Size = System::Drawing::Size(180, 45);
+			   this->btnStart->TabIndex = 13;
+			   this->btnStart->Text = L"▶ INICIAR TESTE";
+			   this->btnStart->UseVisualStyleBackColor = false;
+			   this->btnStart->Click += gcnew System::EventHandler(this, &MyForm::btnStart_Click);
 
-			this->btnStop->BackColor = System::Drawing::Color::IndianRed;
-			this->btnStop->Enabled = false;
-			this->btnStop->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			this->btnStop->Location = System::Drawing::Point(480, 600);
-			this->btnStop->Name = L"btnStop";
-			this->btnStop->Size = System::Drawing::Size(180, 45);
-			this->btnStop->TabIndex = 14;
-			this->btnStop->Text = L"⏹ PARAR";
-			this->btnStop->UseVisualStyleBackColor = false;
-			this->btnStop->Click += gcnew System::EventHandler(this, &MyForm::btnStop_Click);
+			   this->btnStop->BackColor = System::Drawing::Color::IndianRed;
+			   this->btnStop->Enabled = false;
+			   this->btnStop->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnStop->Location = System::Drawing::Point(480, 600);
+			   this->btnStop->Name = L"btnStop";
+			   this->btnStop->Size = System::Drawing::Size(180, 45);
+			   this->btnStop->TabIndex = 14;
+			   this->btnStop->Text = L"⏹ PARAR";
+			   this->btnStop->UseVisualStyleBackColor = false;
+			   this->btnStop->Click += gcnew System::EventHandler(this, &MyForm::btnStop_Click);
 
-			this->btnExport->BackColor = System::Drawing::Color::SteelBlue;
-			this->btnExport->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			this->btnExport->Location = System::Drawing::Point(720, 600);
-			this->btnExport->Name = L"btnExport";
-			this->btnExport->Size = System::Drawing::Size(180, 45);
-			this->btnExport->TabIndex = 15;
-			this->btnExport->Text = L"💾 Exportar Log Tecnico";
-			this->btnExport->UseVisualStyleBackColor = false;
-			this->btnExport->Click += gcnew System::EventHandler(this, &MyForm::btnExport_Click);
+			   this->btnExport->BackColor = System::Drawing::Color::SteelBlue;
+			   this->btnExport->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnExport->Location = System::Drawing::Point(720, 600);
+			   this->btnExport->Name = L"btnExport";
+			   this->btnExport->Size = System::Drawing::Size(180, 45);
+			   this->btnExport->TabIndex = 15;
+			   this->btnExport->Text = L"💾 Exportar Log Tecnico";
+			   this->btnExport->UseVisualStyleBackColor = false;
+			   this->btnExport->Click += gcnew System::EventHandler(this, &MyForm::btnExport_Click);
 
-			this->BackColor = System::Drawing::Color::WhiteSmoke;
-			this->ClientSize = System::Drawing::Size(924, 711);
-			this->Controls->Add(this->picLogo);
-			this->Controls->Add(this->lstScripts);
-			this->Controls->Add(this->btnAdd);
-			this->Controls->Add(this->btnRemove);
-			this->Controls->Add(this->btnAbrirPasta);
-			this->Controls->Add(this->txtOutput);
-			this->Controls->Add(this->lblUrl);
-			this->Controls->Add(this->txtUrl);
-			this->Controls->Add(this->lblToken);
-			this->Controls->Add(this->chkHabilitarLogin);
-			this->Controls->Add(this->btnLoginAuto);
-			this->Controls->Add(this->txtToken);
-			this->Controls->Add(this->chkSalvar);
-			this->Controls->Add(this->btnStart);
-			this->Controls->Add(this->btnStop);
-			this->Controls->Add(this->btnExport);
-			this->Name = L"MyForm";
-			this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
-			this->Text = L"T2M Security Manager v4.2 (MCP Edition)";
-			this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
-			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->EndInit();
-			this->ResumeLayout(false);
-			this->PerformLayout();
-		}
+			   this->BackColor = System::Drawing::Color::WhiteSmoke;
+			   this->ClientSize = System::Drawing::Size(924, 711);
+			   this->Controls->Add(this->picLogo);
+			   this->Controls->Add(this->lstScripts);
+			   this->Controls->Add(this->btnAdd);
+			   this->Controls->Add(this->btnRemove);
+			   this->Controls->Add(this->btnAbrirPasta);
+			   this->Controls->Add(this->txtOutput);
+			   this->Controls->Add(this->lblUrl);
+			   this->Controls->Add(this->txtUrl);
+			   this->Controls->Add(this->lblToken);
+			   this->Controls->Add(this->chkHabilitarLogin);
+			   this->Controls->Add(this->btnLoginAuto);
+			   this->Controls->Add(this->txtToken);
+			   this->Controls->Add(this->chkSalvar);
+			   this->Controls->Add(this->btnStart);
+			   this->Controls->Add(this->btnStop);
+			   this->Controls->Add(this->btnExport);
+			   this->Name = L"MyForm";
+			   this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
+			   this->Text = L"T2M Security Manager v4.2 (MCP Edition)";
+			   this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
+			   (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->EndInit();
+			   this->ResumeLayout(false);
+			   this->PerformLayout();
+		   }
 #pragma endregion
 
-		// --- FUNCOES BASICAS DA INTERFACE ---
+		   // --- FUNCOES BASICAS DA INTERFACE ---
 	private: System::Void chkHabilitarLogin_CheckedChanged(System::Object^ sender, System::EventArgs^ e) {
 		if (chkHabilitarLogin->Checked) {
 			btnLoginAuto->Enabled = true;
@@ -543,14 +549,14 @@ namespace T2MSecurityManager {
 		}
 	}
 
-	// Traduz erros tecnicos (Selenium, Python, rede) em mensagens que orientam o usuario.
-	// Sem isso, uma falha de DNS aparecia apenas como "token nao encontrado".
+		   // Traduz erros tecnicos (Selenium, Python, rede) em mensagens que orientam o usuario.
+		   // Sem isso, uma falha de DNS aparecia apenas como "token nao encontrado".
 	private: String^ DiagnosticarFalha(String^ bruto) {
 		if (String::IsNullOrWhiteSpace(bruto))
 			return L"Nao foi possivel concluir. O script terminou sem retornar nada.";
 
 		// --- Problemas de rede / endereco ---
-        if (bruto->Contains("ERR_NAME_NOT_RESOLVED"))
+		if (bruto->Contains("ERR_NAME_NOT_RESOLVED"))
 			return L"O endereco informado nao foi encontrado (DNS). Verifique se a URL esta "
 			L"correta e, se for um sistema interno, se voce esta conectado a VPN da empresa.";
 		if (bruto->Contains("ERR_CONNECTION_TIMED_OUT") || bruto->Contains("ERR_TIMED_OUT"))
@@ -583,12 +589,12 @@ namespace T2MSecurityManager {
 			L"navegador e se o sistema realmente usa token JWT.";
 	}
 
-	// ==========================================================================
-	// --- CAPTURA DE TOKEN (em segundo plano) ---
-	// A espera pelo login pode levar minutos. Antes isso rodava na thread da
-	// interface e a janela ficava congelada, parecendo travada. Agora roda em
-	// segundo plano e as mensagens de progresso aparecem ao vivo.
-	// ==========================================================================
+		   // ==========================================================================
+		   // --- CAPTURA DE TOKEN (em segundo plano) ---
+		   // A espera pelo login pode levar minutos. Antes isso rodava na thread da
+		   // interface e a janela ficava congelada, parecendo travada. Agora roda em
+		   // segundo plano e as mensagens de progresso aparecem ao vivo.
+		   // ==========================================================================
 	private: System::Void btnLoginAuto_Click(System::Object^ sender, System::EventArgs^ e) {
 		String^ urlAlvo = txtUrl->Text->Trim();
 		if (String::IsNullOrWhiteSpace(urlAlvo)) {
@@ -628,7 +634,7 @@ namespace T2MSecurityManager {
 		workerLogin->RunWorkerAsync();
 	}
 
-	// Roda em outra thread: nao pode tocar em controles da interface.
+		   // Roda em outra thread: nao pode tocar em controles da interface.
 	private: System::Void workerLogin_DoWork(System::Object^ sender, System::ComponentModel::DoWorkEventArgs^ e) {
 		Process^ pLogin = gcnew Process();
 		try {
@@ -661,7 +667,8 @@ namespace T2MSecurityManager {
 
 			// O script espera ate 180s pelo login; damos uma folga extra.
 			if (!pLogin->WaitForExit(240000)) {
-				try { pLogin->Kill(); pLogin->WaitForExit(3000); } catch (...) {}
+				try { pLogin->Kill(); pLogin->WaitForExit(3000); }
+				catch (...) {}
 				e->Result = L"TEMPO_ESGOTADO";
 				return;
 			}
@@ -676,11 +683,12 @@ namespace T2MSecurityManager {
 			e->Result = L"EXCECAO:" + ex->Message;
 		}
 		finally {
-			try { pLogin->Close(); } catch (...) {}
+			try { pLogin->Close(); }
+			catch (...) {}
 		}
 	}
 
-	// Volta para a thread da interface: aqui pode atualizar a tela.
+		   // Volta para a thread da interface: aqui pode atualizar a tela.
 	private: System::Void workerLogin_Completed(System::Object^ sender, System::ComponentModel::RunWorkerCompletedEventArgs^ e) {
 		String^ estado = (e->Error != nullptr) ? (L"EXCECAO:" + e->Error->Message)
 			: safe_cast<String^>(e->Result);
@@ -714,7 +722,7 @@ namespace T2MSecurityManager {
 		btnLoginAuto->Enabled = true; btnLoginAuto->Text = L"🔑 Login Automatico";
 	}
 
-	// Saida do script de token: guarda no buffer (o token vem por aqui).
+		   // Saida do script de token: guarda no buffer (o token vem por aqui).
 	private: void procLoginSaida_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
 		// Copia local do campo - ver a explicacao em procSaida_Handler.
 		System::Text::StringBuilder^ buf = bufLoginSaida;
@@ -724,7 +732,7 @@ namespace T2MSecurityManager {
 		finally { System::Threading::Monitor::Exit(buf); }
 	}
 
-	// Mensagens de progresso: guarda no buffer E mostra na tela ao vivo.
+		   // Mensagens de progresso: guarda no buffer E mostra na tela ao vivo.
 	private: void procLoginErro_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
 		// Copia local do campo - ver a explicacao em procSaida_Handler.
 		System::Text::StringBuilder^ buf = bufLoginErro;
@@ -744,7 +752,7 @@ namespace T2MSecurityManager {
 			StreamWriter^ sw = gcnew StreamWriter(CaminhoDados("config.txt"));
 			sw->WriteLine(txtUrl->Text);
 			sw->WriteLine(ProtegerTexto(txtToken->Text)); // token cifrado (DPAPI)
-			for each(KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
+			for each (KeyValuePair<String^, String^> pair in scriptPaths) sw->WriteLine(pair.Value);
 			sw->Close();
 		}
 		catch (...) {}
@@ -796,7 +804,7 @@ namespace T2MSecurityManager {
 		catch (...) {}
 	}
 
-	// Comparador: ordena caminhos de arquivo pela data de modificacao (desc).
+		   // Comparador: ordena caminhos de arquivo pela data de modificacao (desc).
 	private: static int CompararPorDataDesc(String^ a, String^ b) {
 		try {
 			DateTime da = File::GetLastWriteTime(a);
@@ -827,7 +835,7 @@ namespace T2MSecurityManager {
 		AbrirPastaNoExplorer(pastaIA);
 	}
 
-	// Abre uma pasta no Explorer, criando-a se ainda nao existir.
+		   // Abre uma pasta no Explorer, criando-a se ainda nao existir.
 	private: void AbrirPastaNoExplorer(String^ pasta) {
 		try {
 			if (String::IsNullOrWhiteSpace(pasta)) {
@@ -903,7 +911,7 @@ namespace T2MSecurityManager {
 		combo->Items->Clear();
 		if (File::Exists(CaminhoDados("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
-			for each(String ^ linha in linhas) {
+			for each (String ^ linha in linhas) {
 				if (!String::IsNullOrWhiteSpace(linha)) {
 					String^ real = DesprotegerTexto(linha->Trim());
 					if (real->Length >= 10)
@@ -933,7 +941,7 @@ namespace T2MSecurityManager {
 		finally { System::Threading::Monitor::Exit(buf); }
 	}
 
-	// Recebe cada linha da saida do Python assim que ela e produzida.
+		   // Recebe cada linha da saida do Python assim que ela e produzida.
 	private: void procSaida_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
 		// Captura o campo UMA unica vez numa variavel local. Ler o campo no Enter
 		// e de novo no Exit era uma armadilha: se a thread da interface reatribuir
@@ -966,8 +974,8 @@ namespace T2MSecurityManager {
 		catch (...) {}
 	}
 
-	// Escreve uma linha de progresso no chat, em cinza, para nao competir com
-	// as mensagens da conversa.
+		   // Escreve uma linha de progresso no chat, em cinza, para nao competir com
+		   // as mensagens da conversa.
 	private: void MostrarProgressoChat(String^ linha) {
 		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
 		rtbChat->SelectionColor = System::Drawing::Color::Gray;
@@ -980,6 +988,7 @@ namespace T2MSecurityManager {
 
 	private: String^ ChamarAgentePython(String^ apiKey, String^ prompt, String^ url) {
 		Process^ p = gcnew Process();
+		procChatAtual = p;   // permite encerrar pelo fechamento da janela
 		try {
 			ProcessStartInfo^ psi = gcnew ProcessStartInfo();
 			psi->FileName = "python";
@@ -1016,7 +1025,8 @@ namespace T2MSecurityManager {
 			// entao mudar a configuracao nao tinha efeito nenhum aqui).
 			int limite = (cfgTimeout > 0 ? cfgTimeout : 120);
 			if (!p->WaitForExit(limite * 1000)) {
-				try { p->Kill(); p->WaitForExit(3000); } catch (...) {}
+				try { p->Kill(); p->WaitForExit(3000); }
+				catch (...) {}
 				return L"Tempo esgotado (" + limite + L"s) aguardando a IA.\n\n"
 					L"Possiveis causas: chave de API invalida ou revogada, sem conexao, "
 					L"ou a tarefa e longa demais.\n"
@@ -1039,13 +1049,15 @@ namespace T2MSecurityManager {
 			return L"Erro de comunicacao com a IA:\n" + output;
 		}
 		finally {
+			procChatAtual = nullptr;
 			p->Close();
 		}
 	}
 
-	// --- AGENTE MCP AO VIVO (Playwright) ---
+		   // --- AGENTE MCP AO VIVO (Playwright) ---
 	private: String^ ChamarAgenteMcp(String^ apiKey, String^ objetivo, String^ url) {
 		Process^ p = gcnew Process();
+		procChatAtual = p;   // permite encerrar pelo fechamento da janela
 		try {
 			ProcessStartInfo^ psi = gcnew ProcessStartInfo();
 			psi->FileName = "python";
@@ -1083,7 +1095,8 @@ namespace T2MSecurityManager {
 			int limiteAuto = (cfgTimeout > 0 ? cfgTimeout * 3 : 300);
 			if (limiteAuto < 300) limiteAuto = 300;
 			if (!p->WaitForExit(limiteAuto * 1000)) {
-				try { p->Kill(); p->WaitForExit(3000); } catch (...) {}
+				try { p->Kill(); p->WaitForExit(3000); }
+				catch (...) {}
 				return L"Tempo esgotado (" + (limiteAuto / 60) + L" min) na automacao.\n\n"
 					L"A tarefa pode ser complexa demais para o limite atual. Tente dividir "
 					L"em passos menores, ou aumente o tempo em Configuracoes.";
@@ -1101,11 +1114,11 @@ namespace T2MSecurityManager {
 			if (i != -1 && f != -1) return output->Substring(i + 15, f - (i + 15))->Trim();
 			return L"Erro de comunicacao com o agente:\n" + output;
 		}
-		finally { p->Close(); }
+		finally { procChatAtual = nullptr; p->Close(); }
 	}
 
-	// Primeira chave salva em disco. Usada quando a janela de chat nao esta
-	// aberta (ex.: buscar modelos direto pela tela de Configuracoes).
+		   // Primeira chave salva em disco. Usada quando a janela de chat nao esta
+		   // aberta (ex.: buscar modelos direto pela tela de Configuracoes).
 	private: String^ ChavePadraoDoDisco() {
 		try {
 			String^ arq = CaminhoDados("api_keys_ia.txt");
@@ -1128,14 +1141,14 @@ namespace T2MSecurityManager {
 		if (File::Exists(CaminhoDados("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
 			List<String^>^ chaves = gcnew List<String^>();
-			for each(String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
+			for each (String ^ linha in linhas) if (!String::IsNullOrWhiteSpace(linha)) chaves->Add(DesprotegerTexto(linha->Trim()));
 			if (idx >= 0 && idx < chaves->Count) return chaves[idx];
 		}
 		return "";
 	}
 
-	// Detecta qual IA uma chave usa, pelo prefixo (mesma logica do roteador Python).
-	// Retorna o nome amigavel; a cor e definida em AtualizarIndicadorIA.
+		   // Detecta qual IA uma chave usa, pelo prefixo (mesma logica do roteador Python).
+		   // Retorna o nome amigavel; a cor e definida em AtualizarIndicadorIA.
 	private: String^ DetectarIA(String^ chave) {
 		if (String::IsNullOrWhiteSpace(chave)) return L"";
 		if (chave->StartsWith("sk-ant-")) return L"Claude";
@@ -1143,7 +1156,7 @@ namespace T2MSecurityManager {
 		return L"Gemini";  // AIza / AQ. / outros = Gemini (padrao)
 	}
 
-	// Atualiza o indicador visual (bolinha colorida + nome) da IA da chave selecionada.
+		   // Atualiza o indicador visual (bolinha colorida + nome) da IA da chave selecionada.
 	private: void AtualizarIndicadorIA() {
 		if (lblIndicadorIA == nullptr) return;
 		String^ ia = DetectarIA(ObterChaveReal());
@@ -1213,7 +1226,7 @@ namespace T2MSecurityManager {
 					array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
 					List<String^>^ novasLinhas = gcnew List<String^>();
 					int cont = 0;
-					for each(String ^ linha in linhas) {
+					for each (String ^ linha in linhas) {
 						if (!String::IsNullOrWhiteSpace(linha)) {
 							if (cont != idx) novasLinhas->Add(linha);
 							cont++;
@@ -1467,14 +1480,16 @@ namespace T2MSecurityManager {
 		temaEscuro = CarregarPreferenciaTema();
 		AplicarTema(temaEscuro);
 
+		formIA->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(
+			this, &MyForm::formIA_FormClosing);
 		formIA->ShowDialog();
 	}
 
-	// ==========================================================================
-	// --- HISTORICO DE SESSOES (salvar / reabrir conversas) ---
-	// ==========================================================================
+		   // ==========================================================================
+		   // --- HISTORICO DE SESSOES (salvar / reabrir conversas) ---
+		   // ==========================================================================
 
-	// Limpa a conversa atual e o historico que e enviado a IA.
+		   // Limpa a conversa atual e o historico que e enviado a IA.
 	private: System::Void btnNovaConversa_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 
@@ -1503,15 +1518,16 @@ namespace T2MSecurityManager {
 		formIA_Shown(nullptr, nullptr);   // reexibe a mensagem de boas-vindas
 	}
 
-	// Pasta onde as sessoes ficam guardadas.
+		   // Pasta onde as sessoes ficam guardadas.
 	private: String^ PastaSessoes() {
 		String^ p = String::IsNullOrWhiteSpace(cfgPastaSessoes)
 			? PastaPadrao("sessoes T2M") : cfgPastaSessoes;
-		try { Directory::CreateDirectory(p); } catch (...) {}
+		try { Directory::CreateDirectory(p); }
+		catch (...) {}
 		return p;
 	}
 
-	// Salva a conversa atual (com cores e formatacao), perguntando onde salvar.
+		   // Salva a conversa atual (com cores e formatacao), perguntando onde salvar.
 	private: System::Void btnSalvarSessao_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (rtbChat == nullptr || String::IsNullOrWhiteSpace(rtbChat->Text)) {
 			MessageBox::Show(L"Nao ha conversa para salvar.", L"Aviso");
@@ -1536,7 +1552,7 @@ namespace T2MSecurityManager {
 		}
 	}
 
-	// Abre uma sessao salva e restaura no chat (pergunta antes de substituir).
+		   // Abre uma sessao salva e restaura no chat (pergunta antes de substituir).
 	private: System::Void btnAbrirSessao_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 
@@ -1568,17 +1584,17 @@ namespace T2MSecurityManager {
 		}
 	}
 
-	// ==========================================================================
-	// --- CONFIGURACOES DO APP ---
-	// Salvas em configuracoes.txt (chave=valor), lidas tambem pelo agente Python.
-	// ==========================================================================
+		   // ==========================================================================
+		   // --- CONFIGURACOES DO APP ---
+		   // Salvas em configuracoes.txt (chave=valor), lidas tambem pelo agente Python.
+		   // ==========================================================================
 
 	private: String^ PastaPadrao(String^ sub) {
 		return Path::Combine(
 			Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments), sub);
 	}
 
-	// Le as preferencias do disco, aplicando padroes quando ausentes.
+		   // Le as preferencias do disco, aplicando padroes quando ausentes.
 	private: void CarregarConfiguracoesApp() {
 		cfgPastaRelatorios = PastaPadrao("relatorios T2M");
 		cfgPastaSessoes = PastaPadrao("sessoes T2M");
@@ -1897,7 +1913,7 @@ namespace T2MSecurityManager {
 		f->ShowDialog();
 	}
 
-	// Botao "..." de escolher pasta (o TextBox alvo vem no Tag).
+		   // Botao "..." de escolher pasta (o TextBox alvo vem no Tag).
 	private: System::Void escolherPasta_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
 		TextBox^ alvo = safe_cast<TextBox^>(b->Tag);
@@ -1908,7 +1924,7 @@ namespace T2MSecurityManager {
 			alvo->Text = dlg->SelectedPath;
 	}
 
-	// Consulta o provedor da chave selecionada e atualiza a lista de modelos.
+		   // Consulta o provedor da chave selecionada e atualiza a lista de modelos.
 	private: System::Void btnBuscarModelos_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
 		ComboBox^ alvo = safe_cast<ComboBox^>(b->Tag);
@@ -1966,7 +1982,8 @@ namespace T2MSecurityManager {
 			p->StandardInput->Close();
 
 			if (!p->WaitForExit(60000)) {
-				try { p->Kill(); p->WaitForExit(3000); } catch (...) {}
+				try { p->Kill(); p->WaitForExit(3000); }
+				catch (...) {}
 				MessageBox::Show(L"O provedor demorou demais para responder.", L"Tempo esgotado");
 				return;
 			}
@@ -2018,13 +2035,14 @@ namespace T2MSecurityManager {
 			MessageBox::Show(L"Falha ao consultar os modelos: " + ex->Message, L"Erro");
 		}
 		finally {
-			try { p->Close(); } catch (...) {}
+			try { p->Close(); }
+			catch (...) {}
 			b->Text = textoAnterior;
 			b->Enabled = true;
 		}
 	}
 
-	// Botao de abrir a pasta indicada no campo (Tag = TextBox).
+		   // Botao de abrir a pasta indicada no campo (Tag = TextBox).
 	private: System::Void abrirPastaConfig_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
 		TextBox^ alvo = safe_cast<TextBox^>(b->Tag);
@@ -2077,9 +2095,9 @@ namespace T2MSecurityManager {
 		f->Close();
 	}
 
-	// ==========================================================================
-	// --- TEMA CLARO / ESCURO ---
-	// ==========================================================================
+		   // ==========================================================================
+		   // --- TEMA CLARO / ESCURO ---
+		   // ==========================================================================
 
 	private: System::Void btnTemaChat_Click(System::Object^ sender, System::EventArgs^ e) {
 		temaEscuro = !temaEscuro;
@@ -2090,7 +2108,7 @@ namespace T2MSecurityManager {
 		SalvarPreferenciaTema(temaEscuro);
 	}
 
-	// Atualiza texto e cores do botao de tema (ele vive na tela principal).
+		   // Atualiza texto e cores do botao de tema (ele vive na tela principal).
 	private: void AtualizarBotaoTema(bool escuro) {
 		if (btnTemaChat == nullptr) return;
 		if (escuro) {
@@ -2107,7 +2125,7 @@ namespace T2MSecurityManager {
 		}
 	}
 
-	// Aplica as cores do tema aos controles principais da janela do chat.
+		   // Aplica as cores do tema aos controles principais da janela do chat.
 	private: void AplicarTema(bool escuro) {
 		if (formIA == nullptr) return;
 
@@ -2124,7 +2142,7 @@ namespace T2MSecurityManager {
 		// A area de conversa usa um fundo um pouco mais escuro que os campos
 		if (rtbChat != nullptr) { rtbChat->BackColor = fundoCampo; rtbChat->ForeColor = texto; }
 		// Percorre labels soltos (titulos) para ajustar a cor do texto
-		for each (Control^ c in formIA->Controls) {
+		for each (Control ^ c in formIA->Controls) {
 			Label^ lbl = dynamic_cast<Label^>(c);
 			if (lbl != nullptr && lbl != lblChatStatus && lbl != lblIndicadorIA) {
 				lbl->ForeColor = texto;
@@ -2132,8 +2150,8 @@ namespace T2MSecurityManager {
 		}
 	}
 
-	// Aplica o tema recursivamente a qualquer janela/painel.
-	// Preserva cores semanticas (botoes coloridos) e o console txtOutput.
+		   // Aplica o tema recursivamente a qualquer janela/painel.
+		   // Preserva cores semanticas (botoes coloridos) e o console txtOutput.
 	private: void AplicarTemaRecursivo(Control^ raiz, bool escuro) {
 		if (raiz == nullptr) return;
 
@@ -2191,8 +2209,9 @@ namespace T2MSecurityManager {
 		raiz->BackColor = fundo;
 	}
 
-	// Le a preferencia de tema do disco (arquivo simples). Retorna true = escuro.
-	private: bool CarregarPreferenciaTema() {		try {
+		   // Le a preferencia de tema do disco (arquivo simples). Retorna true = escuro.
+	private: bool CarregarPreferenciaTema() {
+		try {
 			String^ caminho = CaminhoDados("tema.txt");
 			if (File::Exists(caminho)) {
 				String^ v = File::ReadAllText(caminho)->Trim();
@@ -2203,7 +2222,7 @@ namespace T2MSecurityManager {
 		return false;  // padrao: claro
 	}
 
-	// Salva a preferencia de tema no disco.
+		   // Salva a preferencia de tema no disco.
 	private: void SalvarPreferenciaTema(bool escuro) {
 		try {
 			File::WriteAllText(CaminhoDados("tema.txt"), escuro ? "escuro" : "claro");
@@ -2211,12 +2230,12 @@ namespace T2MSecurityManager {
 		catch (...) {}
 	}
 
-	// ==========================================================================
-	// --- MODOS DO CHAT (toggle: Chat / DOM / MCP) ---
-	// ==========================================================================
+		   // ==========================================================================
+		   // --- MODOS DO CHAT (toggle: Chat / DOM / MCP) ---
+		   // ==========================================================================
 
-	// Aplica o destaque visual: o controle do modo ativo fica forte;
-	// os outros ficam apagados (cinza). O dropdown destaca quando modo==2.
+		   // Aplica o destaque visual: o controle do modo ativo fica forte;
+		   // os outros ficam apagados (cinza). O dropdown destaca quando modo==2.
 	private: void AtualizarBotoesModo() {
 		System::Drawing::Color corConversaOn = System::Drawing::Color::MediumSeaGreen;
 		System::Drawing::Color corDomOn = System::Drawing::Color::SteelBlue;
@@ -2275,25 +2294,25 @@ namespace T2MSecurityManager {
 		AtualizarBotoesModo();
 	}
 
-	// Botao Automacao: abre o menu com as 3 opcoes, logo abaixo do botao.
+		   // Botao Automacao: abre o menu com as 3 opcoes, logo abaixo do botao.
 	private: System::Void btnAutomacao_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 		menuAutomacao->Show(btnAutomacao, System::Drawing::Point(0, btnAutomacao->Height));
 	}
 
-	// Opcao Teste de Tela - funciona (via MCP)
+		   // Opcao Teste de Tela - funciona (via MCP)
 	private: System::Void menuTela_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 		modoAtivo = 2; tipoAutomacao = 0;
 		AtualizarBotoesModo();
 	}
-	// Opcao Teste de API - em breve
+		   // Opcao Teste de API - em breve
 	private: System::Void menuApi_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 		AbrirFormularioApi();
 	}
 
-	// Formulario que coleta os dados da requisicao de API.
+		   // Formulario que coleta os dados da requisicao de API.
 	private: void AbrirFormularioApi() {
 		Form^ f = gcnew Form();
 		f->Text = L"Teste de API - Montar Requisicao";
@@ -2387,7 +2406,7 @@ namespace T2MSecurityManager {
 		f->ShowDialog();
 	}
 
-	// Salva a requisicao de API: valida a URL, guarda na sessao, ativa o modo.
+		   // Salva a requisicao de API: valida a URL, guarda na sessao, ativa o modo.
 	private: System::Void salvarApi_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
 		Form^ f = safe_cast<Form^>(b->Tag);
@@ -2438,14 +2457,14 @@ namespace T2MSecurityManager {
 
 		f->Close();
 	}
-	// Opcao Banco de Dados - abre o formulario de conexao (interface pronta; a
-	// conexao real via MCP sera plugada depois).
+		   // Opcao Banco de Dados - abre o formulario de conexao (interface pronta; a
+		   // conexao real via MCP sera plugada depois).
 	private: System::Void menuBanco_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
 		AbrirFormularioConexaoBanco();
 	}
 
-	// Formulario que coleta os dados de conexao do banco, com validacao visual.
+		   // Formulario que coleta os dados de conexao do banco, com validacao visual.
 	private: void AbrirFormularioConexaoBanco() {
 		Form^ f = gcnew Form();
 		f->Text = L"Conexao de Banco de Dados";
@@ -2577,7 +2596,7 @@ namespace T2MSecurityManager {
 		f->ShowDialog();
 	}
 
-	// Cria um label de erro (vermelho, pequeno) inicialmente vazio/invisivel.
+		   // Cria um label de erro (vermelho, pequeno) inicialmente vazio/invisivel.
 	private: Label^ CriarLabelErro(int x, int y, int larg) {
 		Label^ l = gcnew Label();
 		l->Text = L"";
@@ -2589,7 +2608,7 @@ namespace T2MSecurityManager {
 		return l;
 	}
 
-	// Marca um campo com erro: borda vermelha e mostra o texto de erro embaixo.
+		   // Marca um campo com erro: borda vermelha e mostra o texto de erro embaixo.
 	private: void MarcarErroCampo(TextBox^ campo, Label^ lblErro, String^ msg) {
 		campo->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
 		campo->BackColor = System::Drawing::Color::FromArgb(255, 245, 245); // rosa bem claro
@@ -2597,7 +2616,7 @@ namespace T2MSecurityManager {
 		lblErro->Visible = true;
 	}
 
-	// Limpa o erro visual de um campo (volta ao normal).
+		   // Limpa o erro visual de um campo (volta ao normal).
 	private: void LimparErroCampo(TextBox^ campo, Label^ lblErro) {
 		campo->BorderStyle = System::Windows::Forms::BorderStyle::Fixed3D;
 		campo->BackColor = System::Drawing::Color::White;
@@ -2605,14 +2624,14 @@ namespace T2MSecurityManager {
 		lblErro->Visible = false;
 	}
 
-	// Handlers auxiliares do formulario de conexao
+		   // Handlers auxiliares do formulario de conexao
 	private: System::Void fecharDialogo_Handler(System::Object^ sender, System::EventArgs^ e) {
 		Control^ c = safe_cast<Control^>(sender);
 		if (c != nullptr && c->FindForm() != nullptr) c->FindForm()->Close();
 	}
 
-	// Monta o DSN (connection string) a partir dos dados de conexao salvos.
-	// Ex.: postgres://user:senha@host:5432/db  |  mysql://user:senha@host:3306/db
+		   // Monta o DSN (connection string) a partir dos dados de conexao salvos.
+		   // Ex.: postgres://user:senha@host:5432/db  |  mysql://user:senha@host:3306/db
 	private: String^ MontarDSN() {
 		if (!dbConfigurado) return L"";
 		String^ senha = String::IsNullOrEmpty(dbSenhaCifrada) ? L"" : DesprotegerTexto(dbSenhaCifrada);
@@ -2646,7 +2665,7 @@ namespace T2MSecurityManager {
 		return esquema + L"://" + userInfo + hostPorta + L"/" + dbNome;
 	}
 
-	// Salva a conexao: valida por tipo (borda vermelha + texto embaixo), cifra a senha.
+		   // Salva a conexao: valida por tipo (borda vermelha + texto embaixo), cifra a senha.
 	private: System::Void salvarConexaoBanco_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
 		Form^ f = safe_cast<Form^>(b->Tag);
@@ -2714,12 +2733,16 @@ namespace T2MSecurityManager {
 		f->Close();
 	}
 
-	// ==========================================================================
-	// --- EXECUCAO NAO-BLOQUEANTE (BackgroundWorker) ---
-	// ==========================================================================
+		   // ==========================================================================
+		   // --- EXECUCAO NAO-BLOQUEANTE (BackgroundWorker) ---
+		   // ==========================================================================
 
-	// Habilita/desabilita os controles enquanto o Python roda, e mostra status.
+		   // Habilita/desabilita os controles enquanto o Python roda, e mostra status.
 	private: void DefinirOcupado(bool ocupado, String^ msgStatus) {
+		// Mesma protecao do workerChat_Completed: esta funcao toca em varios
+		// controles e no Cursor do formulario, que podem ja ter sido descartados.
+		if (formIA == nullptr || formIA->IsDisposed) return;
+
 		btnSendChat->Enabled = !ocupado;
 		btnAutomacao->Enabled = !ocupado;
 		btnChatDom->Enabled = !ocupado;
@@ -2733,12 +2756,12 @@ namespace T2MSecurityManager {
 		formIA->Cursor = ocupado ? Cursors::WaitCursor : Cursors::Default;
 	}
 
-	// Campos capturados na thread da UI antes de rodar o worker (evita acesso cross-thread)
+		   // Campos capturados na thread da UI antes de rodar o worker (evita acesso cross-thread)
 	private:
 		String^ workerApiKey;
 		String^ workerUrl;
 
-	// Dispara o Python em background. modo: 0=chat, 1=DOM, 2=MCP. payload ja montado.
+		// Dispara o Python em background. modo: 0=chat, 1=DOM, 2=MCP. payload ja montado.
 	private: void RodarWorker(int modo, String^ payload, String^ statusMsg) {
 		if (workerChat->IsBusy) return;   // ja tem algo rodando
 
@@ -2754,7 +2777,34 @@ namespace T2MSecurityManager {
 		workerChat->RunWorkerAsync();
 	}
 
-	// Roda na THREAD SEPARADA. Nao pode tocar na UI aqui; usa os valores capturados.
+		   // Roda na THREAD SEPARADA. Nao pode tocar na UI aqui; usa os valores capturados.
+		   // Fechar a janela no meio de uma execucao precisa encerrar o processo Python:
+		   // sem isso ele continua rodando (junto com o navegador do Playwright), gastando
+		   // tokens da API, e ainda dispara o Completed sobre controles ja descartados.
+	private: System::Void formIA_FormClosing(System::Object^ sender,
+		System::Windows::Forms::FormClosingEventArgs^ e) {
+		if (workerChat == nullptr || !workerChat->IsBusy) return;
+
+		System::Windows::Forms::DialogResult r = MessageBox::Show(
+			L"Ha uma execucao em andamento.\n\n"
+			L"Fechar agora encerra o processo Python e o navegador que ele abriu, "
+			L"e o resultado sera perdido.\n\nDeseja fechar mesmo assim?",
+			L"Execucao em andamento", MessageBoxButtons::YesNo, MessageBoxIcon::Warning);
+		if (r != System::Windows::Forms::DialogResult::Yes) {
+			e->Cancel = true;   // deixa a execucao continuar
+			return;
+		}
+
+		try {
+			Process^ p = procChatAtual;   // copia local: o worker pode zera-lo a qualquer momento
+			if (p != nullptr && !p->HasExited) {
+				p->Kill();
+				p->WaitForExit(3000);
+			}
+		}
+		catch (...) {}
+	}
+
 	private: System::Void workerChat_DoWork(System::Object^ sender, System::ComponentModel::DoWorkEventArgs^ e) {
 		if (modoWorker == 2) {
 			// MCP ao vivo: payloadWorker contem o objetivo do teste
@@ -2766,8 +2816,15 @@ namespace T2MSecurityManager {
 		}
 	}
 
-	// Volta para a THREAD DA UI quando o Python termina. Aqui pode atualizar a tela.
+		   // Volta para a THREAD DA UI quando o Python termina. Aqui pode atualizar a tela.
 	private: System::Void workerChat_Completed(System::Object^ sender, System::ComponentModel::RunWorkerCompletedEventArgs^ e) {
+		// A janela do Copilot pode ter sido fechada enquanto a execucao rodava
+		// (uma automacao leva minutos). O ShowDialog() ja descartou os controles,
+		// e escrever neles aqui lancaria ObjectDisposedException na thread da
+		// interface - excecao nao tratada que derruba o aplicativo inteiro.
+		if (formIA == nullptr || formIA->IsDisposed
+			|| rtbChat == nullptr || rtbChat->IsDisposed) return;
+
 		String^ resposta = (e->Error != nullptr)
 			? (L"ERRO interno: " + e->Error->Message)
 			: safe_cast<String^>(e->Result);
@@ -2892,8 +2949,8 @@ namespace T2MSecurityManager {
 		}
 	}
 
-	// Dispara o worker para o modo BANCO: passa o DSN via URL com marcador --DB--.
-	// O agente_mcp.py detecta o marcador e sobe o DBHub em vez do Playwright.
+		   // Dispara o worker para o modo BANCO: passa o DSN via URL com marcador --DB--.
+		   // O agente_mcp.py detecta o marcador e sobe o DBHub em vez do Playwright.
 	private: void RodarWorkerBanco(String^ objetivo) {
 		if (workerChat->IsBusy) return;
 		workerApiKey = ObterChaveReal();
@@ -2919,7 +2976,7 @@ namespace T2MSecurityManager {
 		workerChat->RunWorkerAsync();
 	}
 
-	// Monta a connection string do MongoDB (mongodb://usuario:senha@host:porta/banco).
+		   // Monta a connection string do MongoDB (mongodb://usuario:senha@host:porta/banco).
 	private: String^ MontarConnStringMongo() {
 		String^ porta = String::IsNullOrWhiteSpace(dbPorta) ? L"27017" : dbPorta;
 		String^ senha = (dbSenhaCifrada != nullptr && dbSenhaCifrada != "")
@@ -2933,7 +2990,7 @@ namespace T2MSecurityManager {
 		return L"mongodb://" + cred + dbHost + L":" + porta + L"/" + dbNome;
 	}
 
-	// Monta o JSON de conexao Oracle (driver oficial, thin mode).
+		   // Monta o JSON de conexao Oracle (driver oficial, thin mode).
 	private: String^ MontarJsonOracle() {
 		String^ porta = String::IsNullOrWhiteSpace(dbPorta) ? L"1521" : dbPorta;
 		String^ senha = (dbSenhaCifrada != nullptr && dbSenhaCifrada != "")
@@ -2950,8 +3007,8 @@ namespace T2MSecurityManager {
 		return sb->ToString();
 	}
 
-	// Monta o JSON da requisicao de API a partir dos dados salvos.
-	// Converte os headers (texto "Nome: valor" por linha) em objeto JSON.
+		   // Monta o JSON da requisicao de API a partir dos dados salvos.
+		   // Converte os headers (texto "Nome: valor" por linha) em objeto JSON.
 	private: String^ MontarJsonApi() {
 		System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
 		sb->Append(L"{");
@@ -2962,7 +3019,7 @@ namespace T2MSecurityManager {
 		if (!String::IsNullOrWhiteSpace(apiHeaders)) {
 			array<String^>^ linhas = apiHeaders->Split('\n');
 			bool primeiro = true;
-			for each (String^ linha in linhas) {
+			for each (String ^ linha in linhas) {
 				String^ l = linha->Trim();
 				int dp = l->IndexOf(':');
 				if (dp > 0) {
@@ -2981,7 +3038,7 @@ namespace T2MSecurityManager {
 		return sb->ToString();
 	}
 
-	// Escapa caracteres especiais para o JSON nao quebrar.
+		   // Escapa caracteres especiais para o JSON nao quebrar.
 	private: String^ EscaparJson(String^ s) {
 		if (s == nullptr) return L"";
 		s = s->Replace(L"\\", L"\\\\");
@@ -2992,7 +3049,7 @@ namespace T2MSecurityManager {
 		return s;
 	}
 
-	// Dispara o worker para o modo API: passa o JSON via URL com marcador --API--.
+		   // Dispara o worker para o modo API: passa o JSON via URL com marcador --API--.
 	private: void RodarWorkerApi(String^ objetivo) {
 		if (workerChat->IsBusy) return;
 		workerApiKey = ObterChaveReal();
@@ -3004,7 +3061,7 @@ namespace T2MSecurityManager {
 		workerChat->RunWorkerAsync();
 	}
 
-	// Exporta a conversa/teste atual como um relatorio HTML formatado.
+		   // Exporta a conversa/teste atual como um relatorio HTML formatado.
 	private: System::Void btnExportarRelatorio_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (String::IsNullOrWhiteSpace(rtbChat->Text)) {
 			MessageBox::Show(L"Nao ha conteudo para exportar. Faca um teste ou converse primeiro.", L"Aviso");
@@ -3014,12 +3071,13 @@ namespace T2MSecurityManager {
 			L"Resultado do teste conduzido pela IA", L"relatorio_T2M_");
 	}
 
-	// Funcao compartilhada: gera um HTML formatado e pergunta se quer abrir.
-	// Usada tanto pelo "Relatorio do Teste" (chat) quanto pelo "Exportar Log Tecnico".
+		   // Funcao compartilhada: gera um HTML formatado e pergunta se quer abrir.
+		   // Usada tanto pelo "Relatorio do Teste" (chat) quanto pelo "Exportar Log Tecnico".
 	private: void ExportarComoHtml(String^ conteudo, String^ titulo, String^ subtitulo, String^ prefixoArquivo) {
 		String^ pasta = String::IsNullOrWhiteSpace(cfgPastaRelatorios)
 			? PastaPadrao("relatorios T2M") : cfgPastaRelatorios;
-		try { Directory::CreateDirectory(pasta); } catch (...) {}
+		try { Directory::CreateDirectory(pasta); }
+		catch (...) {}
 
 		String^ dataHora = DateTime::Now.ToString("yyyy-MM-dd_HH-mm-ss");
 
@@ -3123,7 +3181,8 @@ namespace T2MSecurityManager {
 
 				String^ pastaIA = String::IsNullOrWhiteSpace(cfgPastaScripts)
 					? PastaPadrao("modelos de teste em IA") : cfgPastaScripts;
-				try { Directory::CreateDirectory(pastaIA); } catch (...) {}
+				try { Directory::CreateDirectory(pastaIA); }
+				catch (...) {}
 
 				// Um rotulo "simples" (so letras/digitos, curto) pode virar extensao direta,
 				// para nao engessar a lista quando a IA escolher outra linguagem.
