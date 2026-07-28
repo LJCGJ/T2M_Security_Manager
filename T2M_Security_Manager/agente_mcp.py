@@ -37,7 +37,35 @@ import time
 # mesmo caminho (diretorio do proprio script) para que o agente MCP e o chat
 # enxerguem a mesma conversa. E assim o agente "lembra" do que viu ao vivo.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARQUIVO_MEMORIA = os.path.join(SCRIPT_DIR, "memoria_chat.json")
+
+
+def _caminho_dados(arquivo):
+    """Caminho de um arquivo GRAVAVEL do usuario, espelhando o CaminhoDados()
+    do MyForm.h: %APPDATA%/T2M Security Manager/<arquivo>.
+
+    Por que isso importa: instalado em Program Files, gravar ao lado do script
+    falha com PermissionError. Como esse erro era engolido em silencio, o
+    sintoma para o usuario era "a IA nunca lembra do turno anterior", sem
+    nenhuma mensagem de erro. Mantem a mesma migracao do arquivo antigo que o
+    C++ ja faz, para nao perder conversas de instalacoes anteriores.
+    """
+    try:
+        appdata = os.environ.get("APPDATA", "")
+        if not appdata:
+            return os.path.join(SCRIPT_DIR, arquivo)
+        pasta = os.path.join(appdata, "T2M Security Manager")
+        os.makedirs(pasta, exist_ok=True)
+        destino = os.path.join(pasta, arquivo)
+        antigo = os.path.join(SCRIPT_DIR, arquivo)
+        if not os.path.exists(destino) and os.path.exists(antigo):
+            import shutil
+            shutil.copy2(antigo, destino)
+        return destino
+    except Exception:
+        return os.path.join(SCRIPT_DIR, arquivo)
+
+
+ARQUIVO_MEMORIA = _caminho_dados("memoria_chat.json")
 
 # Instrucao comum aos tres provedores sobre relatorio + escolha de linguagem do script.
 INSTRUCAO_LINGUAGEM = (
@@ -143,6 +171,14 @@ def responder(texto):
     print("CHAT_MSG_INICIO")
     print(texto)
     print("CHAT_MSG_FIM")
+
+
+def _mascarar_credenciais(texto):
+    """Troca a senha de URLs de conexao por *** antes de logar ou exibir.
+    Ex.: postgres://joao:s3nh4@host/db  ->  postgres://joao:***@host/db"""
+    if not texto:
+        return texto
+    return re.sub(r"(?i)\b([a-z][a-z0-9+.-]*://[^:/\s]+):([^@/\s]+)@", r"\1:***@", str(texto))
 
 
 def tem_lib(modulo):
@@ -582,12 +618,22 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
     from mcp.client.stdio import stdio_client
 
     comando_npx = "npx.cmd" if platform.system() == "Windows" else "npx"
-    # DBHub via npx, transporte stdio. --dsn passa a conexao. --readonly = so leitura.
-    args = ["-y", "@bytebase/dbhub", "--transport", "stdio", "--dsn", dsn]
+    # A conexao vai por VARIAVEL DE AMBIENTE, nunca por argumento de linha de
+    # comando: argumentos de processo sao visiveis para qualquer processo da
+    # maquina (Gerenciador de Tarefas com a coluna "Linha de comando",
+    # `wmic process get CommandLine`, EDR corporativo) e o DSN carrega a senha
+    # do banco. O projeto ja tinha esse cuidado com a chave de API, enviada por
+    # stdin em vez de argv; a senha do banco nao tinha.
+    # O DBHub le o DSN nesta ordem: flag --dsn, variavel DSN, variaveis DB_*,
+    # arquivo .env. Sem a flag, ele usa a variavel.
+    args = ["-y", "@bytebase/dbhub", "--transport", "stdio"]
     if somente_leitura:
         args.append("--readonly")
 
-    server_params = StdioServerParameters(command=comando_npx, args=args)
+    # O SDK do MCP MESCLA este env com o ambiente padrao seguro (que inclui
+    # PATH e PATHEXT no Windows), entao o npx continua sendo encontrado.
+    server_params = StdioServerParameters(command=comando_npx, args=args,
+                                          env={"DSN": dsn})
 
     log(">>> Subindo servidor DBHub (banco de dados) via MCP...")
     try:
@@ -657,7 +703,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
                 reais.append(f"{type(exc).__name__}: {exc}")
 
         _coletar(e)
-        detalhe = " | ".join(reais) if reais else f"{type(e).__name__}: {e}"
+        detalhe = _mascarar_credenciais(" | ".join(reais) if reais else f"{type(e).__name__}: {e}")
         log("=== TRACEBACK COMPLETO (banco) ===")
         log(traceback.format_exc())
         # Mensagem amigavel para erros comuns de conexao
@@ -1278,11 +1324,17 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
     from mcp.client.stdio import stdio_client
 
     comando_npx = "npx.cmd" if platform.system() == "Windows" else "npx"
-    args = ["-y", "mongodb-mcp-server@latest", "--connectionString", conn_string]
+    args = ["-y", "mongodb-mcp-server@latest"]
     if somente_leitura:
         args.append("--readOnly")   # atencao: o padrao do servidor e read-write
 
-    server_params = StdioServerParameters(command=comando_npx, args=args)
+    # Connection string por variavel de ambiente (mesmo motivo do modo banco).
+    # A documentacao oficial do mongodb-mcp-server recomenda exatamente isto:
+    # "Command line arguments can be visible in process lists and logged in
+    # various system locations, potentially exposing your secrets."
+    server_params = StdioServerParameters(
+        command=comando_npx, args=args,
+        env={"MDB_MCP_CONNECTION_STRING": conn_string})
 
     log(">>> Subindo servidor MCP oficial da MongoDB...")
     try:
@@ -1339,7 +1391,7 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
     except Exception as e:
         import traceback
         log(traceback.format_exc())
-        responder(f"ERRO no MongoDB: {type(e).__name__}: {e}")
+        responder(_mascarar_credenciais(f"ERRO no MongoDB: {type(e).__name__}: {e}"))
 
 
 def main():

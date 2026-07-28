@@ -1487,7 +1487,10 @@ namespace T2MSecurityManager {
 
 		// Remove a memoria compartilhada com o agente Python
 		try {
-			String^ mem = CaminhoApp("memoria_chat.json");
+			// memoria_chat.json e gravado pelos scripts Python em %APPDATA% (ao lado do
+			// exe daria PermissionError apos instalar em Program Files). CaminhoDados
+			// aponta para a mesma pasta e ainda migra o arquivo antigo, se existir.
+			String^ mem = CaminhoDados("memoria_chat.json");
 			if (File::Exists(mem)) File::Delete(mem);
 		}
 		catch (Exception^ ex) {

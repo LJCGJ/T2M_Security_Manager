@@ -27,7 +27,35 @@ import subprocess
 # Memoria COMPARTILHADA com o agente MCP (agente_mcp.py). Mesmo caminho nos dois
 # (diretorio do script) para que chat e automacao ao vivo vejam a mesma conversa.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARQUIVO_MEMORIA = os.path.join(SCRIPT_DIR, "memoria_chat.json")
+
+
+def _caminho_dados(arquivo):
+    """Caminho de um arquivo GRAVAVEL do usuario, espelhando o CaminhoDados()
+    do MyForm.h: %APPDATA%/T2M Security Manager/<arquivo>.
+
+    Por que isso importa: instalado em Program Files, gravar ao lado do script
+    falha com PermissionError. Como esse erro era engolido em silencio, o
+    sintoma para o usuario era "a IA nunca lembra do turno anterior", sem
+    nenhuma mensagem de erro. Mantem a mesma migracao do arquivo antigo que o
+    C++ ja faz, para nao perder conversas de instalacoes anteriores.
+    """
+    try:
+        appdata = os.environ.get("APPDATA", "")
+        if not appdata:
+            return os.path.join(SCRIPT_DIR, arquivo)
+        pasta = os.path.join(appdata, "T2M Security Manager")
+        os.makedirs(pasta, exist_ok=True)
+        destino = os.path.join(pasta, arquivo)
+        antigo = os.path.join(SCRIPT_DIR, arquivo)
+        if not os.path.exists(destino) and os.path.exists(antigo):
+            import shutil
+            shutil.copy2(antigo, destino)
+        return destino
+    except Exception:
+        return os.path.join(SCRIPT_DIR, arquivo)
+
+
+ARQUIVO_MEMORIA = _caminho_dados("memoria_chat.json")
 
 
 def log(msg):
