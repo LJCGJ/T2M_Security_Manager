@@ -1719,6 +1719,17 @@ namespace T2MSecurityManager {
 
 	private: void SalvarConfiguracoesApp() {
 		try {
+			// Chaves que ESTA tela conhece. O agente Python le outras, avancadas,
+			// que nao tem campo aqui - versoes dos pacotes MCP, caminho do SQLcl,
+			// modo do Oracle. Como este metodo reescrevia o arquivo do zero, essas
+			// opcoes eram apagadas toda vez que alguem abrisse Configuracoes e
+			// clicasse em salvar, mesmo sem mexer em nada. Agora sao preservadas.
+			cli::array<String^>^ conhecidas = gcnew cli::array<String^>{
+				"pasta_relatorios", "pasta_sessoes", "pasta_scripts", "timeout",
+				"max_passos", "max_linhas", "modelo_claude", "modelo_openai",
+				"modelo_gemini", "navegador_isolado", "dominios_confiaveis",
+				"max_historico"
+			};
 			System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
 			sb->AppendLine("pasta_relatorios=" + cfgPastaRelatorios);
 			sb->AppendLine("pasta_sessoes=" + cfgPastaSessoes);
@@ -1732,7 +1743,21 @@ namespace T2MSecurityManager {
 			sb->AppendLine("navegador_isolado=" + (cfgNavegadorIsolado ? "1" : "0"));
 			sb->AppendLine("dominios_confiaveis=" + cfgDominiosConfiaveis);
 			sb->AppendLine("max_historico=" + cfgMaxHistorico);
-			File::WriteAllText(CaminhoDados("configuracoes.txt"), sb->ToString());
+
+			// Copia de volta o que a tela nao conhece, na ordem original.
+			String^ caminho = CaminhoDados("configuracoes.txt");
+			if (File::Exists(caminho)) {
+				for each (String ^ linha in File::ReadAllLines(caminho)) {
+					int ig = linha->IndexOf('=');
+					if (ig <= 0) continue;
+					String^ chave = linha->Substring(0, ig)->Trim();
+					bool conhecida = false;
+					for each (String ^ c in conhecidas)
+						if (c == chave) { conhecida = true; break; }
+					if (!conhecida) sb->AppendLine(linha);
+				}
+			}
+			File::WriteAllText(caminho, sb->ToString());
 		}
 		catch (Exception^ ex) {
 			MessageBox::Show(L"Nao foi possivel salvar as configuracoes: " + ex->Message, L"Aviso");

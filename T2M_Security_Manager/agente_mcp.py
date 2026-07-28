@@ -176,6 +176,16 @@ DOMINIOS_CONFIAVEIS = _CFG.get("dominios_confiaveis", "").strip()
 # estiver disponivel e cai para o driver nativo quando nao estiver; "1" forca o
 # MCP; "0" forca o driver nativo. O nativo (oracledb, thin mode) e o caminho
 # que nao exige Java nem SQLcl, entao ele continua sendo a rede de seguranca.
+# Versoes dos servidores MCP baixados do npm. Ficam FIXAS de proposito.
+# Com "@latest", uma publicacao de terceiros - feita por gente sem nenhuma
+# relacao com a T2M - podia quebrar a instalacao de um cliente sem ninguem
+# aqui ter mudado uma linha, e sem aviso nenhum. Fixar troca "quebra a
+# qualquer momento" por "atualiza quando alguem decidir atualizar".
+# Quem quiser acompanhar a ultima versao escreve "latest" no configuracoes.txt:
+# continua possivel, mas passa a ser uma escolha consciente.
+VERSAO_PLAYWRIGHT_MCP = _CFG.get("versao_playwright_mcp", "0.0.78").strip()
+VERSAO_MONGO_MCP = _CFG.get("versao_mongo_mcp", "1.14.0").strip()
+
 ORACLE_VIA_MCP = _CFG.get("oracle_via_mcp", "auto").strip().lower()
 SQLCL_RAIZ = _CFG.get("sqlcl_raiz", "").strip()   # opcional; vazio = detectar
 
@@ -754,7 +764,9 @@ async def executar(api_key, url_alvo, objetivo):
 
     # Windows precisa de npx.cmd; outros SOs usam npx
     comando_npx = "npx.cmd" if platform.system() == "Windows" else "npx"
-    args = ["-y", "@playwright/mcp@latest"]
+    pacote = _pacote_npm("@playwright/mcp", VERSAO_PLAYWRIGHT_MCP)
+    log(f">>> Servidor de navegador: {pacote}")
+    args = ["-y", pacote]
     if HEADLESS:
         args.append("--headless")
     if NAVEGADOR_ISOLADO:
@@ -1284,6 +1296,16 @@ def _erro_oracle_no_texto(texto):
     """Procura evidencia de erro do Oracle numa resposta de texto livre."""
     return bool(re.search(r"(?i)(ORA-\d{5}|TNS-\d{5}|SP2-\d{4}|"
                           r"not found|failed|failure)", texto or ""))
+
+
+def _pacote_npm(nome, versao):
+    """Monta o especificador do pacote npm a ser baixado pelo npx.
+
+    Campo vazio no configuracoes.txt cai em "latest" - preservar esse caminho
+    evita que uma configuracao mal preenchida impeca o modo de funcionar. Mas o
+    padrao de fabrica e uma versao fixa, definida la em cima."""
+    v = (versao or "").strip()
+    return f"{nome}@{v}" if v else f"{nome}@latest"
 
 
 def _oracle_conexao_ja_pronta(valor):
@@ -2010,7 +2032,9 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
     from mcp.client.stdio import stdio_client
 
     comando_npx = "npx.cmd" if platform.system() == "Windows" else "npx"
-    args = ["-y", "mongodb-mcp-server@latest"]
+    pacote = _pacote_npm("mongodb-mcp-server", VERSAO_MONGO_MCP)
+    log(f">>> Servidor MongoDB: {pacote}")
+    args = ["-y", pacote]
     if somente_leitura:
         args.append("--readOnly")   # atencao: o padrao do servidor e read-write
 
