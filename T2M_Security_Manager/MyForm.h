@@ -2716,14 +2716,18 @@ namespace T2MSecurityManager {
 			? DesprotegerTexto(dbWalletSenhaCifrada) : L"";
 		f->Controls->Add(txtWalletSenha);
 
-		// O combo guarda os controles da wallet para poder mostra-los ou
-		// esconde-los sozinho quando o tipo de banco muda.
-		cli::array<Object^>^ ctlWallet = gcnew cli::array<Object^>(5);
+		// O combo guarda os controles que mudam de estado conforme o tipo de
+		// banco e conforme haver ou nao wallet.
+		// 0..4 = controles da wallet | 5 = porta | 6 = nome do banco
+		cli::array<Object^>^ ctlWallet = gcnew cli::array<Object^>(7);
 		ctlWallet[0] = lblWallet; ctlWallet[1] = txtWallet; ctlWallet[2] = btnWallet;
 		ctlWallet[3] = lblWalletSenha; ctlWallet[4] = txtWalletSenha;
+		ctlWallet[5] = txtPorta; ctlWallet[6] = txtNome;
 		cbTipo->Tag = ctlWallet;
+		txtWallet->Tag = cbTipo;   // para o handler de digitacao achar o combo
 		cbTipo->SelectedIndexChanged += gcnew System::EventHandler(this, &MyForm::tipoBancoMudou_Handler);
-		AtualizarVisibilidadeWallet(cbTipo);   // estado inicial
+		txtWallet->TextChanged += gcnew System::EventHandler(this, &MyForm::walletMudou_Handler);
+		AtualizarCamposConexao(cbTipo);   // estado inicial
 
 		// Somente leitura
 		y += dy;
@@ -2840,20 +2844,68 @@ namespace T2MSecurityManager {
 		return v->Substring(0, doisPontos + 1) + L"***" + v->Substring(arroba);
 	}
 
-		   // Mostra ou esconde os campos da wallet conforme o tipo de banco.
-	private: void AtualizarVisibilidadeWallet(ComboBox^ cbTipo) {
+		   // Porta padrao de cada banco. Sem isto, o campo nascia com 5432 e
+		   // continuava 5432 depois de escolher Oracle, e a conexao falhava com
+		   // "nenhum listener na porta" - um erro que nao aponta para a causa.
+	private: String^ PortaPadrao(String^ tipo) {
+		if (tipo == L"PostgreSQL") return L"5432";
+		if (tipo == L"MySQL" || tipo == L"MariaDB") return L"3306";
+		if (tipo == L"SQL Server") return L"1433";
+		if (tipo == L"Oracle") return L"1521";
+		if (tipo == L"MongoDB") return L"27017";
+		return L"";
+	}
+
+	private: bool EhPortaPadraoDeAlgumTipo(String^ v) {
+		return v == L"5432" || v == L"3306" || v == L"1433"
+			|| v == L"1521" || v == L"27017";
+	}
+
+		   // Ajusta os campos que dependem do tipo de banco e da presenca de
+		   // wallet: visibilidade dos campos de wallet, e se porta e nome do
+		   // banco ainda fazem sentido.
+	private: void AtualizarCamposConexao(ComboBox^ cbTipo) {
 		if (cbTipo == nullptr) return;
 		cli::array<Object^>^ ctl = dynamic_cast<cli::array<Object^>^>(cbTipo->Tag);
-		if (ctl == nullptr) return;
+		if (ctl == nullptr || ctl->Length < 7) return;
 		bool ehOracle = (cbTipo->Text == L"Oracle");
-		for (int i = 0; i < ctl->Length; i++) {
+		for (int i = 0; i < 5; i++) {
 			Control^ c = dynamic_cast<Control^>(ctl[i]);
 			if (c != nullptr) c->Visible = ehOracle;
 		}
+		TextBox^ txtWallet = dynamic_cast<TextBox^>(ctl[1]);
+		TextBox^ txtPorta = dynamic_cast<TextBox^>(ctl[5]);
+		TextBox^ txtNome = dynamic_cast<TextBox^>(ctl[6]);
+		// Com wallet, o host e o apelido do tnsnames.ora e ja carrega porta e
+		// servico. Deixar os dois campos editaveis convidava a um valor
+		// pendurado de uma conexao anterior, que remontava "apelido:1521/XEPDB1"
+		// - exatamente o destino inexistente que a wallet existe para evitar.
+		bool comWallet = ehOracle && txtWallet != nullptr
+			&& !String::IsNullOrWhiteSpace(txtWallet->Text);
+		if (txtPorta != nullptr) txtPorta->Enabled = !comWallet;
+		if (txtNome != nullptr) txtNome->Enabled = !comWallet;
 	}
 
 	private: System::Void tipoBancoMudou_Handler(System::Object^ sender, System::EventArgs^ e) {
-		AtualizarVisibilidadeWallet(dynamic_cast<ComboBox^>(sender));
+		ComboBox^ cb = dynamic_cast<ComboBox^>(sender);
+		if (cb == nullptr) return;
+		cli::array<Object^>^ ctl = dynamic_cast<cli::array<Object^>^>(cb->Tag);
+		if (ctl != nullptr && ctl->Length >= 6) {
+			TextBox^ txtPorta = dynamic_cast<TextBox^>(ctl[5]);
+			// So troca a porta quando ela ainda e um padrao. Nunca por cima de
+			// um valor que o operador digitou de proprio punho.
+			if (txtPorta != nullptr &&
+				(String::IsNullOrWhiteSpace(txtPorta->Text) ||
+				 EhPortaPadraoDeAlgumTipo(txtPorta->Text->Trim())))
+				txtPorta->Text = PortaPadrao(cb->Text);
+		}
+		AtualizarCamposConexao(cb);
+	}
+
+	private: System::Void walletMudou_Handler(System::Object^ sender, System::EventArgs^ e) {
+		TextBox^ t = dynamic_cast<TextBox^>(sender);
+		if (t == nullptr) return;
+		AtualizarCamposConexao(dynamic_cast<ComboBox^>(t->Tag));
 	}
 
 		   // Escolhe o arquivo da wallet. A Oracle entrega um .zip; quem ja
@@ -2890,7 +2942,9 @@ namespace T2MSecurityManager {
 		if (!dbConfigurado) return L"";
 		// String colada pelo operador vai inteira: ela ja carrega usuario, senha,
 		// porta e parametros de TLS que os campos separados nao comportam.
-		if (StringDeConexaoColada(dbHost)) return dbHost->Trim();
+		// SQLite fica de fora: la o que importa e o caminho do arquivo, e um
+		// host pendurado de uma conexao anterior sequestraria o DSN inteiro.
+		if (dbTipo != L"SQLite" && StringDeConexaoColada(dbHost)) return dbHost->Trim();
 		String^ senha = String::IsNullOrEmpty(dbSenhaCifrada) ? L"" : DesprotegerTexto(dbSenhaCifrada);
 		String^ esquema;
 		String^ t = dbTipo;
@@ -2946,14 +3000,19 @@ namespace T2MSecurityManager {
 		// e nome do banco ja estao dentro dela, entao exigir esses campos de novo
 		// obrigaria o operador a repetir - ou pior, a digitar algo diferente do
 		// que esta na string, criando uma inconsistencia silenciosa.
-		bool colouStringCompleta = StringDeConexaoColada(txtHost->Text);
+		// ORACLE E EXCECAO: a string dele (tcps://host:1522/servico) so descreve
+		// o destino, nunca carrega credencial. Dispensar usuario e senha ali
+		// deixaria salvar uma conexao que so falha depois, com ORA-01017.
+		bool colouStringCompleta = (tipo != "Oracle") &&
+			StringDeConexaoColada(txtHost->Text);
+		bool oracleComWallet = (tipo == "Oracle") &&
+			!String::IsNullOrWhiteSpace(txtWallet->Text);
 		// Oracle com wallet, ou com uma string de conexao completa colada no
 		// campo host, dispensa porta e nome do banco: o apelido do tnsnames.ora
 		// ou o proprio descritor ja carregam tudo. Exigir "Nome do banco" nesse
 		// caso obrigaria o operador a inventar um valor que seria ignorado.
-		bool ehOracleSemServico = (tipo == "Oracle") &&
-			(!String::IsNullOrWhiteSpace(txtWallet->Text) ||
-			 OracleConexaoJaPronta(txtHost->Text));
+		bool ehOracleSemServico = oracleComWallet ||
+			((tipo == "Oracle") && OracleConexaoJaPronta(txtHost->Text));
 
 		// Limpa erros anteriores
 		LimparErroCampo(txtHost, errHost);
@@ -2989,8 +3048,12 @@ namespace T2MSecurityManager {
 
 		dbTipo = tipo;
 		dbHost = txtHost->Text->Trim();
-		dbPorta = txtPorta->Text->Trim();
-		dbNome = txtNome->Text->Trim();
+		// Com wallet, porta e nome do banco sao descartados de proposito. Os
+		// campos ja aparecem desabilitados na tela, mas podem carregar texto de
+		// uma conexao anterior; salvar esse texto faria o agente remontar
+		// "apelido:1521/XEPDB1" em vez de usar o apelido da wallet.
+		dbPorta = oracleComWallet ? L"" : txtPorta->Text->Trim();
+		dbNome = oracleComWallet ? L"" : txtNome->Text->Trim();
 		dbUsuario = txtUser->Text->Trim();
 		dbSenhaCifrada = String::IsNullOrEmpty(txtSenha->Text) ? L"" : ProtegerTexto(txtSenha->Text);
 		// A wallet so e guardada quando o tipo e Oracle: deixar um caminho de

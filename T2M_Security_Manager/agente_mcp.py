@@ -1199,22 +1199,39 @@ def _wallet_pasta(caminho):
     A extracao vai para uma pasta temporaria apagada quando o processo termina:
     a wallet contem a chave privada do cliente e nao deve ficar espalhada pelo
     disco depois que o teste acaba."""
-    if not caminho or not os.path.exists(caminho):
+    if not caminho:
+        return ""
+    if not os.path.exists(caminho):
+        # Silenciar isto custava caro: a conexao seguia sem wallet nenhuma e
+        # o erro que chegava ao operador era ORA-12154, que manda conferir o
+        # nome do servico - a pista errada.
+        log(f">>> Wallet nao encontrada em {caminho} - seguindo sem ela.")
         return ""
     if os.path.isdir(caminho):
         return caminho
     if not caminho.lower().endswith(".zip"):
+        log(f">>> Wallet ignorada: {caminho} nao e .zip nem pasta.")
         return ""
     if caminho in _WALLET_EXTRAIDA:
         return _WALLET_EXTRAIDA[caminho]
 
     import atexit
+    import glob
     import shutil
     import tempfile
     import zipfile
 
+    # Restos de execucoes anteriores: quando a janela e fechada no meio de um
+    # teste, o C++ mata o processo Python, e Kill() nao dispara o atexit. Sem
+    # esta varredura as wallets extraidas - com a chave privada dentro - iam
+    # se acumulando em %TEMP% indefinidamente.
+    for antigo in glob.glob(os.path.join(tempfile.gettempdir(), "t2m_wallet_*")):
+        if antigo != caminho:
+            shutil.rmtree(antigo, ignore_errors=True)
+
     destino = tempfile.mkdtemp(prefix="t2m_wallet_")
     try:
+        vistos = set()
         with zipfile.ZipFile(caminho) as z:
             for membro in z.namelist():
                 if membro.endswith("/"):
@@ -1226,6 +1243,14 @@ def _wallet_pasta(caminho):
                 nome = os.path.basename(membro)
                 if not nome:
                     continue
+                if nome in vistos:
+                    # Acontece quando o operador rezipa a wallet junto com uma
+                    # copia de backup. Achatar faria a segunda sobrescrever a
+                    # primeira em silencio, e o T2M conectaria no banco errado.
+                    log(f">>> Aviso: a wallet tem mais de um '{nome}'; "
+                        f"mantendo o primeiro.")
+                    continue
+                vistos.add(nome)
                 with z.open(membro) as origem, \
                         open(os.path.join(destino, nome), "wb") as saida:
                     shutil.copyfileobj(origem, saida)
@@ -1237,6 +1262,28 @@ def _wallet_pasta(caminho):
     _WALLET_EXTRAIDA[caminho] = destino
     atexit.register(shutil.rmtree, destino, True)
     return destino
+
+
+def _ambiente_sqlcl(info):
+    """Ambiente para os processos do SQLcl quando ha wallet.
+
+    O SQLcl localiza o tnsnames.ora pela variavel TNS_ADMIN, e precisa dela em
+    DOIS processos: o que salva a conexao e o que sobe o servidor MCP. E o
+    segundo que resolve o apelido na hora do connect - sem a variavel ali, o
+    connect falhava com ORA-12154 mesmo depois de o save ter dado certo.
+
+    Devolve None quando nao ha wallet, para o servidor MCP continuar herdando o
+    ambiente reduzido que a biblioteca monta por padrao."""
+    pasta = _wallet_pasta(_caminho_wallet(info))
+    if not pasta:
+        return None
+    return dict(os.environ, TNS_ADMIN=pasta)
+
+
+def _erro_oracle_no_texto(texto):
+    """Procura evidencia de erro do Oracle numa resposta de texto livre."""
+    return bool(re.search(r"(?i)(ORA-\d{5}|TNS-\d{5}|SP2-\d{4}|"
+                          r"not found|failed|failure)", texto or ""))
 
 
 def _oracle_conexao_ja_pronta(valor):
@@ -1276,9 +1323,15 @@ def _oracle_dsn(info):
                                                 or info.get("servico")):
         return bruto, True
     host = bruto or "localhost"
-    porta = int(info.get("porta") or 1521)
+    # Sem esta checagem, uma porta com texto virava
+    # "invalid literal for int() with base 10", que nao diz ao operador qual
+    # campo da tela corrigir.
+    valor_porta = str(info.get("porta") or 1521).strip()
+    if not valor_porta.isdigit():
+        raise ValueError(f"porta invalida: {valor_porta!r} - "
+                         f"use apenas numeros (1521 e o padrao do Oracle)")
     servico = info.get("servico") or info.get("nome") or "XEPDB1"
-    return f"{host}:{porta}/{servico}", False
+    return f"{host}:{int(valor_porta)}/{servico}", False
 
 
 def _oracle_rotulo(info):
@@ -1580,16 +1633,14 @@ def _salvar_conexao_sqlcl(cmd_base, info):
     alvo = dsn if ja_pronta else f"//{dsn}"
 
     # Wallet: o SQLcl, ao contrario do driver Python, quer o ZIP - e a forma
-    # oficial de aponta-lo e o "set cloudconfig", antes do conn. Quando o que
-    # temos e a pasta ja extraida, o caminho e a variavel TNS_ADMIN.
+    # oficial de aponta-lo e o "set cloudconfig", antes do conn. O TNS_ADMIN
+    # vai junto nos dois casos (zip e pasta) porque o servidor MCP, que roda
+    # em outro processo, tambem precisa resolver o apelido depois.
     caminho_wallet = _caminho_wallet(info)
+    ambiente = _ambiente_sqlcl(info)
     prefixo = ""
-    ambiente = None
-    if caminho_wallet and os.path.exists(caminho_wallet):
-        if os.path.isdir(caminho_wallet):
-            ambiente = dict(os.environ, TNS_ADMIN=caminho_wallet)
-        else:
-            prefixo = f'set cloudconfig "{caminho_wallet}"\n'
+    if caminho_wallet and os.path.isfile(caminho_wallet):
+        prefixo = f'set cloudconfig "{caminho_wallet}"\n'
 
     # A senha vai entre aspas: sem isso, um caractere como @ ou / dentro dela
     # quebraria a string de conexao e o erro sairia como "usuario invalido",
@@ -1662,7 +1713,8 @@ async def executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
     log(">>> Subindo o servidor MCP oficial da Oracle (SQLcl)...")
     try:
         params = StdioServerParameters(command=cmd_base[0],
-                                       args=cmd_base[1:] + ["-mcp"])
+                                       args=cmd_base[1:] + ["-mcp"],
+                                       env=_ambiente_sqlcl(info))
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as sessao:
                 await sessao.initialize()
@@ -1677,7 +1729,26 @@ async def executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
                     r = await sessao.call_tool(
                         "connect", {"connection_name": NOME_CONEXAO_T2M,
                                     "model": modelo})
-                    log(">>> Conectado: " + texto_do_resultado_mcp(r)[:120])
+                    texto_conn = texto_do_resultado_mcp(r)
+                    log(">>> Conectado: " + texto_conn[:120])
+                    if getattr(r, "isError", False) or _erro_oracle_no_texto(texto_conn):
+                        log(">>> O connect do SQLcl falhou; "
+                            "usando o driver nativo.")
+                        return False
+
+                # Prova a conexao com uma consulta trivial antes de entregar o
+                # controle ao modelo. Antes disso, uma conexao morta so aparecia
+                # como um relatorio dizendo que o banco nao tem dados - pior que
+                # um erro claro, porque parece um resultado valido.
+                if any(t.name == "sql_run" for t in todas):
+                    prova = await sessao.call_tool(
+                        "sql_run", {"sql": "SELECT 1 FROM dual", "model": modelo})
+                    texto_prova = texto_do_resultado_mcp(prova)
+                    if getattr(prova, "isError", False) or _erro_oracle_no_texto(texto_prova):
+                        log(f">>> A conexao nao respondeu ao teste "
+                            f"({_mascarar_credenciais(texto_prova)[:120]}); "
+                            f"usando o driver nativo.")
+                        return False
 
                 permitidas = [t for t in todas
                               if t.name in FERRAMENTAS_ORACLE_PERMITIDAS]
