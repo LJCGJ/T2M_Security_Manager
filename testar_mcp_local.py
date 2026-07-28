@@ -120,25 +120,44 @@ async def testar_oracle():
         return
 
     print("\n2) Dados da conexao Oracle (usados so nesta maquina)")
-    info = {
-        "host": input("   host [localhost]: ").strip() or "localhost",
-        "porta": input("   porta [1521]: ").strip() or "1521",
-        "servico": input("   servico [XEPDB1]: ").strip() or "XEPDB1",
-        "usuario": input("   usuario: ").strip(),
-    }
+    print("   No campo host da para colar so o nome do servidor, ou entao uma")
+    print("   string de conexao inteira - tcps://... ou (DESCRIPTION=...) - que")
+    print("   e o formato do Autonomous Database. Colando a string inteira, os")
+    print("   campos porta e servico sao ignorados.")
+    host = input("   host, apelido do tnsnames ou string completa [localhost]: "
+                 ).strip() or "localhost"
+    info = {"host": host}
+
+    wallet = input("   wallet .zip ou pasta (Enter se nao usa): ").strip()
+    if wallet:
+        info["wallet"] = wallet
+        senha_wallet = getpass.getpass("   senha da wallet (Enter se nao tem): ")
+        if senha_wallet:
+            info["wallet_senha"] = senha_wallet
+
+    if A._oracle_conexao_ja_pronta(host):
+        print("   -> reconhecido como string de conexao completa")
+    elif wallet:
+        print("   -> com wallet: o host acima sera tratado como apelido do tnsnames.ora")
+    else:
+        info["porta"] = input("   porta [1521]: ").strip() or "1521"
+        info["servico"] = input("   servico [FREEPDB1]: ").strip() or "FREEPDB1"
+        if not str(info["porta"]).isdigit():
+            print(f"\n   Porta invalida: {info['porta']!r}. Deve ser um numero "
+                  f"(normalmente 1521, ou 1522 no Autonomous Database).")
+            return
+
+    info["usuario"] = input("   usuario: ").strip()
     info["senha"] = getpass.getpass("   senha (nao aparece): ")
 
-    if not str(info["porta"]).isdigit():
-        print(f"\n   Porta invalida: {info['porta']!r}. Deve ser um numero (normalmente 1521).")
-        print("   Se voce nao tem um Oracle a mao, rode antes:")
-        print("     python subir_oracle_teste.py")
-        return
     if not info["usuario"] or not info["senha"]:
         print("\n   Usuario ou senha em branco. Use credenciais REAIS de um usuario")
         print("   do seu Oracle (de preferencia um usuario de teste, nao o SYSTEM).")
-        print("   Se voce nao tem um Oracle a mao, rode antes:")
-        print("     python subir_oracle_teste.py")
+        print("   Se voce ainda nao tem o usuario de teste, rode antes:")
+        print("     python preparar_oracle_teste.py")
         return
+
+    print(f"\n   conexao montada: {A._oracle_rotulo(info)}")
 
     print("\n3) Criando a conexao nomeada no SQLcl")
     print("   (o SQLcl sai com codigo 0 mesmo falhando, entao conferimos o texto)")

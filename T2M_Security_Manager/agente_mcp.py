@@ -1178,19 +1178,142 @@ class _SessaoOracleFiltrada:
         return await self._sessao.call_tool(nome, args)
 
 
+# Cada zip de wallet e extraido uma unica vez por execucao.
+_WALLET_EXTRAIDA = {}
+
+
+def _caminho_wallet(info):
+    """Caminho da wallet informada na tela: o .zip baixado do Oracle Cloud ou
+    a pasta ja extraida. Vazio quando o banco nao exige mTLS."""
+    return str(info.get("wallet") or info.get("wallet_caminho") or "").strip()
+
+
+def _wallet_pasta(caminho):
+    """Devolve a PASTA da wallet, extraindo o zip quando necessario.
+
+    O python-oracledb em thin mode le arquivos soltos - tnsnames.ora para
+    resolver apelidos e ewallet.pem para a chave do cliente. Ele nao abre o
+    zip. Ja o SQLcl quer justamente o zip. Como a tela aceita os dois, aqui
+    normalizamos para pasta.
+
+    A extracao vai para uma pasta temporaria apagada quando o processo termina:
+    a wallet contem a chave privada do cliente e nao deve ficar espalhada pelo
+    disco depois que o teste acaba."""
+    if not caminho or not os.path.exists(caminho):
+        return ""
+    if os.path.isdir(caminho):
+        return caminho
+    if not caminho.lower().endswith(".zip"):
+        return ""
+    if caminho in _WALLET_EXTRAIDA:
+        return _WALLET_EXTRAIDA[caminho]
+
+    import atexit
+    import shutil
+    import tempfile
+    import zipfile
+
+    destino = tempfile.mkdtemp(prefix="t2m_wallet_")
+    try:
+        with zipfile.ZipFile(caminho) as z:
+            for membro in z.namelist():
+                if membro.endswith("/"):
+                    continue
+                # Zip Slip: um zip preparado por terceiros pode trazer nomes
+                # como ../../algo para escrever fora da pasta de destino. A
+                # wallet da Oracle e plana, entao descartar o caminho e
+                # ficar so com o nome do arquivo e seguro e suficiente.
+                nome = os.path.basename(membro)
+                if not nome:
+                    continue
+                with z.open(membro) as origem, \
+                        open(os.path.join(destino, nome), "wb") as saida:
+                    shutil.copyfileobj(origem, saida)
+    except Exception as e:
+        log(f">>> Nao consegui abrir a wallet: {type(e).__name__}: {e}")
+        shutil.rmtree(destino, ignore_errors=True)
+        return ""
+
+    _WALLET_EXTRAIDA[caminho] = destino
+    atexit.register(shutil.rmtree, destino, True)
+    return destino
+
+
+def _oracle_conexao_ja_pronta(valor):
+    """Diz se o texto ja e uma string de conexao completa, e nao so um host.
+
+    Tres formas aparecem no mundo real e nenhuma cabe em host+porta+servico:
+      (DESCRIPTION=(ADDRESS=...)...)   descritor TNS inteiro
+      tcps://servidor:1522/servico     URL com TLS (Autonomous Database)
+      servidor:1522/servico            EZConnect colado inteiro no campo host
+    A marca comum e a barra ou o parentese de abertura: nenhum nome de host
+    valido contem qualquer um dos dois."""
+    v = (valor or "").strip()
+    return bool(v) and (v.startswith("(") or "://" in v or "/" in v)
+
+
+def _oracle_dsn(info):
+    """Devolve (string_de_conexao, ja_veio_pronta).
+
+    O caso comum continua sendo a tela mandar host, porta e servico separados,
+    que viram o EZConnect classico host:porta/servico.
+
+    Mas Oracle na nuvem (Autonomous Database), RAC atras de SCAN e qualquer
+    ambiente que exija TLS nao cabem nesse formato - pedem tcps:// ou um
+    descritor TNS inteiro. Antes disso, colar uma dessas strings na tela
+    resultava em algo como 'tcps://x.com:1521/svc:1521/XEPDB1', que falhava
+    com erro de host invalido e mandava o operador conferir a coisa errada.
+    Quando o campo ja traz a string pronta, ela vai como veio."""
+    bruto = str(info.get("dsn") or info.get("conexao")
+                or info.get("host") or "").strip()
+    if _oracle_conexao_ja_pronta(bruto):
+        return bruto, True
+    # Com wallet, o que se informa normalmente nao e um host e sim o APELIDO
+    # do tnsnames.ora que veio dentro dela (t2mdb_high, t2mdb_low...). Apelido
+    # nao tem porta nem servico - montar host:porta/servico por cima dele
+    # produziria 't2mdb_high:1521/XEPDB1', que nao resolve em lugar nenhum.
+    if bruto and _caminho_wallet(info) and not (info.get("porta")
+                                                or info.get("servico")):
+        return bruto, True
+    host = bruto or "localhost"
+    porta = int(info.get("porta") or 1521)
+    servico = info.get("servico") or info.get("nome") or "XEPDB1"
+    return f"{host}:{porta}/{servico}", False
+
+
+def _oracle_rotulo(info):
+    """Como a conexao e descrita para a IA e para o log. Nunca traz senha:
+    o que chega aqui e host/porta/servico ou uma string que o operador colou,
+    entao passa pelo mascarador por seguranca."""
+    return _mascarar_credenciais(_oracle_dsn(info)[0])
+
+
 def _oracle_abrir_conexao(info):
     """Abre conexao Oracle em thin mode (driver oficial, sem Instant Client)."""
     import oracledb
-    host = info.get("host", "localhost")
-    porta = int(info.get("porta") or 1521)
-    servico = info.get("servico") or info.get("nome") or "XEPDB1"
     usuario = info.get("usuario", "")
     senha = info.get("senha", "")
-    dsn = f"{host}:{porta}/{servico}"
+    dsn, _ = _oracle_dsn(info)
+
+    extra = {}
+    pasta = _wallet_pasta(_caminho_wallet(info))
+    if pasta:
+        # config_dir      -> onde esta o tnsnames.ora, que resolve o apelido
+        # wallet_location -> onde esta o ewallet.pem, a chave do cliente
+        extra["config_dir"] = pasta
+        extra["wallet_location"] = pasta
+        senha_wallet = str(info.get("wallet_senha")
+                           or info.get("senha_wallet") or "")
+        if senha_wallet:
+            # So e exigida quando a wallet foi baixada com senha; a de
+            # auto-login (cwallet.sso) dispensa. Nunca vai para o log.
+            extra["wallet_password"] = senha_wallet
+        log(">>> Wallet carregada (conexao mTLS).")
+
     # tcp_connect_timeout: sem ele, um host errado deixava a conexao pendurada
     # ate o C++ matar o processo. Agora respeita o "timeout" de Configuracoes.
     return oracledb.connect(user=usuario, password=senha, dsn=dsn,
-                            tcp_connect_timeout=TIMEOUT_OPERACAO)
+                            tcp_connect_timeout=TIMEOUT_OPERACAO, **extra)
 
 
 def _oracle_ferramentas(somente_leitura):
@@ -1418,7 +1541,14 @@ def _dica_erro_oracle(codigo_e_texto):
         "ORA-12541": "nenhum listener na porta - o banco esta rodando?",
         "ORA-12514": "o listener nao conhece esse SERVICO",
         "ORA-12505": "o listener nao conhece esse SID",
-        "ORA-12154": "nao foi possivel resolver o destino",
+        "ORA-12154": ("nao foi possivel resolver o destino - com wallet, "
+                      "confira se o apelido existe no tnsnames.ora dela"),
+        "ORA-28759": "a wallet nao foi encontrada ou nao pode ser aberta",
+        "ORA-12578": "wallet invalida ou senha da wallet errada",
+        "ORA-29024": ("certificado do servidor nao validou - wallet de outro "
+                      "banco, ou faltando"),
+        "ORA-12506": ("o listener recusou: no Autonomous Database isso costuma "
+                      "ser IP fora da lista de acesso permitido"),
         "ORA-12263": "host, porta ou servico invalidos (o SQLcl caiu no tnsnames.ora)",
         "ORA-12170": "tempo esgotado ao conectar - host ou porta errados",
         "ORA-28000": "conta bloqueada",
@@ -1440,22 +1570,38 @@ def _salvar_conexao_sqlcl(cmd_base, info):
 
     Devolve (ok, detalhe). A senha vai pelo STDIN do SQLcl, nunca por argumento
     de linha de comando (que apareceria na lista de processos)."""
-    host = info.get("host", "localhost")
-    porta = str(info.get("porta") or 1521)
-    servico = info.get("servico") or info.get("nome") or "XEPDB1"
     usuario = info.get("usuario", "")
     senha = info.get("senha", "")
+    dsn, ja_pronta = _oracle_dsn(info)
+
+    # O // e o prefixo do EZConnect e so vale quando fomos nos que montamos
+    # host:porta/servico. Colocar // na frente de um tcps:// ou de um descritor
+    # TNS produz uma string invalida.
+    alvo = dsn if ja_pronta else f"//{dsn}"
+
+    # Wallet: o SQLcl, ao contrario do driver Python, quer o ZIP - e a forma
+    # oficial de aponta-lo e o "set cloudconfig", antes do conn. Quando o que
+    # temos e a pasta ja extraida, o caminho e a variavel TNS_ADMIN.
+    caminho_wallet = _caminho_wallet(info)
+    prefixo = ""
+    ambiente = None
+    if caminho_wallet and os.path.exists(caminho_wallet):
+        if os.path.isdir(caminho_wallet):
+            ambiente = dict(os.environ, TNS_ADMIN=caminho_wallet)
+        else:
+            prefixo = f'set cloudconfig "{caminho_wallet}"\n'
 
     # A senha vai entre aspas: sem isso, um caractere como @ ou / dentro dela
     # quebraria a string de conexao e o erro sairia como "usuario invalido",
     # mandando o operador conferir a credencial errada.
-    roteiro = (f'conn -save {NOME_CONEXAO_T2M} -savepwd '
-               f'{usuario}/"{senha}"@//{host}:{porta}/{servico}\n'
-               f'exit\n')
+    roteiro = (prefixo
+               + f'conn -save {NOME_CONEXAO_T2M} -savepwd '
+                 f'{usuario}/"{senha}"@{alvo}\n'
+                 f'exit\n')
     try:
         p = subprocess.run(cmd_base + ["/nolog"], input=roteiro, text=True,
                            capture_output=True, timeout=TIMEOUT_OPERACAO,
-                           errors="replace")
+                           errors="replace", env=ambiente)
         saida = ((p.stdout or "") + (p.stderr or ""))
 
         # ATENCAO: o SQLcl sai com codigo 0 MESMO QUANDO A CONEXAO FALHA.
@@ -1501,8 +1647,7 @@ async def executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
     modo = "SOMENTE LEITURA" if somente_leitura else "leitura e escrita"
     instrucao = (
         f"Voce esta conectado a um banco Oracle "
-        f"({info.get('host')}:{info.get('porta')}/"
-        f"{info.get('servico') or info.get('nome')}) em modo {modo}.\n\n"
+        f"({_oracle_rotulo(info)}) em modo {modo}.\n\n"
         f"Objetivo: {objetivo}\n\n"
         f"Use schema_information para entender o schema antes de consultar, e "
         f"sql_run para executar SQL. "
@@ -1625,7 +1770,7 @@ async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
 
     instrucao = (
         f"Voce esta conectado a um banco Oracle "
-        f"({info.get('host')}:{info.get('porta')}/{info.get('servico') or info.get('nome')}) "
+        f"({_oracle_rotulo(info)}) "
         f"em modo {'SOMENTE LEITURA' if somente_leitura else 'leitura e escrita'}.\n\n"
         f"Objetivo: {objetivo}\n\n"
         f"Use as ferramentas para explorar o schema e executar as consultas necessarias. "

@@ -29,7 +29,17 @@ import sys
 
 SERVICO_PADRAO = "FREEPDB1"      # PDB padrao do Oracle Database Free 23ai
 USUARIO_TESTE = "T2M_TESTE"
-SENHA_TESTE = "t2m_teste"
+# A senha precisa passar tambem nas regras do Autonomous Database, que sao mais
+# duras que as do Oracle local: 12 a 30 caracteres, com maiuscula, minuscula e
+# numero, e sem conter o nome do usuario. Por isso ela nao lembra "T2M_TESTE".
+SENHA_TESTE = "Aurora_2026_Qa"
+
+
+def _conexao_ja_pronta(valor):
+    """Mesma regra do agente_mcp.py: barra ou parentese de abertura so
+    aparecem em string de conexao completa, nunca num nome de host."""
+    v = (valor or "").strip()
+    return bool(v) and (v.startswith("(") or "://" in v or "/" in v)
 
 
 def secao(t):
@@ -47,21 +57,32 @@ def conectar():
         print("    pip install oracledb")
         return None, None
 
-    print("Dados do SEU Oracle local (o script so usa nesta maquina):")
+    print("Dados do SEU Oracle (o script so usa nesta maquina):")
+    print("  No host da para colar so o nome do servidor, ou a string de conexao")
+    print("  inteira - tcps://... ou (DESCRIPTION=...). E o formato que o")
+    print("  Autonomous Database usa; colando ela, porta e servico sao ignorados.")
     host = input("   host [localhost]: ").strip() or "localhost"
-    porta = input("   porta [1521]: ").strip() or "1521"
-    servico = input(f"   servico [{SERVICO_PADRAO}]: ").strip() or SERVICO_PADRAO
-    admin = input("   usuario admin [system]: ").strip() or "system"
+
+    if _conexao_ja_pronta(host):
+        print("   -> reconhecido como string de conexao completa")
+        dsn = host
+        padrao_admin = "admin"
+    else:
+        porta = input("   porta [1521]: ").strip() or "1521"
+        servico = input(f"   servico [{SERVICO_PADRAO}]: ").strip() or SERVICO_PADRAO
+        if not porta.isdigit():
+            print(f"\nPorta invalida: {porta!r}. Normalmente e 1521 "
+                  f"(1522 no Autonomous Database).")
+            return None, None
+        dsn = f"{host}:{porta}/{servico}"
+        padrao_admin = "system"
+
+    admin = input(f"   usuario admin [{padrao_admin}]: ").strip() or padrao_admin
     senha = getpass.getpass("   senha do admin (nao aparece): ")
 
-    if not porta.isdigit():
-        print(f"\nPorta invalida: {porta!r}. Normalmente e 1521.")
-        return None, None
     if not senha:
-        print("\nSenha em branco. E a senha que voce definiu no instalador do Oracle.")
+        print("\nSenha em branco. E a senha que voce definiu ao criar o banco.")
         return None, None
-
-    dsn = f"{host}:{porta}/{servico}"
     print(f"\nConectando em {dsn} como {admin} ...")
     try:
         conn = oracledb.connect(user=admin, password=senha, dsn=dsn)
@@ -100,7 +121,12 @@ def preparar(conn):
         f"BEGIN EXECUTE IMMEDIATE 'DROP USER {USUARIO_TESTE} CASCADE'; "
         f"EXCEPTION WHEN OTHERS THEN NULL; END;",
         f"CREATE USER {USUARIO_TESTE} IDENTIFIED BY {SENHA_TESTE}",
-        f"GRANT CONNECT, RESOURCE, UNLIMITED TABLESPACE TO {USUARIO_TESTE}",
+        f"GRANT CONNECT, RESOURCE TO {USUARIO_TESTE}",
+        # Duas formas de dar espaco: a primeira e a do Oracle local, a segunda
+        # a do Autonomous Database, onde a tablespace se chama DATA. Uma das
+        # duas vai falhar com AVISO em cada ambiente, e tudo bem.
+        f"GRANT UNLIMITED TABLESPACE TO {USUARIO_TESTE}",
+        f"ALTER USER {USUARIO_TESTE} QUOTA UNLIMITED ON DATA",
         f"""CREATE TABLE {USUARIO_TESTE}.CLIENTES (
               ID NUMBER PRIMARY KEY, NOME VARCHAR2(100), EMAIL VARCHAR2(120),
               CPF VARCHAR2(14), CRIADO_EM DATE DEFAULT SYSDATE)""",

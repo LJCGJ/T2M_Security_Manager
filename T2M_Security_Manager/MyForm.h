@@ -167,6 +167,11 @@ namespace T2MSecurityManager {
 		String^ dbNome;
 		String^ dbUsuario;
 		String^ dbSenhaCifrada;  // senha protegida com DPAPI
+		// Wallet do Oracle Cloud (.zip baixado do console, ou a pasta ja extraida).
+		// So aparece na tela quando o tipo e Oracle: e o unico banco que usa mTLS
+		// desse jeito. Vazio significa conexao comum, sem wallet.
+		String^ dbWalletCaminho;
+		String^ dbWalletSenhaCifrada;  // senha da wallet, tambem protegida com DPAPI
 		bool dbSomenteLeitura;
 		bool dbConfigurado;      // true quando o usuario preencheu a conexao
 
@@ -2596,7 +2601,11 @@ namespace T2MSecurityManager {
 	private: void AbrirFormularioConexaoBanco() {
 		Form^ f = gcnew Form();
 		f->Text = L"Conexao de Banco de Dados";
-		f->Size = System::Drawing::Size(460, 520);
+		// A altura cresceu para caber as duas linhas da wallet do Oracle. Elas
+		// ficam escondidas nos outros tipos de banco, entao sobra um espaco em
+		// branco - preferi isso a redimensionar a janela a cada troca de tipo,
+		// que fica visualmente inquieto.
+		f->Size = System::Drawing::Size(460, 660);
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
@@ -2623,7 +2632,7 @@ namespace T2MSecurityManager {
 
 		// Host
 		y += dy;
-		Label^ lblHost = gcnew Label(); lblHost->Text = L"Host / Servidor:";
+		Label^ lblHost = gcnew Label(); lblHost->Text = L"Host ou string:";
 		lblHost->Location = System::Drawing::Point(x1, y + 3); lblHost->AutoSize = true;
 		f->Controls->Add(lblHost);
 		TextBox^ txtHost = gcnew TextBox();
@@ -2675,6 +2684,47 @@ namespace T2MSecurityManager {
 		txtSenha->Text = (dbSenhaCifrada != nullptr) ? DesprotegerTexto(dbSenhaCifrada) : L"";
 		f->Controls->Add(txtSenha);
 
+		// Wallet do Oracle Cloud - so faz sentido para Oracle, entao comeca
+		// escondida e aparece quando o tipo selecionado e Oracle.
+		y += dy;
+		Label^ lblWallet = gcnew Label(); lblWallet->Text = L"Wallet (Oracle Cloud):";
+		lblWallet->Location = System::Drawing::Point(x1, y + 3); lblWallet->AutoSize = true;
+		f->Controls->Add(lblWallet);
+		TextBox^ txtWallet = gcnew TextBox();
+		txtWallet->Location = System::Drawing::Point(x2, y);
+		txtWallet->Size = System::Drawing::Size(larg - 34, alt);
+		txtWallet->Text = (dbWalletCaminho != nullptr) ? dbWalletCaminho : L"";
+		f->Controls->Add(txtWallet);
+		Button^ btnWallet = gcnew Button();
+		btnWallet->Text = L"...";
+		btnWallet->Location = System::Drawing::Point(x2 + larg - 30, y);
+		btnWallet->Size = System::Drawing::Size(30, alt + 2);
+		btnWallet->FlatStyle = FlatStyle::Flat;
+		btnWallet->Tag = txtWallet;
+		btnWallet->Click += gcnew System::EventHandler(this, &MyForm::escolherWallet_Click);
+		f->Controls->Add(btnWallet);
+
+		y += dy;
+		Label^ lblWalletSenha = gcnew Label(); lblWalletSenha->Text = L"Senha da wallet:";
+		lblWalletSenha->Location = System::Drawing::Point(x1, y + 3); lblWalletSenha->AutoSize = true;
+		f->Controls->Add(lblWalletSenha);
+		TextBox^ txtWalletSenha = gcnew TextBox();
+		txtWalletSenha->Location = System::Drawing::Point(x2, y);
+		txtWalletSenha->Size = System::Drawing::Size(larg, alt);
+		txtWalletSenha->UseSystemPasswordChar = true;
+		txtWalletSenha->Text = (dbWalletSenhaCifrada != nullptr)
+			? DesprotegerTexto(dbWalletSenhaCifrada) : L"";
+		f->Controls->Add(txtWalletSenha);
+
+		// O combo guarda os controles da wallet para poder mostra-los ou
+		// esconde-los sozinho quando o tipo de banco muda.
+		cli::array<Object^>^ ctlWallet = gcnew cli::array<Object^>(5);
+		ctlWallet[0] = lblWallet; ctlWallet[1] = txtWallet; ctlWallet[2] = btnWallet;
+		ctlWallet[3] = lblWalletSenha; ctlWallet[4] = txtWalletSenha;
+		cbTipo->Tag = ctlWallet;
+		cbTipo->SelectedIndexChanged += gcnew System::EventHandler(this, &MyForm::tipoBancoMudou_Handler);
+		AtualizarVisibilidadeWallet(cbTipo);   // estado inicial
+
 		// Somente leitura
 		y += dy;
 		CheckBox^ chkRO = gcnew CheckBox();
@@ -2686,14 +2736,14 @@ namespace T2MSecurityManager {
 		// Aviso de seguranca
 		y += 30;
 		Label^ lblAviso = gcnew Label();
-		lblAviso->Text = L"Dica: use um usuario de banco com privilegios minimos e, se possivel,\num ambiente de testes - evite credenciais de producao.";
-		lblAviso->Location = System::Drawing::Point(x1, y); lblAviso->Size = System::Drawing::Size(410, 34);
+		lblAviso->Text = L"No campo \"Host ou string\" voce pode colar a string de conexao inteira que\no servico de nuvem fornece - os demais campos passam a ser ignorados.\nDica: use um usuario com privilegios minimos e, se possivel, um ambiente\nde testes - evite credenciais de producao.";
+		lblAviso->Location = System::Drawing::Point(x1, y); lblAviso->Size = System::Drawing::Size(410, 62);
 		lblAviso->ForeColor = System::Drawing::Color::DimGray;
 		lblAviso->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(lblAviso);
 
-		// Botoes
-		y += 42;
+		// Botoes  (o aviso cresceu para 4 linhas, entao o espaco antes tambem)
+		y += 70;
 		Button^ btnOk = gcnew Button();
 		btnOk->Text = L"Salvar conexao";
 		btnOk->Location = System::Drawing::Point(x2, y); btnOk->Size = System::Drawing::Size(140, 30);
@@ -2711,11 +2761,12 @@ namespace T2MSecurityManager {
 
 		// Guarda campos + labels de erro no Tag (para o salvar validar e mostrar erros).
 		// Ordem: 0=cbTipo 1=txtHost 2=txtPorta 3=txtNome 4=txtUser 5=txtSenha 6=chkRO
-		//        7=errHost 8=errNome 9=errUser
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(10);
+		//        7=errHost 8=errNome 9=errUser 10=txtWallet 11=txtWalletSenha
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(12);
 		campos[0] = cbTipo; campos[1] = txtHost; campos[2] = txtPorta;
 		campos[3] = txtNome; campos[4] = txtUser; campos[5] = txtSenha;
 		campos[6] = chkRO; campos[7] = errHost; campos[8] = errNome; campos[9] = errUser;
+		campos[10] = txtWallet; campos[11] = txtWalletSenha;
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConexaoBanco_Click);
@@ -2752,6 +2803,81 @@ namespace T2MSecurityManager {
 		lblErro->Visible = false;
 	}
 
+		   // Diz se o texto ja e uma string de conexao completa em vez de um host.
+		   // Espelha _oracle_conexao_ja_pronta do agente_mcp.py: barra ou parentese
+		   // de abertura nunca aparecem num nome de host, so em tcps://...,
+		   // (DESCRIPTION=...) ou num EZConnect colado inteiro.
+	private: bool OracleConexaoJaPronta(String^ v) {
+		if (String::IsNullOrWhiteSpace(v)) return false;
+		String^ t = v->Trim();
+		return t->StartsWith(L"(") || t->Contains(L"://") || t->Contains(L"/");
+	}
+
+		   // Diz se o operador colou a string de conexao inteira no campo host,
+		   // em vez de preencher servidor, porta e nome separadamente. Todo
+		   // servico de nuvem (RDS, Azure, Atlas, Supabase, PlanetScale...)
+		   // entrega essa string pronta para copiar e colar, ja com usuario,
+		   // senha e parametros como sslmode - remontar a partir dos campos
+		   // perderia justamente esses parametros.
+		   // A marca e o "://" do esquema: nenhum nome de servidor contem isso.
+	private: bool StringDeConexaoColada(String^ v) {
+		return !String::IsNullOrWhiteSpace(v) && v->Trim()->Contains(L"://");
+	}
+
+		   // Esconde a senha dentro de uma string de conexao antes de mostra-la
+		   // na tela ou no chat. Sem isso, colar a string do Atlas no campo host
+		   // faria a senha do banco aparecer escrita no historico da conversa.
+		   // Usa a ULTIMA arroba, que e a regra de URL: senhas podem conter @.
+	private: String^ MascararCredenciaisTexto(String^ v) {
+		if (String::IsNullOrEmpty(v)) return v;
+		int esquema = v->IndexOf(L"://");
+		if (esquema < 0) return v;
+		int inicio = esquema + 3;
+		int arroba = v->LastIndexOf(L'@');
+		if (arroba <= inicio) return v;                 // sem usuario/senha
+		int doisPontos = v->IndexOf(L':', inicio);
+		if (doisPontos < 0 || doisPontos > arroba) return v;  // usuario sem senha
+		return v->Substring(0, doisPontos + 1) + L"***" + v->Substring(arroba);
+	}
+
+		   // Mostra ou esconde os campos da wallet conforme o tipo de banco.
+	private: void AtualizarVisibilidadeWallet(ComboBox^ cbTipo) {
+		if (cbTipo == nullptr) return;
+		cli::array<Object^>^ ctl = dynamic_cast<cli::array<Object^>^>(cbTipo->Tag);
+		if (ctl == nullptr) return;
+		bool ehOracle = (cbTipo->Text == L"Oracle");
+		for (int i = 0; i < ctl->Length; i++) {
+			Control^ c = dynamic_cast<Control^>(ctl[i]);
+			if (c != nullptr) c->Visible = ehOracle;
+		}
+	}
+
+	private: System::Void tipoBancoMudou_Handler(System::Object^ sender, System::EventArgs^ e) {
+		AtualizarVisibilidadeWallet(dynamic_cast<ComboBox^>(sender));
+	}
+
+		   // Escolhe o arquivo da wallet. A Oracle entrega um .zip; quem ja
+		   // extraiu pode digitar o caminho da pasta direto no campo.
+	private: System::Void escolherWallet_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = dynamic_cast<Button^>(sender);
+		if (b == nullptr) return;
+		TextBox^ destino = dynamic_cast<TextBox^>(b->Tag);
+		if (destino == nullptr) return;
+		OpenFileDialog^ dlg = gcnew OpenFileDialog();
+		dlg->Title = L"Selecione a wallet baixada do Oracle Cloud";
+		dlg->Filter = L"Wallet do Oracle Cloud (*.zip)|*.zip|Todos os arquivos (*.*)|*.*";
+		if (!String::IsNullOrWhiteSpace(destino->Text)) {
+			try {
+				String^ pasta = System::IO::Path::GetDirectoryName(destino->Text);
+				if (!String::IsNullOrWhiteSpace(pasta) && System::IO::Directory::Exists(pasta))
+					dlg->InitialDirectory = pasta;
+			}
+			catch (Exception^) { /* caminho invalido no campo: ignora e abre no padrao */ }
+		}
+		if (dlg->ShowDialog() == System::Windows::Forms::DialogResult::OK)
+			destino->Text = dlg->FileName;
+	}
+
 		   // Handlers auxiliares do formulario de conexao
 	private: System::Void fecharDialogo_Handler(System::Object^ sender, System::EventArgs^ e) {
 		Control^ c = safe_cast<Control^>(sender);
@@ -2762,6 +2888,9 @@ namespace T2MSecurityManager {
 		   // Ex.: postgres://user:senha@host:5432/db  |  mysql://user:senha@host:3306/db
 	private: String^ MontarDSN() {
 		if (!dbConfigurado) return L"";
+		// String colada pelo operador vai inteira: ela ja carrega usuario, senha,
+		// porta e parametros de TLS que os campos separados nao comportam.
+		if (StringDeConexaoColada(dbHost)) return dbHost->Trim();
 		String^ senha = String::IsNullOrEmpty(dbSenhaCifrada) ? L"" : DesprotegerTexto(dbSenhaCifrada);
 		String^ esquema;
 		String^ t = dbTipo;
@@ -2808,9 +2937,23 @@ namespace T2MSecurityManager {
 		Label^ errHost = safe_cast<Label^>(ctl[7]);
 		Label^ errNome = safe_cast<Label^>(ctl[8]);
 		Label^ errUser = safe_cast<Label^>(ctl[9]);
+		TextBox^ txtWallet = safe_cast<TextBox^>(ctl[10]);
+		TextBox^ txtWalletSenha = safe_cast<TextBox^>(ctl[11]);
 
 		String^ tipo = cbTipo->Text;
 		bool ehSQLite = (tipo == "SQLite");
+		// String de conexao inteira colada no campo host: usuario, senha, porta
+		// e nome do banco ja estao dentro dela, entao exigir esses campos de novo
+		// obrigaria o operador a repetir - ou pior, a digitar algo diferente do
+		// que esta na string, criando uma inconsistencia silenciosa.
+		bool colouStringCompleta = StringDeConexaoColada(txtHost->Text);
+		// Oracle com wallet, ou com uma string de conexao completa colada no
+		// campo host, dispensa porta e nome do banco: o apelido do tnsnames.ora
+		// ou o proprio descritor ja carregam tudo. Exigir "Nome do banco" nesse
+		// caso obrigaria o operador a inventar um valor que seria ignorado.
+		bool ehOracleSemServico = (tipo == "Oracle") &&
+			(!String::IsNullOrWhiteSpace(txtWallet->Text) ||
+			 OracleConexaoJaPronta(txtHost->Text));
 
 		// Limpa erros anteriores
 		LimparErroCampo(txtHost, errHost);
@@ -2819,9 +2962,13 @@ namespace T2MSecurityManager {
 
 		// Validacao inteligente por tipo:
 		//  - SQLite: exige so o "Nome do banco" (caminho do arquivo)
+		//  - String de conexao colada: exige so ela
 		//  - Demais: exigem Host, Usuario e Nome do banco
 		bool ok = true;
-		if (ehSQLite) {
+		if (colouStringCompleta && !ehSQLite) {
+			// Nada a validar alem de a string existir, o que ja e verdade aqui.
+		}
+		else if (ehSQLite) {
 			if (String::IsNullOrWhiteSpace(txtNome->Text)) {
 				MarcarErroCampo(txtNome, errNome, L"Informe o caminho do arquivo .db"); ok = false;
 			}
@@ -2834,7 +2981,7 @@ namespace T2MSecurityManager {
 			if (tipo != "MongoDB" && String::IsNullOrWhiteSpace(txtUser->Text)) {
 				MarcarErroCampo(txtUser, errUser, L"Campo obrigatorio"); ok = false;
 			}
-			if (String::IsNullOrWhiteSpace(txtNome->Text)) {
+			if (!ehOracleSemServico && String::IsNullOrWhiteSpace(txtNome->Text)) {
 				MarcarErroCampo(txtNome, errNome, L"Campo obrigatorio"); ok = false;
 			}
 		}
@@ -2846,6 +2993,12 @@ namespace T2MSecurityManager {
 		dbNome = txtNome->Text->Trim();
 		dbUsuario = txtUser->Text->Trim();
 		dbSenhaCifrada = String::IsNullOrEmpty(txtSenha->Text) ? L"" : ProtegerTexto(txtSenha->Text);
+		// A wallet so e guardada quando o tipo e Oracle: deixar um caminho de
+		// wallet pendurado ao trocar para PostgreSQL faria o JSON carregar uma
+		// informacao que nao se aplica.
+		dbWalletCaminho = (tipo == "Oracle") ? txtWallet->Text->Trim() : L"";
+		dbWalletSenhaCifrada = (tipo == "Oracle" && !String::IsNullOrEmpty(txtWalletSenha->Text))
+			? ProtegerTexto(txtWalletSenha->Text) : L"";
 		dbSomenteLeitura = chkRO->Checked;
 		dbConfigurado = true;
 
@@ -2853,8 +3006,10 @@ namespace T2MSecurityManager {
 		modoAtivo = 2; tipoAutomacao = 2;
 		AtualizarBotoesModo();
 		rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
+		// A senha some da mensagem: quando o operador cola a string de conexao
+		// inteira, ela vem com a senha dentro, e o chat fica gravado em disco.
 		rtbChat->AppendText(L">>> Conexao de banco configurada: " + dbTipo +
-			L" @ " + (dbHost == "" ? L"(arquivo)" : dbHost) +
+			L" @ " + (dbHost == "" ? L"(arquivo)" : MascararCredenciaisTexto(dbHost)) +
 			(dbSomenteLeitura ? L" [somente leitura]" : L" [leitura/escrita]") + L"\n");
 		rtbChat->AppendText(L">>> Descreva no chat o que quer consultar ou validar neste banco.\n\n");
 
@@ -3106,6 +3261,11 @@ namespace T2MSecurityManager {
 
 		   // Monta a connection string do MongoDB (mongodb://usuario:senha@host:porta/banco).
 	private: String^ MontarConnStringMongo() {
+		// O MongoDB Atlas - o servico de nuvem oficial do Mongo - usa
+		// "mongodb+srv://" e NAO leva porta: o endereco do servidor e descoberto
+		// por DNS. Nao da para chegar nesse formato a partir de host + porta,
+		// entao a string colada tem que ir inteira, sem remontagem.
+		if (StringDeConexaoColada(dbHost)) return dbHost->Trim();
 		String^ porta = String::IsNullOrWhiteSpace(dbPorta) ? L"27017" : dbPorta;
 		String^ senha = (dbSenhaCifrada != nullptr && dbSenhaCifrada != "")
 			? DesprotegerTexto(dbSenhaCifrada) : L"";
@@ -3120,14 +3280,33 @@ namespace T2MSecurityManager {
 
 		   // Monta o JSON de conexao Oracle (driver oficial, thin mode).
 	private: String^ MontarJsonOracle() {
-		String^ porta = String::IsNullOrWhiteSpace(dbPorta) ? L"1521" : dbPorta;
 		String^ senha = (dbSenhaCifrada != nullptr && dbSenhaCifrada != "")
 			? DesprotegerTexto(dbSenhaCifrada) : L"";
+		bool temWallet = !String::IsNullOrWhiteSpace(dbWalletCaminho);
+
+		// Quando o host ja e uma string de conexao completa, ou quando ha wallet
+		// e nenhum servico informado (o host e entao o apelido do tnsnames.ora),
+		// porta e servico NAO podem ir no JSON: o agente monta host:porta/servico
+		// sempre que os ve preenchidos, e produziria algo como
+		// "t2mdb_high:1521/" - um destino que nao existe.
+		bool conexaoPronta = OracleConexaoJaPronta(dbHost) ||
+			(temWallet && String::IsNullOrWhiteSpace(dbNome));
+
 		System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
 		sb->Append(L"{");
 		sb->Append(L"\"host\":\"" + EscaparJson(dbHost) + L"\",");
-		sb->Append(L"\"porta\":\"" + EscaparJson(porta) + L"\",");
-		sb->Append(L"\"servico\":\"" + EscaparJson(dbNome) + L"\",");
+		if (!conexaoPronta) {
+			String^ porta = String::IsNullOrWhiteSpace(dbPorta) ? L"1521" : dbPorta;
+			sb->Append(L"\"porta\":\"" + EscaparJson(porta) + L"\",");
+			sb->Append(L"\"servico\":\"" + EscaparJson(dbNome) + L"\",");
+		}
+		if (temWallet) {
+			sb->Append(L"\"wallet\":\"" + EscaparJson(dbWalletCaminho) + L"\",");
+			String^ senhaWallet = (dbWalletSenhaCifrada != nullptr && dbWalletSenhaCifrada != "")
+				? DesprotegerTexto(dbWalletSenhaCifrada) : L"";
+			if (senhaWallet != "")
+				sb->Append(L"\"wallet_senha\":\"" + EscaparJson(senhaWallet) + L"\",");
+		}
 		sb->Append(L"\"usuario\":\"" + EscaparJson(dbUsuario) + L"\",");
 		sb->Append(L"\"senha\":\"" + EscaparJson(senha) + L"\",");
 		sb->Append(L"\"somente_leitura\":\"" + (dbSomenteLeitura ? L"1" : L"0") + L"\"");
