@@ -792,7 +792,9 @@ namespace T2MSecurityManager {
 			// Carrega TODOS os tipos de script gerados pelo Copilot (antes so lia .py,
 			// entao scripts .robot/.sql/.txt sumiam da lista ao reabrir o app).
 			List<String^>^ todos = gcnew List<String^>();
-			array<String^>^ extensoes = gcnew array<String^>{ "*.py", "*.robot", "*.sql", "*.txt" };
+			array<String^>^ extensoes = gcnew array<String^>{
+				"*.py", "*.js", "*.mjs", "*.cjs", "*.ps1", "*.bat", "*.cmd",
+				"*.robot", "*.sql", "*.txt" };
 			for each (String ^ padrao in extensoes) {
 				for each (String ^ arquivo in Directory::GetFiles(pastaIA, padrao))
 					todos->Add(arquivo);
@@ -857,15 +859,72 @@ namespace T2MSecurityManager {
 		}
 	}
 
+	// Escolhe o interpretador pela EXTENSAO do script gerado pela IA.
+	// Antes o botao Executar chamava sempre "python": um .robot ou .js - que a
+	// propria ferramenta orientava a IA a gerar, e que a lista da tela principal
+	// exibia - morria com erro de sintaxe do Python. Agora a IA escolhe a
+	// linguagem que fizer sentido e o aplicativo se vira para roda-la.
+	//
+	// Contrato unico, igual para todas as linguagens: a URL vai em argv[1] e o
+	// token na variavel de ambiente T2M_AUTH_TOKEN (fora da linha de comando,
+	// para nao aparecer na lista de processos).
+	private: bool MontarComandoScript(String^ caminho, String^ url,
+		ProcessStartInfo^ psi, String^% motivo) {
+		String^ ext = Path::GetExtension(caminho);
+		ext = (ext == nullptr) ? L"" : ext->ToLowerInvariant();
+		String^ arq = L"\"" + caminho + L"\"";
+		String^ argUrl = L" \"" + url + L"\"";
+
+		if (ext == L".py") {
+			psi->FileName = L"python";
+			psi->Arguments = L"-u " + arq + argUrl;
+			return true;
+		}
+		if (ext == L".js" || ext == L".mjs" || ext == L".cjs") {
+			psi->FileName = L"node";
+			psi->Arguments = arq + argUrl;
+			return true;
+		}
+		if (ext == L".ps1") {
+			psi->FileName = L"powershell";
+			psi->Arguments = L"-NoProfile -ExecutionPolicy Bypass -File " + arq + argUrl;
+			return true;
+		}
+		if (ext == L".bat" || ext == L".cmd") {
+			psi->FileName = L"cmd.exe";
+			psi->Arguments = L"/c " + arq + argUrl;
+			return true;
+		}
+		if (ext == L".robot") {
+			// Robot Framework nao recebe argumento posicional: a URL vai como variavel.
+			psi->FileName = L"python";
+			psi->Arguments = L"-m robot --variable URL:\"" + url + L"\" " + arq;
+			return true;
+		}
+
+		motivo =
+			L"Scripts \"" + ext + L"\" nao sao executados diretamente pelo aplicativo.\n\n"
+			L"O aplicativo executa: .py (Python), .js (Node), .ps1 (PowerShell), "
+			L".bat/.cmd e .robot (Robot Framework).\n\n"
+			L"O arquivo continua salvo na sua biblioteca e pode ser usado fora do app - "
+			L"um .sql, por exemplo, roda no cliente do banco de dados.";
+		return false;
+	}
+
 	private: System::Void btnStart_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (lstScripts->SelectedIndex == -1 || txtUrl->Text->Length == 0) { MessageBox::Show(L"Preencha a URL e selecione um script!"); return; }
 		String^ caminho = scriptPaths[lstScripts->SelectedItem->ToString()];
 
 		txtOutput->Clear(); txtOutput->AppendText(">>> INICIANDO TESTE DINAMICO <<<\n");
 		ProcessStartInfo^ psi = gcnew ProcessStartInfo();
-		psi->FileName = "python";
-		// URL vai por argv[1]; TOKEN vai por variavel de ambiente (fora da linha de comando)
-		psi->Arguments = "-u \"" + caminho + "\" \"" + txtUrl->Text + "\"";
+		String^ motivoNaoExec = L"";
+		if (!MontarComandoScript(caminho, txtUrl->Text, psi, motivoNaoExec)) {
+			txtOutput->AppendText(motivoNaoExec + L"\n");
+			MessageBox::Show(motivoNaoExec, L"Script nao executavel pelo aplicativo",
+				MessageBoxButtons::OK, MessageBoxIcon::Information);
+			return;
+		}
+		// TOKEN vai por variavel de ambiente (fora da linha de comando)
 		psi->EnvironmentVariables["T2M_AUTH_TOKEN"] = txtToken->Text;
 		psi->UseShellExecute = false; psi->RedirectStandardOutput = true; psi->RedirectStandardError = true;
 		psi->CreateNoWindow = true; psi->StandardOutputEncoding = System::Text::Encoding::UTF8; psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
@@ -880,7 +939,11 @@ namespace T2MSecurityManager {
 			btnStart->Enabled = false; btnStop->Enabled = true;
 		}
 		catch (System::ComponentModel::Win32Exception^) {
-			MessageBox::Show(L"'python' nao encontrado no PATH. Instale o Python marcando 'Add to PATH'.", L"Erro");
+			MessageBox::Show(
+				L"'" + psi->FileName + L"' nao foi encontrado no PATH.\n\n"
+				L"Instale o interpretador correspondente (Python ou Node.js) marcando a "
+				L"opcao de adicionar ao PATH, ou gere o script em outra linguagem.",
+				L"Interpretador ausente", MessageBoxButtons::OK, MessageBoxIcon::Error);
 			ResetButtons();
 		}
 		catch (Exception^ ex) { MessageBox::Show(L"Erro: " + ex->Message); ResetButtons(); }

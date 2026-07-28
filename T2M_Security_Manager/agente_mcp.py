@@ -70,11 +70,16 @@ ARQUIVO_MEMORIA = _caminho_dados("memoria_chat.json")
 # Instrucao comum aos tres provedores sobre relatorio + escolha de linguagem do script.
 INSTRUCAO_LINGUAGEM = (
     "Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer "
-    "sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao "
-    "caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra "
-    "linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos "
-    "```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), "
-    "diga isso com clareza em vez de inventar um teste."
+    "sentido gerar um script que reproduza o teste, escolha LIVREMENTE a linguagem mais "
+    "adequada ao caso - nao ha linguagem obrigatoria. Como o aplicativo executa o script "
+    "direto pela tela principal, prefira uma das que ele sabe rodar: Python (.py), "
+    "JavaScript/Node (.js), PowerShell (.ps1), batch (.bat) ou Robot Framework (.robot). "
+    "Na duvida use Python, a unica garantidamente instalada. "
+    "CONTRATO DO SCRIPT: a URL alvo chega em argv[1] (no Robot Framework, na variavel "
+    "${URL}) e o token de autenticacao na variavel de ambiente T2M_AUTH_TOKEN - nunca "
+    "escreva credenciais no codigo. Coloque o codigo em blocos ```linguagem ... ```. "
+    "Se a pagina nao suportar o objetivo (ex.: nao existe login), diga isso com clareza "
+    "em vez de inventar um teste."
 )
 
 # ------------------------------------------------------------------ #
@@ -417,7 +422,7 @@ async def loop_anthropic(session, api_key, objetivo, mcp_tools):
 
     system = ("Voce e um assistente de automacao de testes, QA e seguranca. Use as "
               "ferramentas de navegador para cumprir o objetivo passo a passo, observando o "
-              "estado real da pagina antes de cada acao. Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos ```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), diga isso com clareza em vez de inventar um teste.")
+              "estado real da pagina antes de cada acao. " + INSTRUCAO_LINGUAGEM)
 
     mensagens = [{"role": "user", "content": objetivo}]
 
@@ -477,8 +482,8 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
     mensagens = [
         {"role": "system", "content": (
             "Voce e um Arquiteto de Automacao e Seguranca (QA). Use as ferramentas de "
-            "navegador para cumprir o objetivo, observando o estado real da pagina. Ao "
-            "Ao final, escreva um relatorio claro do que testou e do que encontrou. Se fizer sentido gerar um script que reproduza o teste, escolha a linguagem mais adequada ao caso, PREFERINDO Robot Framework ou Python (padrao de trabalho em QA); use outra linguagem apenas se for claramente mais apropriada. Coloque o codigo em blocos ```linguagem ... ```. Se a pagina nao suportar o objetivo (ex.: nao existe login), diga isso com clareza em vez de inventar um teste.")},
+            "navegador para cumprir o objetivo, observando o estado real da pagina. "
+            + INSTRUCAO_LINGUAGEM)},
         {"role": "user", "content": objetivo},
     ]
 
