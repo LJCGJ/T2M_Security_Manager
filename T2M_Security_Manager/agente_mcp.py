@@ -30,6 +30,7 @@ import os
 import json
 import asyncio
 import platform
+import re
 import time
 
 # Arquivo de memoria COMPARTILHADO com o chat (gerador_ia.py). Ambos usam o
@@ -935,6 +936,84 @@ def _oracle_ferramentas(somente_leitura):
     ]
 
 
+# ------------------------------------------------------------------ #
+# Validacao de SQL para o modo SOMENTE LEITURA (Oracle)               #
+# ------------------------------------------------------------------ #
+# A checagem antiga olhava apenas o PRIMEIRO token (SELECT ou WITH) e era
+# contornavel. O Oracle 12.1+ aceita a clausula WITH FUNCTION, e uma funcao
+# com PRAGMA AUTONOMOUS_TRANSACTION executa DML e COMITA dentro de um SELECT:
+#
+#   WITH FUNCTION z RETURN NUMBER IS PRAGMA AUTONOMOUS_TRANSACTION;
+#   BEGIN EXECUTE IMMEDIATE 'DELETE FROM CLIENTES'; COMMIT; RETURN 1; END;
+#   SELECT z FROM dual
+#
+# O primeiro token e WITH, entao passava. Pior: o rstrip(";") aplicado antes
+# AJUDAVA o ataque, porque e justamente o ';' final que faria essa forma falhar.
+#
+# ATENCAO: isto e barreira em profundidade, NAO a defesa principal. A defesa
+# real e conectar com um usuario Oracle que tenha apenas GRANT SELECT. Um
+# parser sempre perde para um banco tao expressivo quanto o Oracle.
+_ORACLE_PROIBIDO = (
+    (r"\bFUNCTION\b", "declaracao de FUNCTION"),
+    (r"\bPROCEDURE\b", "declaracao de PROCEDURE"),
+    (r"\bPRAGMA\b", "PRAGMA"),
+    (r"\bAUTONOMOUS_TRANSACTION\b", "transacao autonoma"),
+    (r"\bEXECUTE\s+IMMEDIATE\b", "EXECUTE IMMEDIATE"),
+    (r"\bFOR\s+UPDATE\b", "SELECT ... FOR UPDATE (trava as linhas)"),
+    (r"\bINSERT\b", "INSERT"),
+    (r"\bUPDATE\b", "UPDATE"),
+    (r"\bDELETE\b", "DELETE"),
+    (r"\bMERGE\b", "MERGE"),
+    (r"\bDROP\b", "DROP"),
+    (r"\bALTER\b", "ALTER"),
+    (r"\bCREATE\b", "CREATE"),
+    (r"\bTRUNCATE\b", "TRUNCATE"),
+    (r"\bGRANT\b", "GRANT"),
+    (r"\bREVOKE\b", "REVOKE"),
+    (r"\bCOMMIT\b", "COMMIT"),
+    (r"\bROLLBACK\b", "ROLLBACK"),
+    (r"\bSAVEPOINT\b", "SAVEPOINT"),
+    (r"\bBEGIN\b", "bloco PL/SQL"),
+    (r"\bDECLARE\b", "bloco PL/SQL"),
+    (r"\bINTO\b", "INTO"),
+    (r"\bDBMS_\w+", "pacote DBMS_*"),
+    (r"\bUTL_\w+", "pacote UTL_*"),
+)
+
+
+def _sql_analisavel(sql):
+    """Devolve o SQL com comentarios, literais de texto e identificadores entre
+    aspas trocados por espaco. Analisar essa versao evita dois erros opostos:
+    um literal 'DELETE' gerar falso positivo, e um comentario esconder codigo."""
+    s = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)              # /* comentario */
+    s = re.sub(r"--[^\n]*", " ", s)                              # -- comentario
+    s = re.sub(r"q'(.).*?\1'", " ", s, flags=re.S | re.I)        # q'[...]' do Oracle
+    s = re.sub(r"'(?:''|[^'])*'", " ", s)                        # 'literal'
+    s = re.sub(r'"[^"]*"', " ", s)                               # "identificador"
+    return s
+
+
+def _validar_sql_somente_leitura(sql):
+    """Valida um SQL no modo somente-leitura. Devolve (ok, motivo)."""
+    limpo = _sql_analisavel(sql).strip().rstrip(";").strip()
+
+    if not limpo:
+        return False, "SQL vazio (ou so comentarios)"
+
+    if ";" in limpo:
+        return False, "varios comandos numa unica chamada (';' no meio)"
+
+    primeiro = limpo.split()[0].upper()
+    if primeiro not in ("SELECT", "WITH"):
+        return False, f"'{primeiro}' nao e consulta (apenas SELECT/WITH)"
+
+    for padrao, rotulo in _ORACLE_PROIBIDO:
+        if re.search(padrao, limpo, flags=re.I):
+            return False, f"construcao proibida em somente-leitura: {rotulo}"
+
+    return True, ""
+
+
 def _oracle_executar_ferramenta(conn, somente_leitura, nome, args, limite=None):
     """Executa uma ferramenta Oracle e devolve um dict com o resultado."""
     if limite is None:
@@ -944,11 +1023,9 @@ def _oracle_executar_ferramenta(conn, somente_leitura, nome, args, limite=None):
     # Validar aqui (e nao depois de abrir cursor) garante que um comando
     # destrutivo seja recusado mesmo que algo mais falhe no caminho.
     if nome == "executar_sql" and somente_leitura:
-        sql_bruto = (args.get("sql") or "").strip().rstrip(";")
-        primeiro = sql_bruto.split()[0].upper() if sql_bruto.split() else ""
-        if primeiro not in ("SELECT", "WITH"):
-            return {"erro": "Conexao em modo somente-leitura: apenas SELECT e permitido. "
-                            f"Comando recusado: {primeiro or '(vazio)'}"}
+        ok, motivo = _validar_sql_somente_leitura(args.get("sql") or "")
+        if not ok:
+            return {"erro": f"Conexao em modo somente-leitura: comando recusado ({motivo})."}
 
     if conn is None:
         return {"erro": "Sem conexao ativa com o banco."}
@@ -982,6 +1059,17 @@ def _oracle_executar_ferramenta(conn, somente_leitura, nome, args, limite=None):
             # (a trava de somente-leitura ja foi aplicada no inicio da funcao)
             cur.execute(sql)
             if cur.description is None:
+                # Ultima barreira: em somente-leitura nao existe caso legitimo de
+                # comando sem linhas de retorno. Se algo escapou da validacao,
+                # desfaz em vez de comitar.
+                if somente_leitura:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    cur.close()
+                    return {"erro": "Comando sem retorno recusado em modo somente-leitura "
+                                    "(a alteracao foi desfeita)."}
                 conn.commit()
                 cur.close()
                 return {"ok": True, "mensagem": "Comando executado (sem linhas de retorno)."}

@@ -682,8 +682,8 @@ namespace T2MSecurityManager {
 	private: System::Void workerLogin_Completed(System::Object^ sender, System::ComponentModel::RunWorkerCompletedEventArgs^ e) {
 		String^ estado = (e->Error != nullptr) ? (L"EXCECAO:" + e->Error->Message)
 			: safe_cast<String^>(e->Result);
-		String^ output = (bufLoginSaida != nullptr) ? bufLoginSaida->ToString() : L"";
-		String^ erros = (bufLoginErro != nullptr) ? bufLoginErro->ToString() : L"";
+		String^ output = LerBufferSeguro(bufLoginSaida);
+		String^ erros = LerBufferSeguro(bufLoginErro);
 
 		if (estado == "ERRO_PYTHON") {
 			txtOutput->AppendText("\n>>> ERRO: 'python' nao encontrado no PATH.\n");
@@ -714,18 +714,22 @@ namespace T2MSecurityManager {
 
 	// Saida do script de token: guarda no buffer (o token vem por aqui).
 	private: void procLoginSaida_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
-		if (e->Data == nullptr || bufLoginSaida == nullptr) return;
-		System::Threading::Monitor::Enter(bufLoginSaida);
-		try { bufLoginSaida->AppendLine(e->Data); }
-		finally { System::Threading::Monitor::Exit(bufLoginSaida); }
+		// Copia local do campo - ver a explicacao em procSaida_Handler.
+		System::Text::StringBuilder^ buf = bufLoginSaida;
+		if (e->Data == nullptr || buf == nullptr) return;
+		System::Threading::Monitor::Enter(buf);
+		try { buf->AppendLine(e->Data); }
+		finally { System::Threading::Monitor::Exit(buf); }
 	}
 
 	// Mensagens de progresso: guarda no buffer E mostra na tela ao vivo.
 	private: void procLoginErro_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
-		if (e->Data == nullptr || bufLoginErro == nullptr) return;
-		System::Threading::Monitor::Enter(bufLoginErro);
-		try { bufLoginErro->AppendLine(e->Data); }
-		finally { System::Threading::Monitor::Exit(bufLoginErro); }
+		// Copia local do campo - ver a explicacao em procSaida_Handler.
+		System::Text::StringBuilder^ buf = bufLoginErro;
+		if (e->Data == nullptr || buf == nullptr) return;
+		System::Threading::Monitor::Enter(buf);
+		try { buf->AppendLine(e->Data); }
+		finally { System::Threading::Monitor::Exit(buf); }
 		// Atualiza a interface pela thread correta
 		if (this->IsDisposed || !this->IsHandleCreated) return;
 		try { this->BeginInvoke(gcnew Action<String^>(this, &MyForm::AppendLog), e->Data); }
@@ -916,19 +920,39 @@ namespace T2MSecurityManager {
 		   // --- MOTOR DE CHAT COPILOT ---
 		   // =========================================================================
 
+	// Le um StringBuilder compartilhado sob o MESMO lock que os handlers usam
+	// para escrever. StringBuilder nao e thread-safe: chamar ToString() enquanto
+	// um handler faz AppendLine pode devolver texto duplicado ou faltando, ou
+	// lancar excecao de indice enquanto os buffers internos sao realocados.
+	private: String^ LerBufferSeguro(System::Text::StringBuilder^ buf) {
+		if (buf == nullptr) return String::Empty;
+		System::Threading::Monitor::Enter(buf);
+		try { return buf->ToString(); }
+		finally { System::Threading::Monitor::Exit(buf); }
+	}
+
 	// Recebe cada linha da saida do Python assim que ela e produzida.
 	private: void procSaida_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
-		if (e->Data == nullptr || bufSaidaProc == nullptr) return;
-		System::Threading::Monitor::Enter(bufSaidaProc);
-		try { bufSaidaProc->AppendLine(e->Data); }
-		finally { System::Threading::Monitor::Exit(bufSaidaProc); }
+		// Captura o campo UMA unica vez numa variavel local. Ler o campo no Enter
+		// e de novo no Exit era uma armadilha: se a thread da interface reatribuir
+		// o campo no meio (ao iniciar outra automacao, ou ao buscar modelos), o
+		// Enter trava o objeto ANTIGO e o Exit tenta destravar o NOVO - a thread
+		// nao e dona desse lock, entao vem SynchronizationLockException dentro de
+		// um callback de ThreadPool, sem handler, e o CLR derruba o processo.
+		System::Text::StringBuilder^ buf = bufSaidaProc;
+		if (e->Data == nullptr || buf == nullptr) return;
+		System::Threading::Monitor::Enter(buf);
+		try { buf->AppendLine(e->Data); }
+		finally { System::Threading::Monitor::Exit(buf); }
 	}
 
 	private: void procErro_Handler(System::Object^ sender, DataReceivedEventArgs^ e) {
-		if (e->Data == nullptr || bufErroProc == nullptr) return;
-		System::Threading::Monitor::Enter(bufErroProc);
-		try { bufErroProc->AppendLine(e->Data); }
-		finally { System::Threading::Monitor::Exit(bufErroProc); }
+		// Copia local do campo - ver a explicacao em procSaida_Handler.
+		System::Text::StringBuilder^ buf = bufErroProc;
+		if (e->Data == nullptr || buf == nullptr) return;
+		System::Threading::Monitor::Enter(buf);
+		try { buf->AppendLine(e->Data); }
+		finally { System::Threading::Monitor::Exit(buf); }
 
 		// Mostra o progresso NA HORA. O agente escreve cada passo aqui; sem isso,
 		// uma automacao de varios minutos parece travada ate terminar.
@@ -1003,7 +1027,7 @@ namespace T2MSecurityManager {
 			// podia faltar no buffer e a resposta chegava truncada ao usuario.
 			p->WaitForExit();
 
-			String^ output = bufSaidaProc->ToString();
+			String^ output = LerBufferSeguro(bufSaidaProc);
 			int startIdx = output->IndexOf("CHAT_MSG_INICIO");
 			int endIdx = output->IndexOf("CHAT_MSG_FIM");
 			if (startIdx != -1 && endIdx != -1) {
@@ -1069,7 +1093,7 @@ namespace T2MSecurityManager {
 			// podia faltar no buffer e a resposta chegava truncada ao usuario.
 			p->WaitForExit();
 
-			String^ output = bufSaidaProc->ToString();
+			String^ output = LerBufferSeguro(bufSaidaProc);
 			int i = output->IndexOf("CHAT_MSG_INICIO");
 			int f = output->IndexOf("CHAT_MSG_FIM");
 			if (i != -1 && f != -1) return output->Substring(i + 15, f - (i + 15))->Trim();
@@ -1906,11 +1930,11 @@ namespace T2MSecurityManager {
 			// podia faltar no buffer e a resposta chegava truncada ao usuario.
 			p->WaitForExit();
 
-			String^ saida = bufSaidaProc->ToString();
+			String^ saida = LerBufferSeguro(bufSaidaProc);
 			int i = saida->IndexOf("MODELOS_INICIO");
 			int f2 = saida->IndexOf("MODELOS_FIM");
 			if (i < 0 || f2 < 0) {
-				String^ motivo = bufErroProc->ToString()->Trim();
+				String^ motivo = LerBufferSeguro(bufErroProc)->Trim();
 				MessageBox::Show(
 					L"Nao foi possivel obter a lista de modelos.\n\n" +
 					(String::IsNullOrWhiteSpace(motivo) ? L"(sem detalhes)" : motivo),
