@@ -161,6 +161,54 @@ MODELO_OPENAI = _CFG.get("modelo_openai", "gpt-4o-mini").strip() or "gpt-4o-mini
 MODELO_GEMINI = _CFG.get("modelo_gemini", "").strip()
 
 
+def _e_erro_de_modelo(nome_erro, msg):
+    """Indica erro de MODELO (inexistente, aposentado, sem acesso) - vale trocar
+    de modelo em vez de desistir da automacao."""
+    m = (msg or "").lower()
+    return ("NotFound" in nome_erro or "InvalidArgument" in nome_erro
+            or "PermissionDenied" in nome_erro
+            or "404" in m or "not found" in m or "does not exist" in m
+            or "is not supported" in m or "not supported for" in m)
+
+
+def _texto_do_modelo(resp):
+    """Extrai o texto GERADO PELO MODELO de uma resposta do Gemini.
+
+    Importante nao confundir com a saida das ferramentas: guardar o resultado
+    cru de um call_tool como se fosse texto do modelo fazia o usuario receber um
+    snapshot do Playwright (ou o JSON cru do HTTP/Oracle) como se fosse o laudo
+    final quando o limite de passos estourava - e isso ainda ia parar no
+    memoria_chat.json como fala do assistente, contaminando os proximos turnos."""
+    try:
+        partes = []
+        for cand in resp.candidates:
+            for parte in cand.content.parts:
+                txt = getattr(parte, "text", None)
+                if txt and txt.strip():
+                    partes.append(txt.strip())
+        return "\n".join(partes).strip()
+    except Exception:
+        return ""
+
+
+def _relatorio_parcial_gemini(chat, ultimo_texto, sufixo="[Limite de passos atingido.]"):
+    """Ao esgotar os passos, pede ao modelo um fechamento do que ja apurou, em vez
+    de devolver um trecho solto como se fosse o relatorio final."""
+    try:
+        resp = chat.send_message(
+            "Voce atingiu o limite de passos desta automacao. NAO chame mais "
+            "ferramentas. Escreva agora o relatorio final do que voce testou, do "
+            "que observou e do que ficou pendente.")
+        texto = _texto_do_modelo(resp)
+        if texto:
+            return texto + "\n\n" + sufixo
+    except Exception as e:
+        log(f">>> Nao foi possivel pedir o relatorio parcial: {type(e).__name__}: {e}")
+    if ultimo_texto:
+        return ultimo_texto + "\n\n" + sufixo
+    return "Limite de iteracoes atingido antes de concluir o objetivo."
+
+
 def _modelos_gemini():
     """Modelos Gemini a tentar, com o escolhido em Configuracoes na frente.
     Antes os modos MCP usavam uma lista fixa e ignoravam a configuracao."""
@@ -182,6 +230,27 @@ def responder(texto):
     print("CHAT_MSG_INICIO")
     print(texto)
     print("CHAT_MSG_FIM")
+
+
+def _detalhar_excecao(e):
+    """Desempacota ExceptionGroup/TaskGroup para mostrar a causa REAL.
+
+    O anyio (usado pelo cliente MCP) embrulha os erros num grupo, entao str(e)
+    vira "unhandled errors in a TaskGroup (1 sub-exception)" e a causa
+    verdadeira - por exemplo "Authentication failed" - fica escondida no
+    traceback, onde o usuario nao ve."""
+    reais = []
+
+    def _coletar(exc):
+        sub_excecoes = getattr(exc, "exceptions", None)
+        if sub_excecoes:
+            for x in sub_excecoes:
+                _coletar(x)
+        else:
+            reais.append(f"{type(exc).__name__}: {exc}")
+
+    _coletar(e)
+    return " | ".join(reais) if reais else f"{type(e).__name__}: {e}"
 
 
 def _mascarar_credenciais(texto):
@@ -392,25 +461,21 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     # No tier gratuito o limite por minuto e baixo (ex.: 5-10 req/min). Uma automacao
     # MCP faz varias chamadas seguidas, entao: (1) preferimos modelos com mais folga,
     # (2) pausamos entre passos, (3) tratamos ResourceExhausted com mensagem clara.
+    # O fallback de modelo acontece no ENVIO, nao na construcao: GenerativeModel()
+    # so guarda o nome, nao faz rede nem valida nada, entao o try/except que
+    # existia aqui NUNCA disparava - a lista de alternativas era codigo morto e o
+    # primeiro nome era sempre o usado. No dia em que o Google aposentasse esse
+    # primeiro modelo, todo usuario de Gemini quebraria sem fallback nenhum.
     modelos_tentar = _modelos_gemini()
-    model = None
-    erro_modelo = ""
-    for nome_m in modelos_tentar:
-        try:
-            model = genai.GenerativeModel(
-                nome_m,
-                tools=tools_gemini,
-                system_instruction=system,
-            )
-            log(f">>> [Gemini] Usando modelo {nome_m}")
-            break
-        except Exception as e:
-            erro_modelo = f"{nome_m}: {type(e).__name__}: {e}"
-            continue
-    if model is None:
-        return f"Falha ao registrar ferramentas no Gemini: {erro_modelo}"
+    idx_modelo = 0
 
-    chat = model.start_chat()
+    def _abrir_chat(i):
+        m = genai.GenerativeModel(modelos_tentar[i], tools=tools_gemini,
+                                  system_instruction=system)
+        log(f">>> [Gemini] Usando modelo {modelos_tentar[i]}")
+        return m.start_chat()
+
+    chat = _abrir_chat(idx_modelo)
     proxima_mensagem = objetivo
     ultimo_texto = ""          # guarda o ultimo texto util, para devolver algo se travar
     navegador_morto = False
@@ -421,23 +486,31 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
         if passo > 0:
             time.sleep(4)
 
-        # --- Envia a mensagem, com RETRY em caso de MALFORMED / cota ---
+        # --- Envia a mensagem, com RETRY para cota / MALFORMED / modelo ruim ---
+        # Cada motivo tem o seu proprio contador: antes um unico "tentativa < 2"
+        # era dividido entre eles, entao um par de erros de cota consumia as
+        # chances de recuperar uma chamada malformada (e vice-versa).
         resp = None
-        for tentativa in range(3):  # tentativas extras para cota (espera e refaz)
+        tentativas_cota = 0
+        tentativas_malformada = 0
+        tentativas_totais = 0
+        while resp is None and tentativas_totais < 8:   # teto de seguranca
+            tentativas_totais += 1
             try:
                 resp = chat.send_message(proxima_mensagem)
-                break
             except Exception as e:
                 nome_erro = type(e).__name__
                 msg = str(e)
-                # Cota por minuto estourada: espera e tenta de novo
+
+                # 1) Cota por minuto estourada: espera e refaz.
                 if ("ResourceExhausted" in nome_erro or "429" in msg
                         or "quota" in msg.lower() or "exhausted" in msg.lower()):
-                    if tentativa < 2:
-                        log(f">>> Limite por minuto atingido. Aguardando 30s para retomar (tentativa {tentativa+1})...")
+                    if tentativas_cota < 2:
+                        tentativas_cota += 1
+                        log(f">>> Limite por minuto atingido. Aguardando 30s para retomar "
+                            f"(tentativa {tentativas_cota})...")
                         time.sleep(30)
                         continue
-                    # Esgotou as tentativas de cota
                     if ultimo_texto:
                         return (ultimo_texto + "\n\n[Automacao interrompida: limite de uso "
                                 "da IA (cota gratuita por minuto) atingido. Aguarde 1 minuto "
@@ -445,19 +518,40 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
                     return ("Limite de uso da IA atingido (cota gratuita: poucas requisicoes "
                             "por minuto). Aguarde 1-2 minutos e tente de novo, ou ative billing "
                             "no Google AI Studio para limites maiores.")
+
+                # 2) Modelo inexistente/aposentado/sem acesso: cai para o proximo.
+                #    So no primeiro passo - depois ja existe historico de conversa,
+                #    que se perderia ao recriar o chat.
+                if (passo == 0 and idx_modelo + 1 < len(modelos_tentar)
+                        and _e_erro_de_modelo(nome_erro, msg)):
+                    idx_modelo += 1
+                    log(f">>> Modelo indisponivel ({nome_erro}); tentando "
+                        f"{modelos_tentar[idx_modelo]}...")
+                    chat = _abrir_chat(idx_modelo)
+                    proxima_mensagem = objetivo
+                    continue
+
+                # 3) Chamada malformada: pede para refazer de forma mais simples.
                 if "MALFORMED_FUNCTION_CALL" in msg or "finish_reason" in msg:
-                    log(f">>> MALFORMED na tentativa {tentativa+1}, tentando de novo...")
-                    if tentativa < 2:
+                    if tentativas_malformada < 2:
+                        tentativas_malformada += 1
+                        log(f">>> MALFORMED na tentativa {tentativas_malformada}, refazendo...")
                         proxima_mensagem = ("A ultima acao falhou por chamada malformada. "
                                             "Refaca chamando UMA ferramenta simples por vez.")
                         continue
-                # Erro que nao da para recuperar
+
+                # 4) Erro que nao da para recuperar
                 if ultimo_texto:
                     return (ultimo_texto + "\n\n[Nota: a automacao foi interrompida por "
                             f"instabilidade do modelo: {nome_erro}]")
                 return f"O modelo Gemini falhou ({nome_erro}). Tente de novo ou use outra chave/IA."
         if resp is None:
             break
+
+        # Guarda o texto do MODELO (nao a saida das ferramentas) como progresso util.
+        texto_parcial = _texto_do_modelo(resp)
+        if texto_parcial:
+            ultimo_texto = texto_parcial
 
         # --- Coleta as chamadas de ferramenta pedidas ---
         chamadas = []
@@ -485,8 +579,9 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
             try:
                 r = await session.call_tool(fc.name, args)
                 conteudo = texto_do_resultado_mcp(r)
-                if conteudo and len(conteudo) > 40:
-                    ultimo_texto = conteudo  # guarda progresso util
+                # NAO guarda o resultado da ferramenta em ultimo_texto: ele seria
+                # devolvido como se fosse o relatorio final. O progresso util vem
+                # do texto do modelo, capturado logo apos o send_message.
             except Exception as e:
                 # Navegador fechado / MCP caiu: nao adianta continuar
                 emsg = str(e)
@@ -506,8 +601,7 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
 
         proxima_mensagem = respostas_fc
 
-    return (ultimo_texto + "\n\n[Limite de passos atingido.]") if ultimo_texto else \
-           "Limite de iteracoes atingido antes de concluir o objetivo."
+    return _relatorio_parcial_gemini(chat, ultimo_texto)
 
 
 # ================================================================== #
@@ -600,18 +694,7 @@ async def executar(api_key, url_alvo, objetivo):
     except BaseException as e:
         # ExceptionGroup (TaskGroup) esconde a causa real; desempacota para mostrar.
         import traceback
-        reais = []
-
-        def _coletar(exc):
-            sub = getattr(exc, "exceptions", None)
-            if sub:
-                for x in sub:
-                    _coletar(x)
-            else:
-                reais.append(f"{type(exc).__name__}: {exc}")
-
-        _coletar(e)
-        detalhe = " | ".join(reais) if reais else f"{type(e).__name__}: {e}"
+        detalhe = _detalhar_excecao(e)
         log("=== TRACEBACK COMPLETO ===")
         log(traceback.format_exc())
         responder(f"ERRO no agente MCP: {detalhe}")
@@ -703,18 +786,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
         responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
     except BaseException as e:
         import traceback
-        reais = []
-
-        def _coletar(exc):
-            sub = getattr(exc, "exceptions", None)
-            if sub:
-                for x in sub:
-                    _coletar(x)
-            else:
-                reais.append(f"{type(exc).__name__}: {exc}")
-
-        _coletar(e)
-        detalhe = _mascarar_credenciais(" | ".join(reais) if reais else f"{type(e).__name__}: {e}")
+        detalhe = _mascarar_credenciais(_detalhar_excecao(e))
         log("=== TRACEBACK COMPLETO (banco) ===")
         log(traceback.format_exc())
         # Mensagem amigavel para erros comuns de conexao
@@ -923,6 +995,9 @@ async def _loop_api_gemini(api_key, instrucao, schema_http):
             if "ResourceExhausted" in type(e).__name__ or "429" in str(e):
                 return (ultimo or "") + "\n[Limite de uso da IA atingido. Aguarde 1-2 min.]"
             return f"O modelo Gemini falhou: {type(e).__name__}"
+        texto_parcial = _texto_do_modelo(resp)
+        if texto_parcial:
+            ultimo = texto_parcial
         chamadas = []
         try:
             for cand in resp.candidates:
@@ -942,12 +1017,12 @@ async def _loop_api_gemini(api_key, instrucao, schema_http):
             args = dict(fc.args) if fc.args else {}
             r = _fazer_requisicao_http(args.get("metodo"), args.get("url"),
                                        args.get("headers"), args.get("body"))
-            ultimo = json.dumps(r, ensure_ascii=False)[:2000]
             log(f">>> [Gemini] HTTP {args.get('metodo')} {args.get('url')}")
             respostas.append(genai.protos.Part(function_response=genai.protos.FunctionResponse(
                 name=fc.name, response={"resultado": r})))
         proxima = respostas
-    return (ultimo or "") + "\n[Limite de passos atingido no teste de API.]"
+    return _relatorio_parcial_gemini(chat, ultimo,
+                                     "[Limite de passos atingido no teste de API.]")
 
 
 def _oracle_abrir_conexao(info):
@@ -1293,6 +1368,9 @@ async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
             if "ResourceExhausted" in type(e).__name__ or "429" in str(e):
                 return (ultimo or "") + "\n[Limite de uso da IA atingido. Aguarde 1-2 min.]"
             return f"O modelo Gemini falhou: {type(e).__name__}"
+        texto_parcial = _texto_do_modelo(resp)
+        if texto_parcial:
+            ultimo = texto_parcial
         chamadas = []
         try:
             for cand in resp.candidates:
@@ -1311,11 +1389,10 @@ async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
         for fc in chamadas:
             args = dict(fc.args) if fc.args else {}
             r = despachar(fc.name, args)
-            ultimo = json.dumps(r, ensure_ascii=False, default=str)[:2000]
             respostas.append(genai.protos.Part(function_response=genai.protos.FunctionResponse(
                 name=fc.name, response={"resultado": r})))
         proxima = respostas
-    return (ultimo or "") + "\n[Limite de passos atingido.]"
+    return _relatorio_parcial_gemini(chat, ultimo)
 
 
 async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
@@ -1399,10 +1476,21 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
                 responder(resultado)
     except FileNotFoundError:
         responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
-    except Exception as e:
+    except BaseException as e:
+        # BaseException (nao Exception): um BaseExceptionGroup - que o anyio pode
+        # levantar ao cancelar - escapava daqui, o script morria sem imprimir
+        # CHAT_MSG_INICIO e o C++ so mostrava "Erro de comunicacao" com o dump.
         import traceback
+        log("=== TRACEBACK COMPLETO (mongo) ===")
         log(traceback.format_exc())
-        responder(_mascarar_credenciais(f"ERRO no MongoDB: {type(e).__name__}: {e}"))
+        detalhe = _mascarar_credenciais(_detalhar_excecao(e))
+        dica = ""
+        d = detalhe.lower()
+        if "authentication" in d or "auth failed" in d:
+            dica = " (falha de autenticacao - verifique usuario/senha)"
+        elif "econnrefused" in d or "connection refused" in d or "timed out" in d:
+            dica = " (o banco nao respondeu - verifique host/porta e a lista de IPs liberados)"
+        responder(f"ERRO no MongoDB: {detalhe}{dica}")
 
 
 def main():

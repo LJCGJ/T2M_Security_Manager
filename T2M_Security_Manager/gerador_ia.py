@@ -58,6 +58,16 @@ def _caminho_dados(arquivo):
 ARQUIVO_MEMORIA = _caminho_dados("memoria_chat.json")
 
 
+def responder(texto):
+    """Formato que a interface C++ espera no stdout - o MESMO contrato do
+    agente_mcp.py. Mensagens de erro que saiam sem os marcadores caem no
+    fallback generico do C++, que despeja o stdout bruto na tela (podendo
+    misturar saida do pip com a mensagem real)."""
+    print("CHAT_MSG_INICIO")
+    print(texto)
+    print("CHAT_MSG_FIM")
+
+
 def log(msg):
     """Mensagens de progresso vao para stderr; o app as exibe ao vivo no chat.
     O stdout fica reservado para a resposta final (marcadores CHAT_MSG_*)."""
@@ -142,30 +152,53 @@ def limitar_historico(memoria):
 # ==============================================================================
 # --- 1. AUTO-INSTALACAO SILENCIOSA DE DEPENDENCIAS ---
 # ==============================================================================
-def garantir_bibliotecas():
-    bibliotecas_faltando = []
-    checagem = {
-        'google-generativeai': 'google.generativeai',
-        'requests': 'requests',
-        'openai': 'openai',
-        'beautifulsoup4': 'bs4',
-        'anthropic': 'anthropic',
-    }
-    for pacote, modulo in checagem.items():
+def garantir_bibliotecas(api_key=""):
+    """Instala apenas as bibliotecas que ESTA execucao vai usar.
+
+    Antes a funcao importava os cinco SDKs em toda mensagem, o que trazia dois
+    problemas. Primeiro, custava alguns segundos por mensagem sem necessidade.
+    Segundo, e mais grave: o import de google.generativeai levanta TypeError ou
+    AttributeError (nao ImportError) quando ha conflito de protobuf/grpc - um
+    caso comum - e como so ImportError era capturado, a excecao escapava e
+    derrubava o chat inteiro, inclusive para quem usa Claude ou OpenAI e nem
+    encosta no Gemini.
+    """
+    # Sempre necessarias: leitura da pagina no scanner de DOM.
+    necessarias = {"requests": "requests", "beautifulsoup4": "bs4"}
+    # Apenas o SDK do provedor para o qual esta chave sera roteada.
+    if api_key.startswith("sk-ant-"):
+        necessarias["anthropic"] = "anthropic"
+    elif api_key.startswith("sk-"):
+        necessarias["openai"] = "openai"
+    elif api_key:
+        necessarias["google-generativeai"] = "google.generativeai"
+
+    faltando = []
+    for pacote, modulo in necessarias.items():
         try:
             __import__(modulo)
         except ImportError:
-            bibliotecas_faltando.append(pacote)
+            faltando.append(pacote)
+        except Exception as e:
+            # O modulo existe mas quebrou ao importar (conflito de dependencia).
+            # Reinstalar nao resolve; avisa e segue. A rota correspondente
+            # falhara de forma controlada se realmente precisar dele.
+            log(f"--- AVISO: {modulo} esta instalado mas falhou ao importar: "
+                f"{type(e).__name__}: {e}")
 
-    for lib in bibliotecas_faltando:
+    for lib in faltando:
         try:
+            # timeout: sem ele, um pip travado na rede fazia o C++ matar o
+            # processo por tempo esgotado e culpar a chave de API.
+            # DEVNULL: sem isso a saida do pip se mistura ao stdout do contrato.
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", lib, "--quiet"]
+                [sys.executable, "-m", "pip", "install", lib, "--quiet"],
+                timeout=180,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         except Exception as e:
-            # Nao derruba o programa; apenas registra. A rota correspondente
-            # falhara de forma controlada se a lib for realmente necessaria.
-            print(f"--- AVISO: falha ao instalar {lib}: {e}", file=sys.stderr)
+            log(f"--- AVISO: falha ao instalar {lib}: {type(e).__name__}: {e}")
 
 
 # ==============================================================================
@@ -298,17 +331,18 @@ def ler_entrada():
 # ==============================================================================
 def main():
     try:
-        garantir_bibliotecas()
-
         try:
             api_key, prompt_usuario, url_alvo = ler_entrada()
         except Exception as e:
-            print(f"ERRO PYTHON: entrada invalida ({e}).")
+            responder(f"Erro ao ler a entrada: {e}")
             return
 
         if not api_key:
-            print("ERRO PYTHON: API Key nao informada.")
+            responder("Nenhuma chave de API foi informada.")
             return
+
+        # Depois de ler a chave: so instala o SDK do provedor que sera usado.
+        garantir_bibliotecas(api_key)
 
         arquivo_memoria = ARQUIVO_MEMORIA
         memoria = []
@@ -419,7 +453,13 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                 system=sistema,
                 messages=memoria,
             )
-            resposta_ia = response.content[0].text.strip()
+            # content pode trazer blocos que nao sao texto (ThinkingBlock, quando
+            # o modelo escolhido tem raciocinio estendido) e pode vir vazio.
+            # Pegar content[0].text as cegas dava AttributeError ou IndexError.
+            resposta_ia = "".join(
+                b.text for b in response.content
+                if getattr(b, "type", "") == "text" and getattr(b, "text", None)
+            ).strip()
 
         # --- ROTA OPENAI (CHATGPT) ---
         elif api_key.startswith("sk-"):
@@ -430,7 +470,9 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                 model=MODELO_OPENAI,
                 messages=[{"role": "system", "content": sistema}] + memoria,
             )
-            resposta_ia = response.choices[0].message.content.strip()
+            # content vem None em recusas e quando o modelo devolve tool_calls;
+            # o .strip() direto dava AttributeError em NoneType.
+            resposta_ia = (response.choices[0].message.content or "").strip()
 
         # --- ROTA GOOGLE GEMINI (padrao; aceita AIza, AQ. e formatos futuros) ---
         else:
@@ -464,8 +506,14 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                     continue
             if not sucesso:
                 detalhe = " || ".join(erros)
-                print(f"ERRO PYTHON: nenhum modelo Gemini respondeu. Detalhes: {detalhe}")
+                responder(f"Nenhum modelo Gemini respondeu.\n\nDetalhes: {detalhe}")
                 return
+
+        # Resposta vazia nao deve virar um bloco CHAT_MSG em branco na tela.
+        if not resposta_ia:
+            responder("A IA devolveu uma resposta vazia. Tente reformular a pergunta "
+                      "ou confira o modelo selecionado em Configuracoes.")
+            return
 
         # --- PERSISTE MEMORIA E RETORNA PARA A INTERFACE ---
         memoria.append({"role": "assistant", "content": resposta_ia})
@@ -476,12 +524,10 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             pass
 
         log(">>> Resposta recebida.")
-        print("CHAT_MSG_INICIO")
-        print(resposta_ia)
-        print("CHAT_MSG_FIM")
+        responder(resposta_ia)
 
     except Exception as e:
-        print(f"ERRO INTERNO PYTHON: {e}")
+        responder(f"Erro interno no motor de IA: {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
