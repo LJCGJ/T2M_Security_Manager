@@ -31,6 +31,7 @@ import json
 import asyncio
 import platform
 import re
+import subprocess
 import time
 
 # Arquivo de memoria COMPARTILHADO com o chat (gerador_ia.py). Ambos usam o
@@ -170,6 +171,13 @@ MODELO_GEMINI = _CFG.get("modelo_gemini", "").strip()
 # herda cookies e sessoes logadas do operador.
 NAVEGADOR_ISOLADO = _CFG.get("navegador_isolado", "1").strip() != "0"
 DOMINIOS_CONFIAVEIS = _CFG.get("dominios_confiaveis", "").strip()
+
+# Oracle via servidor MCP oficial (SQLcl). "auto" usa o MCP quando o SQLcl
+# estiver disponivel e cai para o driver nativo quando nao estiver; "1" forca o
+# MCP; "0" forca o driver nativo. O nativo (oracledb, thin mode) e o caminho
+# que nao exige Java nem SQLcl, entao ele continua sendo a rede de seguranca.
+ORACLE_VIA_MCP = _CFG.get("oracle_via_mcp", "auto").strip().lower()
+SQLCL_RAIZ = _CFG.get("sqlcl_raiz", "").strip()   # opcional; vazio = detectar
 
 # A IA le paginas e linhas de banco que NAO sao confiaveis e, com as mesmas
 # "maos", decide a proxima chamada de ferramenta. Sem separar dado de instrucao,
@@ -1035,6 +1043,141 @@ async def executar_api(api_key, req, objetivo):
         responder(f"ERRO no teste de API: {_detalhar_excecao(e)}")
 
 
+# ------------------------------------------------------------------ #
+# Oracle pelo servidor MCP oficial (SQLcl)                            #
+# ------------------------------------------------------------------ #
+# O que foi descoberto rodando o servidor de verdade (a documentacao da Oracle
+# esta desatualizada e nomeia as ferramentas de outro jeito):
+#
+#   connections_list, connect, disconnect, sqlcl_run, sql_run,
+#   schema_information, skills_sync, request_status, annotation_generate
+#
+# Destas, o modelo so pode ver duas:
+#   sql_run            - consultas e, quando o modo escrita esta ligado, DML/DDL
+#   schema_information - descricao do schema, so leitura
+#
+# As demais ficam OCULTAS por serem perigosas ou desnecessarias:
+#   sqlcl_run          - executa comando do sistema operacional (HOST)
+#   skills_sync        - baixa arquivos da internet e grava em disco
+#   annotation_generate- escreve metadado no banco por fora do modo somente-leitura
+#   connections_list   - revelaria conexoes de OUTROS bancos salvos na maquina,
+#                        inclusive de producao
+#   connect/disconnect - quem conecta e o nosso codigo, nao o modelo
+#   request_status     - so faz sentido em execucao assincrona; usamos sincrona
+#
+# Isso so e possivel porque NOS somos o cliente MCP: a lista de ferramentas que
+# o modelo enxerga e montada aqui.
+FERRAMENTAS_ORACLE_PERMITIDAS = ("sql_run", "schema_information")
+
+# O lancador sql.exe do pacote winget trava com 0xC0000005 nesta geracao;
+# chamar a JVM direto contorna isso e e mais previsivel.
+_CLASSE_SQLCL = "oracle.dbtools.raptor.scriptrunner.cmdline.SqlCli"
+
+# O SQLcl le o registro do Windows por reflexao para achar um ORACLE_HOME.
+# A partir do Java 16 isso e bloqueado e ele despeja um traceback enorme no
+# stderr (segue funcionando, mas polui o diagnostico). Como usamos JDBC thin,
+# nao precisamos desse registro; liberar o modulo silencia o ruido.
+_ABERTURAS_JAVA = ["--add-opens", "java.prefs/java.util.prefs=ALL-UNNAMED"]
+
+
+def _achar_sqlcl():
+    """Devolve a pasta raiz do SQLcl (a que contem bin/ e lib/), ou None."""
+    if SQLCL_RAIZ:
+        raiz = SQLCL_RAIZ
+        if os.path.isdir(os.path.join(raiz, "lib")):
+            return raiz
+        pai = os.path.dirname(os.path.dirname(raiz))   # aceita .../bin/sql.exe
+        if os.path.isdir(os.path.join(pai, "lib")):
+            return pai
+    import shutil as _sh
+    exe = _sh.which("sql") or _sh.which("sql.exe")
+    if exe:
+        pai = os.path.dirname(os.path.dirname(os.path.realpath(exe)))
+        if os.path.isdir(os.path.join(pai, "lib")):
+            return pai
+    import glob as _glob
+    base = os.environ.get("LOCALAPPDATA", "")
+    if base:
+        padrao = os.path.join(base, "Microsoft", "WinGet", "Packages",
+                              "*SQLcl*", "**", "lib")
+        for lib in _glob.glob(padrao, recursive=True):
+            raiz = os.path.dirname(lib)
+            if os.path.isdir(os.path.join(raiz, "bin")):
+                return raiz
+    return None
+
+
+def _achar_java():
+    """Executavel do Java, preferindo o JAVA_HOME."""
+    jh = os.environ.get("JAVA_HOME", "")
+    if jh:
+        for nome in ("java.exe", "java"):
+            c = os.path.join(jh, "bin", nome)
+            if os.path.exists(c):
+                return c
+    import shutil as _sh
+    return _sh.which("java")
+
+
+def _comando_sqlcl(raiz):
+    """Comando base para rodar o SQLcl pela JVM. None se faltar algo."""
+    java = _achar_java()
+    if not java or not raiz:
+        return None
+    return [java] + _ABERTURAS_JAVA + [
+        "-cp", os.path.join(raiz, "lib", "*"), _CLASSE_SQLCL]
+
+
+def _modelo_para_auditoria(api_key):
+    """Nome do modelo, gravado em DBTOOLS$MCP_LOG pelo servidor da Oracle.
+    Sem isso o log fica com 'UNKNOWN-LLM' e perde metade da utilidade."""
+    if api_key.startswith("sk-ant-"):
+        return MODELO_CLAUDE
+    if api_key.startswith("sk-"):
+        return MODELO_OPENAI
+    return MODELO_GEMINI or "gemini"
+
+
+def _resultado_texto(msg):
+    """Imita o CallToolResult do MCP para respostas geradas por nos."""
+    import types as _t
+    return _t.SimpleNamespace(content=[_t.SimpleNamespace(text=msg)], isError=False)
+
+
+class _SessaoOracleFiltrada:
+    """Fica entre o modelo e o servidor da Oracle.
+
+    Recusa qualquer ferramenta fora da lista permitida (mesmo que o modelo
+    invente um nome), aplica o validador de somente-leitura antes de deixar um
+    SQL passar, e preenche o parametro 'model' para a auditoria do banco."""
+
+    def __init__(self, sessao, somente_leitura, modelo):
+        self._sessao = sessao
+        self._somente_leitura = somente_leitura
+        self._modelo = modelo
+
+    async def call_tool(self, nome, args):
+        if nome not in FERRAMENTAS_ORACLE_PERMITIDAS:
+            log(f">>> [Oracle] ferramenta recusada pelo filtro: {nome}")
+            return _resultado_texto(
+                f"A ferramenta '{nome}' nao esta disponivel. Use apenas "
+                f"{' e '.join(FERRAMENTAS_ORACLE_PERMITIDAS)}.")
+
+        args = dict(args or {})
+        args.setdefault("model", self._modelo)
+
+        if nome == "sql_run" and self._somente_leitura:
+            ok, motivo = _validar_sql_somente_leitura(args.get("sql") or "")
+            if not ok:
+                log(f">>> [Oracle] SQL recusado em somente-leitura: {motivo}")
+                return _resultado_texto(
+                    f"Conexao em modo somente-leitura: comando recusado ({motivo}). "
+                    f"Para alterar dados, o operador precisa desmarcar "
+                    f"'Somente leitura' na tela de conexao.")
+
+        return await self._sessao.call_tool(nome, args)
+
+
 def _oracle_abrir_conexao(info):
     """Abre conexao Oracle em thin mode (driver oficial, sem Instant Client)."""
     import oracledb
@@ -1263,7 +1406,206 @@ def _oracle_valor_seguro(v):
     return str(v)
 
 
+NOME_CONEXAO_T2M = "T2M_MCP"
+
+
+def _dica_erro_oracle(codigo_e_texto):
+    """Traduz os erros mais comuns em algo acionavel."""
+    t = codigo_e_texto.upper()
+    dicas = {
+        "ORA-01017": "usuario ou senha invalidos",
+        "ORA-01005": "senha vazia",
+        "ORA-12541": "nenhum listener na porta - o banco esta rodando?",
+        "ORA-12514": "o listener nao conhece esse SERVICO",
+        "ORA-12505": "o listener nao conhece esse SID",
+        "ORA-12154": "nao foi possivel resolver o destino",
+        "ORA-12263": "host, porta ou servico invalidos (o SQLcl caiu no tnsnames.ora)",
+        "ORA-12170": "tempo esgotado ao conectar - host ou porta errados",
+        "ORA-28000": "conta bloqueada",
+        "ORA-28001": "senha expirada",
+    }
+    for cod, texto in dicas.items():
+        if cod in t:
+            return f"{cod}: {texto}"
+    return codigo_e_texto[:200]
+
+
+def _salvar_conexao_sqlcl(cmd_base, info):
+    """Cria/atualiza a conexao nomeada que o servidor MCP vai usar.
+
+    O servidor da Oracle NAO aceita string de conexao: ele so trabalha com
+    conexoes previamente salvas em ~/.dbtools. Como a tela do T2M ja pede host,
+    porta, servico, usuario e senha, montamos a conexao aqui - o usuario nao
+    precisa sair do app para usar o SQLcl.
+
+    Devolve (ok, detalhe). A senha vai pelo STDIN do SQLcl, nunca por argumento
+    de linha de comando (que apareceria na lista de processos)."""
+    host = info.get("host", "localhost")
+    porta = str(info.get("porta") or 1521)
+    servico = info.get("servico") or info.get("nome") or "XEPDB1"
+    usuario = info.get("usuario", "")
+    senha = info.get("senha", "")
+
+    # A senha vai entre aspas: sem isso, um caractere como @ ou / dentro dela
+    # quebraria a string de conexao e o erro sairia como "usuario invalido",
+    # mandando o operador conferir a credencial errada.
+    roteiro = (f'conn -save {NOME_CONEXAO_T2M} -savepwd '
+               f'{usuario}/"{senha}"@//{host}:{porta}/{servico}\n'
+               f'exit\n')
+    try:
+        p = subprocess.run(cmd_base + ["/nolog"], input=roteiro, text=True,
+                           capture_output=True, timeout=TIMEOUT_OPERACAO,
+                           errors="replace")
+        saida = ((p.stdout or "") + (p.stderr or ""))
+
+        # ATENCAO: o SQLcl sai com codigo 0 MESMO QUANDO A CONEXAO FALHA.
+        # Confiar no codigo de saida dava falso positivo: o app seguia adiante
+        # achando que tinha salvado a conexao e so quebrava depois, no connect,
+        # com "Connection not found" - erro que nao aponta para a causa real.
+        # Por isso exigimos evidencia POSITIVA no texto.
+        erro = re.search(r"(ORA-\d{5}|TNS-\d{5}|SP2-\d{4})[^\n]*", saida)
+        if erro:
+            return False, _dica_erro_oracle(erro.group(0))
+        if "Connected" in saida or "Name:" in saida:
+            return True, ""
+        # O SQLcl ecoa a senha mascarada, mas nunca devolvemos a saida crua
+        # para a interface sem passar pelo mascarador.
+        limpa = _mascarar_credenciais(saida.strip())
+        return False, (limpa[:400] or "o SQLcl nao confirmou a conexao")
+    except subprocess.TimeoutExpired:
+        return False, f"o SQLcl nao respondeu em {TIMEOUT_OPERACAO}s"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+async def executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
+    """Oracle pelo servidor MCP oficial da Oracle (SQLcl).
+
+    Devolve True se conseguiu executar; False se o ambiente nao permite, para
+    quem chamou cair no driver nativo."""
+    raiz = _achar_sqlcl()
+    cmd_base = _comando_sqlcl(raiz) if raiz else None
+    if not cmd_base:
+        log(">>> SQLcl ou Java nao encontrados; usando o driver nativo.")
+        return False
+
+    log(f">>> SQLcl encontrado em {raiz}")
+    ok, detalhe = _salvar_conexao_sqlcl(cmd_base, info)
+    if not ok:
+        log(f">>> Nao foi possivel salvar a conexao no SQLcl: {detalhe}")
+        return False
+
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    modo = "SOMENTE LEITURA" if somente_leitura else "leitura e escrita"
+    instrucao = (
+        f"Voce esta conectado a um banco Oracle "
+        f"({info.get('host')}:{info.get('porta')}/"
+        f"{info.get('servico') or info.get('nome')}) em modo {modo}.\n\n"
+        f"Objetivo: {objetivo}\n\n"
+        f"Use schema_information para entender o schema antes de consultar, e "
+        f"sql_run para executar SQL. "
+        + ("Apenas consultas sao aceitas: qualquer comando que altere dados sera "
+           "recusado automaticamente. " if somente_leitura else
+           "O modo de escrita esta habilitado, entao INSERT, UPDATE, DELETE e DDL "
+           "sao permitidos - execute apenas o que o objetivo pedir e relate cada "
+           "alteracao feita. ")
+        + "Ao final, relate os achados com clareza."
+        + INSTRUCAO_LINGUAGEM + REGRA_CONTEUDO_NAO_CONFIAVEL)
+
+    log(">>> Subindo o servidor MCP oficial da Oracle (SQLcl)...")
+    try:
+        params = StdioServerParameters(command=cmd_base[0],
+                                       args=cmd_base[1:] + ["-mcp"])
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as sessao:
+                await sessao.initialize()
+                resp = await sessao.list_tools()
+                todas = resp.tools
+
+                # Conecta pelo NOSSO codigo. O modelo nao ve connect nem
+                # connections_list, entao nao tem como alcancar outro banco
+                # salvo nesta maquina.
+                modelo = _modelo_para_auditoria(api_key)
+                if any(t.name == "connect" for t in todas):
+                    r = await sessao.call_tool(
+                        "connect", {"connection_name": NOME_CONEXAO_T2M,
+                                    "model": modelo})
+                    log(">>> Conectado: " + texto_do_resultado_mcp(r)[:120])
+
+                permitidas = [t for t in todas
+                              if t.name in FERRAMENTAS_ORACLE_PERMITIDAS]
+                ocultas = [t.name for t in todas
+                           if t.name not in FERRAMENTAS_ORACLE_PERMITIDAS]
+                log(f">>> Ferramentas para o modelo: "
+                    f"{', '.join(t.name for t in permitidas)}")
+                log(f">>> Ocultadas do modelo: {', '.join(ocultas)}")
+                if not permitidas:
+                    log(">>> O servidor nao expos as ferramentas esperadas.")
+                    return False
+
+                filtrada = _SessaoOracleFiltrada(sessao, somente_leitura, modelo)
+
+                if api_key.startswith("sk-ant-"):
+                    if not tem_lib("anthropic"):
+                        responder("Biblioteca ausente: anthropic."); return True
+                    resultado = await loop_anthropic(filtrada, api_key, instrucao, permitidas)
+                elif api_key.startswith("sk-"):
+                    if not tem_lib("openai"):
+                        responder("Biblioteca ausente: openai."); return True
+                    resultado = await loop_openai(filtrada, api_key, instrucao, permitidas)
+                else:
+                    if not tem_lib("google.generativeai"):
+                        responder("Biblioteca ausente: google-generativeai."); return True
+                    resultado = await loop_gemini(filtrada, api_key, instrucao, permitidas)
+
+                try:
+                    memoria = []
+                    if os.path.exists(ARQUIVO_MEMORIA):
+                        with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
+                            memoria = json.load(f)
+                    memoria.append({"role": "user", "content": f"[ORACLE/MCP] {objetivo}"})
+                    memoria.append({"role": "assistant",
+                                    "content": _relatorio_para_memoria(resultado)})
+                    with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
+                        json.dump(limitar_memoria(memoria), f, ensure_ascii=False, indent=4)
+                except Exception as e:
+                    log(f">>> Aviso: nao foi possivel gravar na memoria: {e}")
+
+                responder(resultado)
+                return True
+    except BaseException as e:
+        import traceback
+        log("=== TRACEBACK COMPLETO (oracle/mcp) ===")
+        log(traceback.format_exc())
+        log(f">>> Falha no servidor MCP da Oracle: {_detalhar_excecao(e)}")
+        return False
+
+
 async def executar_oracle(api_key, info, somente_leitura, objetivo):
+    """Despachante: tenta o servidor MCP oficial e cai para o driver nativo.
+
+    O MCP da Oracle registra tudo em DBTOOLS$MCP_LOG com o nome do modelo, o
+    que vale muito em auditoria corporativa. Mas ele exige Java 17+ e SQLcl
+    instalados; onde nao houver, o driver nativo (thin mode) resolve sem
+    dependencia nenhuma. O usuario nao fica sem o modo Oracle em cenario algum."""
+    if ORACLE_VIA_MCP != "0":
+        try:
+            if await executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
+                return
+        except Exception as e:
+            log(f">>> Erro inesperado no caminho MCP: {type(e).__name__}: {e}")
+        if ORACLE_VIA_MCP == "1":
+            responder("O modo Oracle via MCP esta forcado em Configuracoes, mas o "
+                      "SQLcl nao pode ser usado.\n\nInstale o SQLcl 25.2+ e o Java 17+, "
+                      "ou volte 'oracle_via_mcp' para 'auto'.")
+            return
+        log(">>> Caindo para o driver nativo (oracledb).")
+    await executar_oracle_nativo(api_key, info, somente_leitura, objetivo)
+
+
+async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
     """Testa/consulta um banco Oracle usando o driver oficial (thin mode).
     A IA recebe ferramentas (listar/descrever/executar) no mesmo padrao de tool-use."""
     if not tem_lib("oracledb"):
