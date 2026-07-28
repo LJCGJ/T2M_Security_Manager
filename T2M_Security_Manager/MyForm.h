@@ -132,6 +132,14 @@ namespace T2MSecurityManager {
 		String^ cfgModeloClaude;  // modelo da Anthropic (custo x capacidade)
 		String^ cfgModeloOpenAI;  // modelo da OpenAI
 		String^ cfgModeloGemini;  // modelo do Google Gemini
+		// Seguranca da automacao de tela. O navegador do Playwright roda por padrao
+		// com perfil PERSISTENTE (guarda cookies e sessoes logadas entre execucoes)
+		// e sem restricao de dominio. Se uma pagina hostil conseguir induzir a IA a
+		// navegar - prompt injection -, ela chega autenticada nos sistemas onde o
+		// operador ja logou. Isolado por padrao; quem precisa testar atras de login
+		// desmarca conscientemente.
+		bool cfgNavegadorIsolado;
+		String^ cfgDominiosConfiaveis;   // separados por ';'; vazio = sem restricao
 		int cfgMaxHistorico;      // mensagens reenviadas a IA por chamada
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
@@ -1605,6 +1613,8 @@ namespace T2MSecurityManager {
 		cfgModeloClaude = "claude-sonnet-4-6";
 		cfgModeloOpenAI = "gpt-4o-mini";
 		cfgModeloGemini = "gemini-2.5-flash";
+		cfgNavegadorIsolado = true;
+		cfgDominiosConfiaveis = "";
 		cfgMaxHistorico = 20;
 		try {
 			String^ caminho = CaminhoDados("configuracoes.txt");
@@ -1623,6 +1633,8 @@ namespace T2MSecurityManager {
 				else if (chave == "modelo_claude" && valor != "") cfgModeloClaude = valor;
 				else if (chave == "modelo_openai" && valor != "") cfgModeloOpenAI = valor;
 				else if (chave == "modelo_gemini" && valor != "") cfgModeloGemini = valor;
+				else if (chave == "navegador_isolado") cfgNavegadorIsolado = (valor != "0");
+				else if (chave == "dominios_confiaveis") cfgDominiosConfiaveis = valor;
 				else if (chave == "max_historico") Int32::TryParse(valor, cfgMaxHistorico);
 			}
 		}
@@ -1649,6 +1661,8 @@ namespace T2MSecurityManager {
 			sb->AppendLine("modelo_claude=" + cfgModeloClaude);
 			sb->AppendLine("modelo_openai=" + cfgModeloOpenAI);
 			sb->AppendLine("modelo_gemini=" + cfgModeloGemini);
+			sb->AppendLine("navegador_isolado=" + (cfgNavegadorIsolado ? "1" : "0"));
+			sb->AppendLine("dominios_confiaveis=" + cfgDominiosConfiaveis);
 			sb->AppendLine("max_historico=" + cfgMaxHistorico);
 			File::WriteAllText(CaminhoDados("configuracoes.txt"), sb->ToString());
 		}
@@ -1660,7 +1674,7 @@ namespace T2MSecurityManager {
 	private: System::Void btnConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
 		Form^ f = gcnew Form();
 		f->Text = L"Configuracoes";
-		f->Size = System::Drawing::Size(720, 570);
+		f->Size = System::Drawing::Size(720, 700);   // +130: secao de seguranca
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
@@ -1885,8 +1899,56 @@ namespace T2MSecurityManager {
 		numTimeout->Minimum = 10; numTimeout->Maximum = 3600; numTimeout->Value = cfgTimeout;
 		f->Controls->Add(numTimeout);
 
+		// Secao de seguranca da automacao
+		y += 42;
+		Label^ lblSecao3 = gcnew Label();
+		lblSecao3->Text = L"Seguranca da automacao de tela";
+		lblSecao3->Location = System::Drawing::Point(x1, y); lblSecao3->AutoSize = true;
+		lblSecao3->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+		f->Controls->Add(lblSecao3);
+
+		y += 26;
+		CheckBox^ chkIsolado = gcnew CheckBox();
+		chkIsolado->Text = L"Navegador isolado (nao reaproveita cookies nem sessoes ja logadas)";
+		chkIsolado->Location = System::Drawing::Point(x1, y); chkIsolado->AutoSize = true;
+		chkIsolado->Checked = cfgNavegadorIsolado;
+		f->Controls->Add(chkIsolado);
+
+		y += 22;
+		Label^ dicaIsolado = gcnew Label();
+		dicaIsolado->Text =
+			L"Recomendado. Desmarque apenas para testar telas que exigem um login feito antes\n"
+			L"no navegador: nesse modo, uma pagina maliciosa pode induzir a IA a usar suas sessoes.";
+		dicaIsolado->Location = System::Drawing::Point(x1 + 18, y);
+		dicaIsolado->Size = System::Drawing::Size(650, 32);
+		dicaIsolado->ForeColor = System::Drawing::Color::DimGray;
+		dicaIsolado->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		f->Controls->Add(dicaIsolado);
+
+		y += 36;
+		Label^ lblDom = gcnew Label();
+		lblDom->Text = L"Dominios confiaveis:";
+		lblDom->Location = System::Drawing::Point(x1, y + 3); lblDom->AutoSize = true;
+		f->Controls->Add(lblDom);
+		TextBox^ txtDominios = gcnew TextBox();
+		txtDominios->Location = System::Drawing::Point(x1 + 130, y);
+		txtDominios->Size = System::Drawing::Size(430, 22);
+		txtDominios->Text = cfgDominiosConfiaveis;
+		f->Controls->Add(txtDominios);
+
+		y += 24;
+		Label^ dicaDom = gcnew Label();
+		dicaDom->Text =
+			L"Vazio = sem restricao. Preenchido, o navegador so acessa estes dominios (separe com ';').\n"
+			L"Ex.: https://meusistema.com;https://login.empresa.com   Cuidado: SSO e CDN em outro dominio param de carregar.";
+		dicaDom->Location = System::Drawing::Point(x1 + 18, y);
+		dicaDom->Size = System::Drawing::Size(660, 32);
+		dicaDom->ForeColor = System::Drawing::Color::DimGray;
+		dicaDom->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		f->Controls->Add(dicaDom);
+
 		// Botoes
-		y += 48;
+		y += 46;
 		Button^ btnOk = gcnew Button();
 		btnOk->Text = L"Salvar";
 		btnOk->Location = System::Drawing::Point(x1 + 240, y); btnOk->Size = System::Drawing::Size(120, 30);
@@ -1901,10 +1963,11 @@ namespace T2MSecurityManager {
 		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
 		f->Controls->Add(btnCancel);
 
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(8);
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(10);
 		campos[0] = txtRel; campos[1] = txtSes; campos[2] = txtScr;
 		campos[3] = numPassos; campos[4] = numLinhas; campos[5] = numTimeout;
 		campos[6] = cbModelo; campos[7] = numHist;
+		campos[8] = chkIsolado; campos[9] = txtDominios;
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
@@ -2088,6 +2151,8 @@ namespace T2MSecurityManager {
 			cfgModeloClaude = modeloEscolhido;
 		}
 		cfgMaxHistorico = (int)safe_cast<NumericUpDown^>(ctl[7])->Value;
+		cfgNavegadorIsolado = safe_cast<CheckBox^>(ctl[8])->Checked;
+		cfgDominiosConfiaveis = safe_cast<TextBox^>(ctl[9])->Text->Trim();
 
 		SalvarConfiguracoesApp();
 		MessageBox::Show(L"Configuracoes salvas.\n\nOs limites passam a valer nas proximas execucoes.",
