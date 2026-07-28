@@ -77,11 +77,35 @@ except Exception:
 
 def limitar_historico(memoria):
     """Mantem apenas as ultimas mensagens, preservando o inicio da conversa
-    (onde costuma estar o contexto mais importante)."""
+    (onde costuma estar o contexto mais importante).
+
+    Duas armadilhas tratadas aqui:
+
+    1) MAX_HISTORICO == 2 (valor permitido pela tela de Configuracoes) fazia
+       memoria[-0:], e -0 e 0 em Python: o slice devolvia a lista INTEIRA e o
+       resultado ficava MAIOR que a entrada. A configuracao que existe para
+       economizar tokens fazia exatamente o oposto.
+
+    2) O corte podia cair no meio de um par user/assistant, deixando a cauda
+       comecando com 'assistant'. Como o prefixo preservado termina em
+       'assistant', a sequencia ficava com dois 'assistant' seguidos - a
+       Anthropic responde HTTP 400 (roles must alternate) e o Gemini tambem
+       rejeita. Por isso avancamos ate o proximo turno 'user'; avancar so
+       encurta a cauda, entao o teto continua respeitado.
+    """
     if len(memoria) <= MAX_HISTORICO:
         return memoria
-    # Guarda as 2 primeiras (contexto inicial) + as mais recentes
-    return memoria[:2] + memoria[-(MAX_HISTORICO - 2):]
+
+    cauda = MAX_HISTORICO - 2
+    if cauda <= 0:
+        return memoria[:2]
+
+    inicio = len(memoria) - cauda
+    while inicio < len(memoria) and (
+            not isinstance(memoria[inicio], dict)
+            or memoria[inicio].get("role") != "user"):
+        inicio += 1
+    return memoria[:2] + memoria[inicio:]
 
 
 # ==============================================================================

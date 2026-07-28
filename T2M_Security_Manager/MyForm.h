@@ -659,10 +659,15 @@ namespace T2MSecurityManager {
 
 			// O script espera ate 180s pelo login; damos uma folga extra.
 			if (!pLogin->WaitForExit(240000)) {
-				try { pLogin->Kill(); } catch (...) {}
+				try { pLogin->Kill(); pLogin->WaitForExit(3000); } catch (...) {}
 				e->Result = L"TEMPO_ESGOTADO";
 				return;
 			}
+			// WaitForExit(int) volta assim que o processo morre, mas NAO garante que
+			// os handlers assincronos de saida terminaram de drenar a fila - so a
+			// sobrecarga SEM parametro espera esse flush. Sem ela, o CHAT_MSG_FIM
+			// podia faltar no buffer e a resposta chegava truncada ao usuario.
+			pLogin->WaitForExit();
 			e->Result = L"OK";
 		}
 		catch (Exception^ ex) {
@@ -985,12 +990,18 @@ namespace T2MSecurityManager {
 			// entao mudar a configuracao nao tinha efeito nenhum aqui).
 			int limite = (cfgTimeout > 0 ? cfgTimeout : 120);
 			if (!p->WaitForExit(limite * 1000)) {
-				try { p->Kill(); } catch (...) {}
+				try { p->Kill(); p->WaitForExit(3000); } catch (...) {}
 				return L"Tempo esgotado (" + limite + L"s) aguardando a IA.\n\n"
 					L"Possiveis causas: chave de API invalida ou revogada, sem conexao, "
 					L"ou a tarefa e longa demais.\n"
 					L"Voce pode aumentar o tempo em Configuracoes.";
 			}
+
+			// WaitForExit(int) volta assim que o processo morre, mas NAO garante que
+			// os handlers assincronos de saida terminaram de drenar a fila - so a
+			// sobrecarga SEM parametro espera esse flush. Sem ela, o CHAT_MSG_FIM
+			// podia faltar no buffer e a resposta chegava truncada ao usuario.
+			p->WaitForExit();
 
 			String^ output = bufSaidaProc->ToString();
 			int startIdx = output->IndexOf("CHAT_MSG_INICIO");
@@ -1046,11 +1057,17 @@ namespace T2MSecurityManager {
 			int limiteAuto = (cfgTimeout > 0 ? cfgTimeout * 3 : 300);
 			if (limiteAuto < 300) limiteAuto = 300;
 			if (!p->WaitForExit(limiteAuto * 1000)) {
-				try { p->Kill(); } catch (...) {}
+				try { p->Kill(); p->WaitForExit(3000); } catch (...) {}
 				return L"Tempo esgotado (" + (limiteAuto / 60) + L" min) na automacao.\n\n"
 					L"A tarefa pode ser complexa demais para o limite atual. Tente dividir "
 					L"em passos menores, ou aumente o tempo em Configuracoes.";
 			}
+
+			// WaitForExit(int) volta assim que o processo morre, mas NAO garante que
+			// os handlers assincronos de saida terminaram de drenar a fila - so a
+			// sobrecarga SEM parametro espera esse flush. Sem ela, o CHAT_MSG_FIM
+			// podia faltar no buffer e a resposta chegava truncada ao usuario.
+			p->WaitForExit();
 
 			String^ output = bufSaidaProc->ToString();
 			int i = output->IndexOf("CHAT_MSG_INICIO");
@@ -1878,10 +1895,16 @@ namespace T2MSecurityManager {
 			p->StandardInput->Close();
 
 			if (!p->WaitForExit(60000)) {
-				try { p->Kill(); } catch (...) {}
+				try { p->Kill(); p->WaitForExit(3000); } catch (...) {}
 				MessageBox::Show(L"O provedor demorou demais para responder.", L"Tempo esgotado");
 				return;
 			}
+
+			// WaitForExit(int) volta assim que o processo morre, mas NAO garante que
+			// os handlers assincronos de saida terminaram de drenar a fila - so a
+			// sobrecarga SEM parametro espera esse flush. Sem ela, o CHAT_MSG_FIM
+			// podia faltar no buffer e a resposta chegava truncada ao usuario.
+			p->WaitForExit();
 
 			String^ saida = bufSaidaProc->ToString();
 			int i = saida->IndexOf("MODELOS_INICIO");

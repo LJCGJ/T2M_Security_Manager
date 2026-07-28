@@ -95,10 +95,35 @@ MAX_HISTORICO = _cfg_int(_CFG, "max_historico", 20, 2, 200)  # mensagens guardad
 
 def limitar_memoria(memoria):
     """Evita que memoria_chat.json cresca indefinidamente: mantem o inicio da
-    conversa (contexto) e as mensagens mais recentes."""
+    conversa (contexto) e as mensagens mais recentes.
+
+    Duas armadilhas tratadas aqui:
+
+    1) MAX_HISTORICO == 2 (valor permitido pela tela de Configuracoes) fazia
+       memoria[-0:], e -0 e 0 em Python: o slice devolvia a lista INTEIRA e o
+       resultado ficava MAIOR que a entrada. A configuracao que existe para
+       economizar tokens fazia exatamente o oposto.
+
+    2) O corte podia cair no meio de um par user/assistant, deixando a cauda
+       comecando com 'assistant'. Como o prefixo preservado termina em
+       'assistant', a sequencia ficava com dois 'assistant' seguidos - a
+       Anthropic responde HTTP 400 (roles must alternate) e o Gemini tambem
+       rejeita. Por isso avancamos ate o proximo turno 'user'; avancar so
+       encurta a cauda, entao o teto continua respeitado.
+    """
     if len(memoria) <= MAX_HISTORICO:
         return memoria
-    return memoria[:2] + memoria[-(MAX_HISTORICO - 2):]
+
+    cauda = MAX_HISTORICO - 2
+    if cauda <= 0:
+        return memoria[:2]
+
+    inicio = len(memoria) - cauda
+    while inicio < len(memoria) and (
+            not isinstance(memoria[inicio], dict)
+            or memoria[inicio].get("role") != "user"):
+        inicio += 1
+    return memoria[:2] + memoria[inicio:]
 
 # Modelos usados por provedor. Configuraveis para o usuario equilibrar custo x capacidade.
 # ATENCAO: modelos antigos (ex.: claude-3-5-sonnet) foram aposentados e falham se usados.
