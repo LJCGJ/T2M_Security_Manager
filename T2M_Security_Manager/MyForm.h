@@ -2083,7 +2083,9 @@ namespace T2MSecurityManager {
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
 
 		AplicarTemaRecursivo(f, temaEscuro);
-		f->ShowDialog();
+		// Ver comentario acima: ShowDialog esconde, nao descarta.
+		try { f->ShowDialog(); }
+		finally { delete f; }
 	}
 
 		   // Botao "..." de escolher pasta (o TextBox alvo vem no Tag).
@@ -2439,8 +2441,11 @@ namespace T2MSecurityManager {
 
 			Label^ lbl = dynamic_cast<Label^>(c);
 			if (lbl != nullptr) {
-				// Preserva labels que ja tem cor propria de destaque
-				if (lbl != lblIndicadorIA) lbl->ForeColor = texto;
+				// Preserva labels que ja tem cor propria de destaque: o
+				// indicador de IA e os avisos de campo obrigatorio, que
+				// precisam continuar vermelhos nos dois temas.
+				bool ehErro = (dynamic_cast<String^>(lbl->Tag) == TAG_ROTULO_ERRO);
+				if (lbl != lblIndicadorIA && !ehErro) lbl->ForeColor = texto;
 				continue;
 			}
 
@@ -2671,7 +2676,11 @@ namespace T2MSecurityManager {
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarApi_Click);
 
 		AplicarTemaRecursivo(f, temaEscuro);   // aplica o tema atual ao formulario
-		f->ShowDialog();
+		// try/finally com delete: ShowDialog NAO descarta o formulario - so o
+		// esconde. Sem isto, cada abertura desta tela deixava uma janela com
+		// dezenas de controles viva na memoria ate o coletor passar.
+		try { f->ShowDialog(); }
+		finally { delete f; }
 	}
 
 		   // Salva a requisicao de API: valida a URL, guarda na sessao, ativa o modo.
@@ -2911,10 +2920,17 @@ namespace T2MSecurityManager {
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConexaoBanco_Click);
 
 		AplicarTemaRecursivo(f, temaEscuro);   // aplica o tema atual ao formulario
-		f->ShowDialog();
+		// try/finally com delete: ShowDialog NAO descarta o formulario - so o
+		// esconde. Sem isto, cada abertura desta tela deixava uma janela com
+		// dezenas de controles viva na memoria ate o coletor passar.
+		try { f->ShowDialog(); }
+		finally { delete f; }
 	}
 
 		   // Cria um label de erro (vermelho, pequeno) inicialmente vazio/invisivel.
+		   // Marca dos rotulos de erro, para o tema deixa-los em paz.
+	literal String^ TAG_ROTULO_ERRO = L"__erro__";
+
 	private: Label^ CriarLabelErro(int x, int y, int larg) {
 		Label^ l = gcnew Label();
 		l->Text = L"";
@@ -2923,13 +2939,29 @@ namespace T2MSecurityManager {
 		l->ForeColor = System::Drawing::Color::Firebrick;
 		l->Font = gcnew System::Drawing::Font("Segoe UI", 7.5f);
 		l->Visible = false;
+		// Marca para o tema nao pintar por cima. AplicarTemaRecursivo pinta
+		// TODO Label com a cor do tema, e apagava justamente o vermelho que
+		// avisa qual campo esta errado - a mensagem aparecia sem destaque.
+		l->Tag = TAG_ROTULO_ERRO;
 		return l;
 	}
 
 		   // Marca um campo com erro: borda vermelha e mostra o texto de erro embaixo.
 	private: void MarcarErroCampo(TextBox^ campo, Label^ lblErro, String^ msg) {
 		campo->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
-		campo->BackColor = System::Drawing::Color::FromArgb(255, 245, 245); // rosa bem claro
+		// No tema claro, rosa bem claro. No escuro, o mesmo rosa deixaria o
+		// campo mais claro que o resto da janela e chamaria atencao pelo motivo
+		// errado - la o destaque e um vinho escuro, que contrasta com o texto
+		// claro do tema.
+		campo->BackColor = temaEscuro
+			? System::Drawing::Color::FromArgb(74, 42, 46)
+			: System::Drawing::Color::FromArgb(255, 245, 245);
+		campo->ForeColor = temaEscuro
+			? System::Drawing::Color::Gainsboro
+			: System::Drawing::Color::Black;
+		lblErro->ForeColor = temaEscuro
+			? System::Drawing::Color::FromArgb(255, 120, 120)   // vermelho legivel no escuro
+			: System::Drawing::Color::Firebrick;
 		lblErro->Text = L"⚠ " + msg;
 		lblErro->Visible = true;
 	}
@@ -2937,7 +2969,14 @@ namespace T2MSecurityManager {
 		   // Limpa o erro visual de um campo (volta ao normal).
 	private: void LimparErroCampo(TextBox^ campo, Label^ lblErro) {
 		campo->BorderStyle = System::Windows::Forms::BorderStyle::Fixed3D;
-		campo->BackColor = System::Drawing::Color::White;
+		// Volta para a cor do TEMA, nao para branco fixo: no tema escuro, um
+		// campo branco no meio da janela escura parecia defeito.
+		campo->BackColor = temaEscuro
+			? System::Drawing::Color::FromArgb(44, 47, 54)
+			: System::Drawing::Color::White;
+		campo->ForeColor = temaEscuro
+			? System::Drawing::Color::Gainsboro
+			: System::Drawing::Color::Black;
 		lblErro->Text = L"";
 		lblErro->Visible = false;
 	}
