@@ -426,6 +426,13 @@ def teste_respostas_do_sqlcl():
         ("", False, "saida vazia nao pode virar sucesso"),
         ("SQLcl: Release 26.2 Production\nConnected.\n", True, "conexao real"),
         ("Name: T2M_MCP\n", True, "conexao salva"),
+        # A prova mais confiavel: o connmgr lista a conexao pelo nome. Nao
+        # depende da redacao de nenhuma frase, que a Oracle pode mudar.
+        ("SQLcl: Release 26.2\nNOME DA CONEXAO\n----\nT2M_MCP\n", True,
+         "nome listado pelo connmgr"),
+        ("SQLcl: Release 26.2\nConnection failed\n  Error Message = "
+         "ORA-17868: Unknown host\n.\n", False,
+         "falha real do SQLcl 26.2 (capturada do binario)"),
     ]
     for saida, esperado, rotulo in reais:
         ok, det = rodar_com(saida)

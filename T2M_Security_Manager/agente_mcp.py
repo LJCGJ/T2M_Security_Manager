@@ -1881,9 +1881,22 @@ def _salvar_conexao_sqlcl(cmd_base, info):
     # A senha vai entre aspas: sem isso, um caractere como @ ou / dentro dela
     # quebraria a string de conexao e o erro sairia como "usuario invalido",
     # mandando o operador conferir a credencial errada.
-    roteiro = (prefixo
+    # "set echo off" primeiro: se o operador tiver um login.sql com echo
+    # ligado, o SQLcl repetiria os comandos na saida - e o nome da conexao
+    # apareceria mesmo sem ter sido salvo, virando falso positivo no teste
+    # logo abaixo.
+    #
+    # "connmgr list" no fim e a prova de que o save funcionou. Depender so de
+    # frases como "Connected" e fragil: basta a Oracle mudar a redacao numa
+    # versao nova e o app passaria a achar que nunca conecta. Ja o nome da
+    # conexao aparecer na listagem e um fato, nao uma redacao. Verificado
+    # contra o SQLcl 26.2: quando a conexao falha, o nome nao aparece nenhuma
+    # vez na saida.
+    roteiro = ('set echo off\n'
+               + prefixo
                + f'conn -save {NOME_CONEXAO_T2M} -savepwd '
                  f'{usuario}/"{senha}"@{alvo}\n'
+                 f'connmgr list\n'
                  f'exit\n')
     try:
         p = subprocess.run(cmd_base + ["/nolog"], input=roteiro, text=True,
@@ -1909,7 +1922,10 @@ def _salvar_conexao_sqlcl(cmd_base, info):
         erro = re.search(r"(ORA-\d{5}|TNS-\d{5}|SP2-\d{4})[^\n]*", saida)
         if erro:
             return False, _dica_erro_oracle(erro.group(0))
-        if "Connected" in saida or "Name:" in saida:
+        # Evidencia POSITIVA de sucesso, em ordem de confiabilidade: o nome da
+        # conexao listado pelo connmgr, ou as frases que o SQLcl usa hoje.
+        if (NOME_CONEXAO_T2M in saida
+                or "Connected" in saida or "Name:" in saida):
             return True, ""
         # O SQLcl ecoa a senha mascarada, mas nunca devolvemos a saida crua
         # para a interface sem passar pelo mascarador.
