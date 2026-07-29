@@ -1896,6 +1896,16 @@ def _salvar_conexao_sqlcl(cmd_base, info):
         # achando que tinha salvado a conexao e so quebrava depois, no connect,
         # com "Connection not found" - erro que nao aponta para a causa real.
         # Por isso exigimos evidencia POSITIVA no texto.
+        # A wallet rejeitada NAO produz ORA-/TNS-/SP2-: o SQLcl escreve
+        # "Invalid Cloud Wallet specified" e segue em frente. Sem esta
+        # checagem, o erro que chegava ao operador era o ORA-12154 do conn
+        # seguinte, mandando conferir o apelido do tnsnames quando o problema
+        # e o arquivo da wallet. Verificado contra o SQLcl 26.2 real.
+        if "invalid cloud wallet" in saida.lower():
+            return False, ("o SQLcl recusou a wallet informada - confira se o "
+                           "arquivo e o .zip baixado do Oracle Cloud e se nao "
+                           "esta corrompido")
+
         erro = re.search(r"(ORA-\d{5}|TNS-\d{5}|SP2-\d{4})[^\n]*", saida)
         if erro:
             return False, _dica_erro_oracle(erro.group(0))

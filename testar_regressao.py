@@ -396,6 +396,47 @@ def teste_dicas_de_erro():
 
 
 # ==================================================================== #
+def teste_respostas_do_sqlcl():
+    secao("Leitura das respostas do SQLcl")
+    # Todas estas saidas foram capturadas do SQLcl 26.2 de verdade. O ponto
+    # cego historico: ele sai com codigo 0 MESMO quando a conexao falha, entao
+    # confiar no codigo de saida dava falso positivo - o app seguia achando que
+    # tinha conectado e so quebrava depois, com "Connection not found".
+    import types as _t
+
+    def rodar_com(saida_falsa):
+        original = A.subprocess.run
+        A.subprocess.run = lambda *a, **k: _t.SimpleNamespace(
+            stdout=saida_falsa, stderr="", returncode=0)
+        try:
+            return A._salvar_conexao_sqlcl(["sql"], {
+                "host": "h", "porta": "1521", "servico": "S",
+                "usuario": "u", "senha": "p"})
+        finally:
+            A.subprocess.run = original
+
+    reais = [
+        ("Connection failed\n  Error Message = ORA-17868: Unknown host specified.",
+         False, "host inexistente"),
+        ("Connection failed\n  Error Message = ORA-12541: TNS:no listener",
+         False, "porta fechada"),
+        ("Connection failed\n  Error Message = ORA-01017: invalid username",
+         False, "credencial errada"),
+        ("Invalid Cloud Wallet specified: C:\\x\\W.zip", False, "wallet recusada"),
+        ("", False, "saida vazia nao pode virar sucesso"),
+        ("SQLcl: Release 26.2 Production\nConnected.\n", True, "conexao real"),
+        ("Name: T2M_MCP\n", True, "conexao salva"),
+    ]
+    for saida, esperado, rotulo in reais:
+        ok, det = rodar_com(saida)
+        checa(f"{rotulo}: ok={esperado}", ok is esperado, f"veio {ok} / {det[:50]}")
+
+    ok, det = rodar_com("Invalid Cloud Wallet specified: C:\\x\\W.zip")
+    checa("wallet recusada tem mensagem propria, nao ORA generico",
+          "wallet" in det.lower(), det[:70])
+
+
+# ==================================================================== #
 def teste_laco_do_modelo():
     secao("Laco do modelo (SDK falso, sem gastar token)")
 
@@ -468,7 +509,8 @@ def main():
     for teste in (teste_validador_sql, teste_conexao_oracle, teste_wallet,
                   teste_pacotes_npm, teste_config_dbhub, teste_sessao_protegida,
                   teste_sessao_oracle, teste_mascaramento, teste_memoria,
-                  teste_schema_gemini, teste_dicas_de_erro, teste_laco_do_modelo):
+                  teste_schema_gemini, teste_dicas_de_erro,
+                  teste_respostas_do_sqlcl, teste_laco_do_modelo):
         try:
             teste()
         except Exception as e:
