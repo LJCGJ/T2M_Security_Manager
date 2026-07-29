@@ -1195,10 +1195,15 @@ def _modelo_para_auditoria(api_key):
     return MODELO_GEMINI or "gemini"
 
 
-def _resultado_texto(msg):
-    """Imita o CallToolResult do MCP para respostas geradas por nos."""
+def _resultado_texto(msg, erro=False):
+    """Imita o CallToolResult do MCP para respostas geradas por nos.
+
+    O parametro 'erro' existe porque este helper tambem e usado para RECONSTRUIR
+    resultados que vieram do servidor - e ali o isError original precisa ser
+    preservado. Fixa-lo em False fazia uma falha de ferramenta chegar ao modelo
+    com cara de sucesso que por acaso traz um texto de erro dentro."""
     import types as _t
-    return _t.SimpleNamespace(content=[_t.SimpleNamespace(text=msg)], isError=False)
+    return _t.SimpleNamespace(content=[_t.SimpleNamespace(text=msg)], isError=erro)
 
 
 class _SessaoOracleFiltrada:
@@ -1458,7 +1463,8 @@ class _SessaoProtegida:
             log(f">>> [{self._rotulo}] resposta anotada com a causa provavel")
             partes.append(f"[T2M] {nota}")
 
-        return _resultado_texto("\n\n".join(partes))
+        return _resultado_texto("\n\n".join(partes),
+                                getattr(res, "isError", False))
 
     def __getattr__(self, nome):
         return getattr(self._sessao, nome)
