@@ -148,6 +148,10 @@ namespace T2MSecurityManager {
 		// operador ja logou. Isolado por padrao; quem precisa testar atras de login
 		// desmarca conscientemente.
 		bool cfgNavegadorIsolado;
+		// JavaScript arbitrario na pagina (browser_evaluate). Desligado por
+		// padrao: tem uso legitimo em QA, mas tambem e o caminho mais curto para
+		// uma pagina hostil fazer a IA agir alem do que o operador pediu.
+		bool cfgPermitirJsPagina;
 		String^ cfgDominiosConfiaveis;   // separados por ';'; vazio = sem restricao
 		int cfgMaxHistorico;      // mensagens reenviadas a IA por chamada
 		Button^ btnMapearSite;
@@ -1699,6 +1703,7 @@ namespace T2MSecurityManager {
 		cfgModeloOpenAI = "gpt-4o-mini";
 		cfgModeloGemini = "gemini-2.5-flash";
 		cfgNavegadorIsolado = true;
+		cfgPermitirJsPagina = false;
 		cfgDominiosConfiaveis = "";
 		cfgMaxHistorico = 20;
 		try {
@@ -1719,6 +1724,7 @@ namespace T2MSecurityManager {
 				else if (chave == "modelo_openai" && valor != "") cfgModeloOpenAI = valor;
 				else if (chave == "modelo_gemini" && valor != "") cfgModeloGemini = valor;
 				else if (chave == "navegador_isolado") cfgNavegadorIsolado = (valor != "0");
+				else if (chave == "permitir_js_pagina") cfgPermitirJsPagina = (valor == "1");
 				else if (chave == "dominios_confiaveis") cfgDominiosConfiaveis = valor;
 				else if (chave == "max_historico") Int32::TryParse(valor, cfgMaxHistorico);
 			}
@@ -1744,7 +1750,8 @@ namespace T2MSecurityManager {
 			cli::array<String^>^ conhecidas = gcnew cli::array<String^>{
 				"pasta_relatorios", "pasta_sessoes", "pasta_scripts", "timeout",
 				"max_passos", "max_linhas", "modelo_claude", "modelo_openai",
-				"modelo_gemini", "navegador_isolado", "dominios_confiaveis",
+				"modelo_gemini", "navegador_isolado", "permitir_js_pagina",
+				"dominios_confiaveis",
 				"max_historico"
 			};
 			System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
@@ -1758,6 +1765,7 @@ namespace T2MSecurityManager {
 			sb->AppendLine("modelo_openai=" + cfgModeloOpenAI);
 			sb->AppendLine("modelo_gemini=" + cfgModeloGemini);
 			sb->AppendLine("navegador_isolado=" + (cfgNavegadorIsolado ? "1" : "0"));
+			sb->AppendLine("permitir_js_pagina=" + (cfgPermitirJsPagina ? "1" : "0"));
 			sb->AppendLine("dominios_confiaveis=" + cfgDominiosConfiaveis);
 			sb->AppendLine("max_historico=" + cfgMaxHistorico);
 
@@ -1784,7 +1792,7 @@ namespace T2MSecurityManager {
 	private: System::Void btnConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
 		Form^ f = gcnew Form();
 		f->Text = L"Configuracoes";
-		f->Size = System::Drawing::Size(720, 700);   // +130: secao de seguranca
+		f->Size = System::Drawing::Size(720, 782);   // +82: opcao de JavaScript
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
@@ -2036,6 +2044,25 @@ namespace T2MSecurityManager {
 		f->Controls->Add(dicaIsolado);
 
 		y += 36;
+		CheckBox^ chkJs = gcnew CheckBox();
+		chkJs->Text = L"Permitir JavaScript na pagina (browser_evaluate)";
+		chkJs->Location = System::Drawing::Point(x1, y); chkJs->AutoSize = true;
+		chkJs->Checked = cfgPermitirJsPagina;
+		f->Controls->Add(chkJs);
+
+		y += 22;
+		Label^ dicaJs = gcnew Label();
+		dicaJs->Text =
+			L"Desligado por padrao. Ligue apenas quando o teste precisar ler algo que nao aparece\n"
+			L"na tela - dataLayer, localStorage, tempos. Ligado, uma pagina maliciosa que engane a\n"
+			L"IA pode executar codigo proprio dentro do site em teste.";
+		dicaJs->Location = System::Drawing::Point(x1 + 18, y);
+		dicaJs->Size = System::Drawing::Size(650, 46);
+		dicaJs->ForeColor = System::Drawing::Color::DimGray;
+		dicaJs->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		f->Controls->Add(dicaJs);
+
+		y += 50;
 		Label^ lblDom = gcnew Label();
 		lblDom->Text = L"Dominios confiaveis:";
 		lblDom->Location = System::Drawing::Point(x1, y + 3); lblDom->AutoSize = true;
@@ -2073,11 +2100,11 @@ namespace T2MSecurityManager {
 		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
 		f->Controls->Add(btnCancel);
 
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(10);
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(11);
 		campos[0] = txtRel; campos[1] = txtSes; campos[2] = txtScr;
 		campos[3] = numPassos; campos[4] = numLinhas; campos[5] = numTimeout;
 		campos[6] = cbModelo; campos[7] = numHist;
-		campos[8] = chkIsolado; campos[9] = txtDominios;
+		campos[8] = chkIsolado; campos[9] = txtDominios; campos[10] = chkJs;
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
@@ -2358,6 +2385,7 @@ namespace T2MSecurityManager {
 		cfgMaxHistorico = (int)safe_cast<NumericUpDown^>(ctl[7])->Value;
 		cfgNavegadorIsolado = safe_cast<CheckBox^>(ctl[8])->Checked;
 		cfgDominiosConfiaveis = safe_cast<TextBox^>(ctl[9])->Text->Trim();
+		cfgPermitirJsPagina = safe_cast<CheckBox^>(ctl[10])->Checked;
 
 		SalvarConfiguracoesApp();
 		MessageBox::Show(L"Configuracoes salvas.\n\nOs limites passam a valer nas proximas execucoes.",

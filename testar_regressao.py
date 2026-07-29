@@ -271,12 +271,33 @@ def teste_sessao_protegida():
         checa(f"isError={esperado} atravessa o proxy",
               getattr(r, "isError", None) is esperado)
 
+    # browser_evaluate: desligada por padrao, mas com explicacao de como ligar.
+    # A recusa e a documentacao - o operador descobre a opcao no momento em que
+    # ela faz falta, sem precisar entender isso de antemao.
+    checa("browser_evaluate bloqueada por padrao",
+          "browser_evaluate" in A.FERRAMENTAS_TELA_BLOQUEADAS)
+    checa("JavaScript na pagina vem desligado", A.PERMITIR_JS_PAGINA is False)
+    js = ServidorFalso("nao deveria chegar")
+    pj = A._SessaoProtegida(js, A.FERRAMENTAS_TELA_BLOQUEADAS, "Tela")
+    tj = A.texto_do_resultado_mcp(asyncio.run(
+        pj.call_tool("browser_evaluate", {"function": "()=>document.cookie"})))
+    checa("a recusa nao chega ao servidor", js.chamadas == [])
+    checa("a recusa diz ONDE ligar", "Configuracoes" in tj and "seguranca" in tj)
+    checa("a recusa diz PARA QUE serve", "dataLayer" in tj or "localStorage" in tj)
+    trc = A.texto_do_resultado_mcp(asyncio.run(
+        pj.call_tool("browser_run_code_unsafe", {})))
+    checa("a que nao tem opcao diz isso claramente",
+          "configuracao nenhuma" in trc or "nao ha opcao" in trc.lower())
+
     perigosa = ServidorFalso("nao deveria chegar")
     pf = A._SessaoProtegida(perigosa, A.FERRAMENTAS_TELA_BLOQUEADAS, "Tela")
     for nome in A.FERRAMENTAS_TELA_BLOQUEADAS:
         txt = A.texto_do_resultado_mcp(asyncio.run(pf.call_tool(nome, {})))
+        # Cada bloqueio tem sua propria explicacao, entao o teste nao pode
+        # depender de uma frase fixa - o que importa e nao chegar ao servidor
+        # e o modelo receber algo que de para repassar ao operador.
         checa(f"{nome} barrada antes do servidor",
-              "nao esta disponivel" in txt and perigosa.chamadas == [])
+              perigosa.chamadas == [] and len(txt) > 40, txt[:50])
     asyncio.run(pf.call_tool("browser_click", {}))
     checa("ferramenta legitima passa",
           [n for n, _ in perigosa.chamadas] == ["browser_click"])
@@ -518,6 +539,74 @@ def teste_laco_do_modelo():
 
 
 # ==================================================================== #
+def teste_relatorio_parcial():
+    """O caso do teste que bate no teto de passos.
+
+    E o caso mais caro de todos: o cliente pagou por MAX_ITERACOES passos de
+    raciocinio. Devolver so 'limite atingido' joga esse dinheiro fora e ainda
+    deixa a pessoa sem saber o que ja tinha sido descoberto. O contrato aqui e
+    devolver o trabalho, avisar que esta incompleto e dizer onde mexer."""
+    secao("Relatorio parcial ao bater no teto de passos")
+
+    class Bloco:
+        def __init__(self, tipo, **kw):
+            self.type = tipo
+            for k, v in kw.items():
+                setattr(self, k, v)
+
+    class RespostaFalsa:
+        def __init__(self, blocos):
+            self.content = blocos
+
+    class ModeloQueNuncaConclui:
+        """Fala alguma coisa e pede ferramenta de novo, para sempre."""
+        def __init__(self):
+            self.passo = 0
+
+        def create(self, **kw):
+            self.passo += 1
+            return RespostaFalsa([
+                Bloco("text", text=f"Passo {self.passo}: "
+                                   f"encontrei um campo sem validacao."),
+                Bloco("tool_use", id=f"t{self.passo}", name="consultar",
+                      input={"a": self.passo})])
+
+    class ClienteFalso:
+        def __init__(self):
+            self.messages = ModeloQueNuncaConclui()
+
+    falso = types.ModuleType("anthropic")
+    falso.Anthropic = lambda api_key=None: ClienteFalso()
+    original = sys.modules.get("anthropic")
+    sys.modules["anthropic"] = falso
+    try:
+        srv = ServidorFalso("dados quaisquer")
+        sessao = A._SessaoProtegida(srv, rotulo="Teste")
+        ferramentas = [types.SimpleNamespace(
+            name="consultar", description="d", inputSchema={"type": "object"})]
+        saida = asyncio.run(A.loop_anthropic(sessao, "sk-ant-x",
+                                             "objetivo grande demais", ferramentas))
+    finally:
+        if original is None:
+            sys.modules.pop("anthropic", None)
+        else:
+            sys.modules["anthropic"] = original
+
+    checa("o laco parou no teto de passos configurado",
+          len(srv.chamadas) == A.MAX_ITERACOES)
+    checa("o trabalho ja feito voltou junto (nao foi descartado)",
+          "campo sem validacao" in saida)
+    checa("o relatorio avisa que esta incompleto",
+          "incompleto" in saida.lower())
+    checa("o relatorio diz onde aumentar o limite",
+          "Passos maximos" in saida and "Configuracoes" in saida)
+    checa("o relatorio avisa que cada passo a mais custa",
+          "custa token" in saida)
+    checa("o aviso cita o numero de passos que foi usado",
+          str(A.MAX_ITERACOES) in saida)
+
+
+# ==================================================================== #
 def main():
     print("SUITE DE REGRESSAO DO AGENTE - T2M")
     print("(sem chave de IA, sem internet, sem banco, sem navegador)")
@@ -526,7 +615,8 @@ def main():
                   teste_pacotes_npm, teste_config_dbhub, teste_sessao_protegida,
                   teste_sessao_oracle, teste_mascaramento, teste_memoria,
                   teste_schema_gemini, teste_dicas_de_erro,
-                  teste_respostas_do_sqlcl, teste_laco_do_modelo):
+                  teste_respostas_do_sqlcl, teste_laco_do_modelo,
+                  teste_relatorio_parcial):
         try:
             teste()
         except Exception as e:
