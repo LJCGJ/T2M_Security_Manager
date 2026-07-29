@@ -636,6 +636,21 @@ def teste_resumo_de_bloqueios():
           "browser_evaluate" in saida
           and saida.index("browser_evaluate") < saida.index("CHAT_MSG_FIM"))
 
+    # Repete a conta EXATA que o C++ faz para recortar a resposta
+    # (Substring(i+15, f-(i+15))->Trim(), com 15 = len("CHAT_MSG_INICIO")).
+    # E esse texto que vai para a janela de chat e, dali, para o HTML do botao
+    # 'Relatorio do Teste'. Se um dia o marcador mudar de tamanho, o recorte
+    # come caractere calado - e o primeiro a sumir seria justamente o inicio do
+    # relatorio.
+    i = saida.index("CHAT_MSG_INICIO")
+    f = saida.index("CHAT_MSG_FIM")
+    recorte = saida[i + 15:f].strip()
+    checa("o recorte do C++ entrega o relatorio inteiro",
+          recorte.startswith("Relatorio final."))
+    checa("o recorte do C++ leva o resumo de recusas junto",
+          "browser_evaluate" in recorte and "(2x)" in recorte
+          and "Permitir JavaScript na pagina" in recorte)
+
     # Ferramenta inventada pelo modelo: nao ha o que liberar, e o texto precisa
     # dizer isso em vez de sugerir uma opcao que nao existe.
     A._zerar_bloqueios()
