@@ -212,6 +212,54 @@ if errorlevel 1 (
 )
 
 REM ============================================================
+REM  4b. SERVIDORES MCP (baixa agora para nao travar no primeiro uso)
+REM
+REM  Cada modo do T2M sobe um servidor MCP publicado no npm. O npx baixa
+REM  esse pacote na PRIMEIRA vez que o modo e usado - sao centenas de
+REM  arquivos, e em rede corporativa isso passa de dois minutos. Como o
+REM  download acontece antes de o servidor falar qualquer coisa, o app
+REM  parece travado, sem nenhuma mensagem. Baixando aqui, o custo cai
+REM  numa etapa de instalacao, onde esperar e o esperado, e o primeiro
+REM  uso de cada modo passa a ser imediato.
+REM
+REM  As versoes abaixo sao as MESMAS fixadas no agente_mcp.py. Se mudarem
+REM  la, mudem aqui: baixar outra versao nao adianta de nada.
+REM ============================================================
+echo.
+echo [4b/6] Baixando os servidores MCP...
+echo.
+echo       Sao centenas de arquivos por servidor. Pode demorar alguns minutos.
+echo.
+
+REM  O DBHub sai com codigo 0 apenas em modo demo, com um banco em memoria.
+REM  Nos outros modos ele exige um DSN e sempre sai com erro - inclusive no
+REM  --help - entao "--demo" e a unica forma de distinguir "baixou e roda" de
+REM  "nao baixou". A entrada vem de NUL para ele fechar sozinho.
+echo       @bytebase/dbhub@0.24.0
+call npx -y @bytebase/dbhub@0.24.0 --transport stdio --demo <nul >nul 2>&1
+if errorlevel 1 (
+  echo          [!] nao baixou agora; sera baixado no primeiro uso do modo Banco
+) else (
+  echo          [OK]
+)
+
+echo       @playwright/mcp@0.0.78
+call npx -y @playwright/mcp@0.0.78 --help >nul 2>&1
+if errorlevel 1 (
+  echo          [!] nao baixou agora; sera baixado no primeiro uso do Teste de Tela
+) else (
+  echo          [OK]
+)
+
+echo       mongodb-mcp-server@1.14.0
+call npx -y mongodb-mcp-server@1.14.0 --help >nul 2>&1
+if errorlevel 1 (
+  echo          [!] nao baixou agora; sera baixado no primeiro uso do modo MongoDB
+) else (
+  echo          [OK]
+)
+
+REM ============================================================
 REM  5 e 6. SUPORTE A ORACLE VIA MCP (OPCIONAL)
 REM
 REM  O modo Oracle funciona SEM isto, usando o driver nativo oracledb.

@@ -185,6 +185,11 @@ DOMINIOS_CONFIAVEIS = _CFG.get("dominios_confiaveis", "").strip()
 # continua possivel, mas passa a ser uma escolha consciente.
 VERSAO_PLAYWRIGHT_MCP = _CFG.get("versao_playwright_mcp", "0.0.78").strip()
 VERSAO_MONGO_MCP = _CFG.get("versao_mongo_mcp", "1.14.0").strip()
+# O DBHub estava sem versao NENHUMA, o que equivale a @latest. E o caso mais
+# exposto dos tres: a 1.0.0 saiu em 29/07/2026 e toda instalacao do T2M teria
+# pulado para uma versao maior - com as quebras que uma 1.0 costuma trazer -
+# na execucao seguinte, sem ninguem pedir. Fica na 0.24.0, a ultima anterior.
+VERSAO_DBHUB = _CFG.get("versao_dbhub", "0.24.0").strip()
 
 ORACLE_VIA_MCP = _CFG.get("oracle_via_mcp", "auto").strip().lower()
 SQLCL_RAIZ = _CFG.get("sqlcl_raiz", "").strip()   # opcional; vazio = detectar
@@ -860,7 +865,7 @@ async def executar(api_key, url_alvo, objetivo):
 async def executar_banco(api_key, dsn, somente_leitura, objetivo):
     """Sobe o servidor MCP de banco (DBHub) e deixa a IA executar o objetivo via SQL.
     dsn: string de conexao, ex.: postgres://user:senha@host:5432/db
-    somente_leitura: se True, o DBHub roda em modo --readonly (so SELECT)."""
+    somente_leitura: se True, o DBHub e configurado para so aceitar leitura."""
     if not tem_lib("mcp"):
         responder("Biblioteca ausente: mcp. Rode: pip install mcp")
         return
@@ -877,9 +882,10 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
     # stdin em vez de argv; a senha do banco nao tinha.
     # O DBHub le o DSN nesta ordem: flag --dsn, variavel DSN, variaveis DB_*,
     # arquivo .env. Sem a flag, ele usa a variavel.
-    args = ["-y", "@bytebase/dbhub", "--transport", "stdio"]
-    if somente_leitura:
-        args.append("--readonly")
+    pacote = _pacote_npm("@bytebase/dbhub", VERSAO_DBHUB)
+    log(f">>> Servidor de banco: {pacote}")
+    args = ["-y", pacote, "--transport", "stdio",
+            "--config=" + _config_dbhub(somente_leitura)]
 
     # O SDK do MCP MESCLA este env com o ambiente padrao seguro (que inclui
     # PATH e PATHEXT no Windows), entao o npx continua sendo encontrado.
@@ -901,7 +907,10 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
                            "destrutivas (INSERT/UPDATE/DELETE/DROP) e confirme antes. ")
                 objetivo_completo = (
                     f"Voce esta conectado a um banco de dados via ferramentas MCP. {modo_ro}"
-                    f"Primeiro explore o schema (liste tabelas e colunas) antes de consultar. "
+                    f"Primeiro explore o schema com search_objects, usando "
+                    f"object_type='table' e detail_level='full': ele devolve as "
+                    f"tabelas com colunas, tipos e contagem de linhas. So depois "
+                    f"escreva SQL - adivinhar nome de coluna gera erro e gasta passo. "
                     f"Objetivo do usuario: {objetivo}\n\n"
                     f"Ao final, relate o que encontrou de forma clara. Se fizer sentido, gere "
                     f"um script de teste (SQL, ou Robot Framework com DatabaseLibrary, ou "
@@ -1296,6 +1305,42 @@ def _erro_oracle_no_texto(texto):
     """Procura evidencia de erro do Oracle numa resposta de texto livre."""
     return bool(re.search(r"(?i)(ORA-\d{5}|TNS-\d{5}|SP2-\d{4}|"
                           r"not found|failed|failure)", texto or ""))
+
+
+def _config_dbhub(somente_leitura):
+    """Escreve o dbhub.toml temporario que o servidor passou a exigir.
+
+    O DBHub deixou de aceitar a flag --readonly: da versao 0.22 em diante ele
+    responde "--readonly flag is no longer supported" e NAO SOBE. Isso quebrava
+    exatamente o modo somente-leitura, que e o padrao e o recomendado - enquanto
+    o modo de leitura e escrita seguia funcionando. Ou seja, a falha empurrava o
+    operador para a configuracao perigosa. A configuracao virou arquivo.
+
+    O DSN entra como ${DSN}, nao literal: o proprio DBHub interpola da variavel
+    de ambiente. Assim a senha do banco continua fora do disco, mantendo o
+    cuidado que ja existia de nao expo-la na linha de comando."""
+    import atexit
+    import tempfile
+
+    conteudo = '[[sources]]\nid = "t2m"\ndsn = "${DSN}"\n'
+    if somente_leitura:
+        # Declarar ferramentas restringe a lista ao que esta aqui. Por isso o
+        # search_objects vem junto: ele devolve tabelas, colunas, tipos e ate
+        # a contagem de linhas, e e com isso que o modelo escreve um SQL que
+        # faz sentido em vez de adivinhar nomes de coluna. So com execute_sql
+        # o modo somente-leitura ficaria cego para o schema.
+        conteudo += ('\n[[tools]]\nname = "execute_sql"\n'
+                     'source = "t2m"\nreadonly = true\n'
+                     '\n[[tools]]\nname = "search_objects"\n'
+                     'source = "t2m"\n')
+    arq = tempfile.NamedTemporaryFile("w", suffix="_dbhub.toml", delete=False,
+                                      encoding="utf-8")
+    try:
+        arq.write(conteudo)
+    finally:
+        arq.close()
+    atexit.register(lambda: os.path.exists(arq.name) and os.unlink(arq.name))
+    return arq.name
 
 
 def _pacote_npm(nome, versao):
