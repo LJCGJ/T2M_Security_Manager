@@ -539,6 +539,123 @@ def teste_laco_do_modelo():
 
 
 # ==================================================================== #
+def teste_aviso_de_limites_no_prompt():
+    """O modelo precisa saber do muro ANTES de bater nele. Descobrir a limitacao
+    gastando passo e caro; e pior, as vezes ele conclui em silencio que o
+    objetivo era impossivel, e o operador nunca fica sabendo que bastava marcar
+    uma caixa."""
+    secao("Aviso de limites no prompt do modelo")
+
+    r = A._regra_limites(("browser_evaluate", "browser_run_code_unsafe"))
+    checa("o modelo e avisado do que esta desligado", "browser_evaluate" in r)
+    checa("o aviso diz onde o operador liga",
+          "Permitir JavaScript na pagina" in r)
+    checa("o aviso deixa claro que quem liga e o operador",
+          "VOCE nao pode ligar" in r)
+    checa("o aviso manda registrar como pendencia", "Pendencias" in r)
+    checa("o aviso pede para nao insistir a cada passo", "sem repetir" in r)
+    checa("o aviso pede silencio quando nao e preciso",
+          "nao precisa, nao" in r.replace("\n", " "))
+    # Agora que o modelo sabe que existe um interruptor, uma pagina hostil tem
+    # o que pedir a ele. A contramedida precisa nascer junto com o aviso.
+    checa("o aviso antecipa o pedido vindo de conteudo lido",
+          "injecao" in r and "nao repasse" in r)
+    checa("o aviso se identifica como vindo do aplicativo",
+          "nao da pagina" in r)
+
+    # O que esta LIBERADO nao pode ser anunciado como bloqueado: um aviso que
+    # mente uma vez deixa de ser levado a serio nas outras.
+    livre = A._regra_limites(("browser_run_code_unsafe",))
+    checa("ferramenta liberada nao aparece na lista",
+          "browser_evaluate" not in livre)
+    checa("sem nada bloqueado, o prompt nao cresce a toa",
+          A._regra_limites(()) == "")
+
+    # Ferramenta sem texto proprio nao pode virar uma sugestao inventada.
+    chutada = A._regra_limites(("ferramenta_estranha",))
+    checa("ferramenta sem explicacao nao ganha configuracao imaginaria",
+          "indisponivel neste aplicativo" in chutada)
+
+    # Cada limite tem tres textos, um por leitor. O acidente que este teste
+    # existe para pegar: um texto escrito para o operador acabar no prompt do
+    # modelo, onde ele fala do proprio leitor na terceira pessoa.
+    for chave, textos in A._LIMITES.items():
+        vindo = textos.get("antes", "")
+        checa(f"texto de prompt de {chave} nao fala da IA em terceira pessoa",
+              "a IA" not in vindo)
+    checa("toda ferramenta de tela bloqueada tem texto de recusa",
+          all(n in A._EXPLICACAO_BLOQUEIO for n in A.FERRAMENTAS_TELA_BLOQUEADAS))
+    checa("toda ferramenta de tela bloqueada tem texto para o operador",
+          all(n in A._COMO_LIBERAR for n in A.FERRAMENTAS_TELA_BLOQUEADAS))
+    checa("toda ferramenta de tela bloqueada e anunciada no prompt",
+          all(f"- {n}:" in A._regra_limites(A.FERRAMENTAS_TELA_BLOQUEADAS)
+              for n in A.FERRAMENTAS_TELA_BLOQUEADAS))
+
+
+# ==================================================================== #
+def teste_resumo_de_bloqueios():
+    """A recusa hoje e explicada ao MODELO. Nada garante que o modelo repasse
+    isso ao operador - e quando ele nao repassa, o teste parece 'nao achei
+    nada' quando na verdade era 'nao pude olhar'. O resumo no fim do relatorio
+    e o que fecha esse buraco."""
+    secao("Resumo das recusas no fim do relatorio")
+
+    import io
+    import contextlib
+
+    A._zerar_bloqueios()
+    checa("sem recusa nenhuma, nao ha resumo", A._resumo_bloqueios() == "")
+
+    # Relatorio limpo nao pode ganhar ruido.
+    A._zerar_bloqueios()
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        A.responder("Relatorio final.")
+    checa("relatorio sem recusa sai igual ao que entrou",
+          buf.getvalue().strip().splitlines()[1:-1] == ["Relatorio final."])
+
+    # Duas recusas da mesma ferramenta contam como duas.
+    A._zerar_bloqueios()
+    sessao = A._SessaoProtegida(ServidorFalso("x"),
+                               bloqueadas=("browser_evaluate",), rotulo="Teste")
+    asyncio.run(sessao.call_tool("browser_evaluate", {"function": "() => 1"}))
+    asyncio.run(sessao.call_tool("browser_evaluate", {"function": "() => 2"}))
+    resumo = A._resumo_bloqueios()
+    checa("a recusa foi contabilizada", "browser_evaluate" in resumo)
+    checa("o resumo conta quantas vezes aconteceu", "(2x)" in resumo)
+    checa("o resumo diz ao operador como liberar",
+          "Permitir JavaScript na pagina" in resumo)
+    checa("o resumo avisa que o relatorio pode estar incompleto",
+          "incompleto" in resumo.lower())
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        A.responder("Relatorio final.")
+    saida = buf.getvalue()
+    checa("o resumo sai junto do relatorio, dentro dos marcadores",
+          "browser_evaluate" in saida
+          and saida.index("browser_evaluate") < saida.index("CHAT_MSG_FIM"))
+
+    # Ferramenta inventada pelo modelo: nao ha o que liberar, e o texto precisa
+    # dizer isso em vez de sugerir uma opcao que nao existe.
+    A._zerar_bloqueios()
+    A._registrar_bloqueio("ferramenta_que_nao_existe")
+    checa("nome chutado nao vira sugestao de configuracao",
+          "nao ha o que" in A._resumo_bloqueios())
+
+    # Escrita barrada em somente-leitura tambem precisa aparecer: e o caso em
+    # que o operador provavelmente escolheu o modo errado para o objetivo.
+    A._zerar_bloqueios()
+    oracle = A._SessaoOracleFiltrada(ServidorFalso("x"), True, "claude")
+    asyncio.run(oracle.call_tool("sql_run", {"sql": "DELETE FROM CLIENTES"}))
+    r = A._resumo_bloqueios()
+    checa("escrita barrada entra no resumo", "sql_escrita_bloqueada" in r)
+    checa("o resumo aponta a opcao 'Somente leitura'", "Somente leitura" in r)
+
+    A._zerar_bloqueios()
+
+
+# ==================================================================== #
 def teste_relatorio_parcial():
     """O caso do teste que bate no teto de passos.
 
@@ -616,7 +733,8 @@ def main():
                   teste_sessao_oracle, teste_mascaramento, teste_memoria,
                   teste_schema_gemini, teste_dicas_de_erro,
                   teste_respostas_do_sqlcl, teste_laco_do_modelo,
-                  teste_relatorio_parcial):
+                  teste_relatorio_parcial, teste_resumo_de_bloqueios,
+                  teste_aviso_de_limites_no_prompt):
         try:
             teste()
         except Exception as e:
