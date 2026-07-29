@@ -22,8 +22,10 @@ COMO USAR:
 import asyncio
 import getpass
 import os
+import re
 import sys
 import tempfile
+from urllib.parse import quote_plus
 
 PASTA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "T2M_Security_Manager")
 if os.path.isdir(PASTA):
@@ -176,7 +178,14 @@ async def sondar_mongo(conn_string):
                             print(f"       {linha[:150]}")
                         break
     except Exception as e:
-        print(f"\n   FALHOU: {A._detalhar_excecao(e)}")
+        detalhe = A._detalhar_excecao(e)
+        print(f"\n   FALHOU: {detalhe}")
+        if "Timeout" in detalhe or not detalhe.split(":")[-1].strip():
+            print("   Provavelmente e o download do pacote, que na primeira vez")
+            print("   sao centenas de arquivos. Aqueca o cache e rode de novo:")
+            print(f"       npx -y {pacote} --help")
+        else:
+            print("   (usuario, senha, ou IP fora da lista de acesso do Atlas)")
 
 
 async def main():
@@ -206,11 +215,19 @@ async def main():
         if not any(c in bruto for c in ("@", "://")):
             print("   Isso nao parece uma string de conexao. Pulando.")
         else:
-            if "senha" in bruto.lower() or "<password>" in bruto.lower():
-                senha = getpass.getpass("   a string tem um lugar para a senha; "
-                                        "digite-a (nao aparece): ")
+            # Todo servico entrega a string com um marcador no lugar da senha,
+            # e cada um usa um nome diferente: <password>, <db_password>,
+            # [YOUR-PASSWORD], <senha>. Em vez de listar todos, procuramos a
+            # forma - algo entre < > ou [ ] sem barra nem arroba dentro.
+            marcador = re.search(r"<[^>@/\s]{1,40}>|\[[^\]@/\s]{1,40}\]", bruto)
+            if marcador:
+                print(f"   a string tem {marcador.group(0)} no lugar da senha")
+                senha = getpass.getpass("   digite a senha (nao aparece): ")
                 if senha:
-                    bruto = bruto.replace("<password>", senha).replace("<senha>", senha)
+                    # quote_plus porque a senha vive dentro de uma URL: um @ ou
+                    # uma / crua quebraria a string e o erro apareceria como
+                    # "servidor nao encontrado", apontando para o lugar errado.
+                    bruto = bruto.replace(marcador.group(0), quote_plus(senha))
             if bruto.startswith("mongodb"):
                 await sondar_mongo(bruto)
             else:

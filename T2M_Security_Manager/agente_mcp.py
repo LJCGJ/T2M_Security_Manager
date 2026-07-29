@@ -171,6 +171,17 @@ MODELO_GEMINI = _CFG.get("modelo_gemini", "").strip()
 # herda cookies e sessoes logadas do operador.
 NAVEGADOR_ISOLADO = _CFG.get("navegador_isolado", "1").strip() != "0"
 DOMINIOS_CONFIAVEIS = _CFG.get("dominios_confiaveis", "").strip()
+# Ferramentas do navegador que NAO sao oferecidas ao modelo.
+# browser_run_code_unsafe executa codigo arbitrario no contexto do navegador - o
+# nome e do proprio servidor da Microsoft, nao nosso. Num produto que abre
+# paginas de terceiros, e cujo prompt ja instrui o modelo a tratar conteudo de
+# pagina como nao confiavel, deixar uma primitiva de execucao de codigo ao
+# alcance de uma injecao e risco sem contrapartida: nenhum teste de QA precisa
+# dela. Quem quiser reabilitar apaga o nome da lista no configuracoes.txt.
+FERRAMENTAS_TELA_BLOQUEADAS = tuple(
+    x.strip() for x in _CFG.get("ferramentas_tela_bloqueadas",
+                                "browser_run_code_unsafe").split(",")
+    if x.strip())
 
 # Oracle via servidor MCP oficial (SQLcl). "auto" usa o MCP quando o SQLcl
 # estiver disponivel e cai para o driver nativo quando nao estiver; "1" forca o
@@ -794,12 +805,24 @@ async def executar(api_key, url_alvo, objetivo):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 tools_resp = await session.list_tools()
-                mcp_tools = tools_resp.tools
-                log(f">>> MCP conectado. {len(mcp_tools)} ferramentas disponiveis.")
+                todas = tools_resp.tools
+                mcp_tools = [t for t in todas
+                             if t.name not in FERRAMENTAS_TELA_BLOQUEADAS]
+                ocultas = [t.name for t in todas
+                           if t.name in FERRAMENTAS_TELA_BLOQUEADAS]
+                log(f">>> MCP conectado. {len(mcp_tools)} ferramentas para o modelo.")
+                if ocultas:
+                    log(f">>> Ocultadas do modelo: {', '.join(ocultas)}")
+                session = _SessaoTelaFiltrada(session)
 
                 objetivo_completo = (
                     f"URL alvo: {url_alvo}\n"
-                    f"Comece navegando ate essa URL com a ferramenta de navegacao.\n"
+                    f"Comece navegando ate essa URL com browser_navigate.\n"
+                    f"ATENCAO: o browser_navigate devolve apenas um LINK para o "
+                    f"snapshot, nao o conteudo. Para enxergar a pagina, chame "
+                    f"browser_snapshot logo depois de cada navegacao ou clique - "
+                    f"e ele que devolve os elementos e as referencias [ref=...] "
+                    f"que voce precisa usar para clicar e preencher.\n"
                     f"Objetivo do teste: {objetivo}\n\n"
                     f"Depois de executar e relatar o que encontrou, PERGUNTE ao usuario qual "
                     f"tipo de automacao ele quer construir a partir disto: (1) navegacao web, "
@@ -859,7 +882,8 @@ async def executar(api_key, url_alvo, objetivo):
         detalhe = _detalhar_excecao(e)
         log("=== TRACEBACK COMPLETO ===")
         log(traceback.format_exc())
-        responder(f"ERRO no agente MCP: {detalhe}")
+        responder(f"ERRO no agente MCP: {detalhe}"
+                  + _dica_falha_servidor_mcp(detalhe, pacote))
 
 
 async def executar_banco(api_key, dsn, somente_leitura, objetivo):
@@ -966,6 +990,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
             dica = " (falha de autenticacao - verifique usuario/senha)"
         elif "not found" in d and "npx" in d:
             dica = " (Node.js/npx nao encontrado - instale o Node 18+)"
+        dica += _dica_falha_servidor_mcp(detalhe, pacote)
         responder(f"ERRO no agente de banco: {detalhe}{dica}")
 
 
@@ -1165,6 +1190,27 @@ def _resultado_texto(msg):
     return _t.SimpleNamespace(content=[_t.SimpleNamespace(text=msg)], isError=False)
 
 
+class _SessaoTelaFiltrada:
+    """Fica entre o modelo e o servidor do navegador.
+
+    Esconder a ferramenta da lista declarada nao basta: o modelo pode inventar
+    o nome - e uma injecao numa pagina hostil pode justamente pedir isso. O
+    filtro tem que valer tambem no momento da chamada."""
+
+    def __init__(self, sessao):
+        self._sessao = sessao
+
+    async def call_tool(self, nome, args):
+        if nome in FERRAMENTAS_TELA_BLOQUEADAS:
+            log(f">>> [Tela] ferramenta recusada pelo filtro: {nome}")
+            return _resultado_texto(
+                f"A ferramenta '{nome}' nao esta disponivel neste aplicativo.")
+        return await self._sessao.call_tool(nome, args)
+
+    def __getattr__(self, nome):
+        return getattr(self._sessao, nome)
+
+
 class _SessaoOracleFiltrada:
     """Fica entre o modelo e o servidor da Oracle.
 
@@ -1299,6 +1345,77 @@ def _ambiente_sqlcl(info):
     if not pasta:
         return None
     return dict(os.environ, TNS_ADMIN=pasta)
+
+
+def _dica_falha_servidor_mcp(detalhe, pacote=""):
+    """Traduz falhas de SUBIDA do servidor MCP em algo acionavel.
+
+    "Connection closed" logo no inicio quase sempre e o cache do npx pela
+    metade: um download interrompido - tempo esgotado, queda de rede, Ctrl+C -
+    deixa a pasta do pacote sem o package.json, e toda tentativa seguinte morre
+    sem dizer o motivo. Isso aconteceu duas vezes durante os nossos testes, e a
+    mensagem crua nao dava nenhuma pista de que o problema era cache."""
+    d = (detalhe or "").lower()
+    limpar = ('    rmdir /s /q "%LOCALAPPDATA%\\npm-cache\\_npx"\n'
+              + (f"    npx -y {pacote} --help\n" if pacote else ""))
+    if any(p in d for p in ("connection closed", "brokenresource",
+                            "enoent", "package.json")):
+        return ("\n\nO servidor fechou assim que subiu. Quase sempre e o cache "
+                "do npx corrompido por um download interrompido. No Prompt de "
+                "Comando:\n" + limpar + "Depois tente de novo.")
+    if "timeout" in d or "timeouterror" in d:
+        return ("\n\nTempo esgotado. Na primeira vez de cada modo o npx baixa "
+                "centenas de arquivos, e em rede lenta isso passa de dois "
+                "minutos. Para adiantar, rode antes:\n"
+                + (f"    npx -y {pacote} --help\n" if pacote else ""))
+    return ""
+
+
+# Mensagens de servidor que apontam para a causa ERRADA. A do Mongo foi
+# verificada na pratica: ela sai identica para cluster inexistente, host que
+# nao responde e credencial invalida - ou seja, nao diz nada sobre a string.
+_RESPOSTAS_ENGANOSAS = (
+    ("the configured connection string is not valid",
+     "Esta frase do servidor do MongoDB aparece para QUALQUER falha de conexao. "
+     "Ela NAO significa que a string esteja errada. As causas comuns, nesta "
+     "ordem: senha do usuario de banco invalida; IP de origem fora da lista de "
+     "acesso (no Atlas, em Network Access); ou o endereco do cluster nao "
+     "resolvendo por DNS. Nao sugira reescrever a string de conexao sem antes "
+     "descartar essas tres."),
+)
+
+
+def _anotar_resposta_mcp(texto):
+    """Acrescenta a causa provavel quando o servidor devolve uma mensagem que
+    manda investigar o lugar errado. Sem isso o modelo repete a frase ao
+    operador, e ele vai mexer na string de conexao quando o problema e a senha."""
+    if not texto:
+        return texto
+    baixo = texto.lower()
+    for gatilho, nota in _RESPOSTAS_ENGANOSAS:
+        if gatilho in baixo:
+            return f"{texto}\n\n[T2M] {nota}"
+    return texto
+
+
+class _SessaoAnotada:
+    """Repassa tudo ao servidor, mas anexa a causa provavel quando a resposta
+    e uma daquelas que apontam para o lugar errado."""
+
+    def __init__(self, sessao):
+        self._sessao = sessao
+
+    async def call_tool(self, nome, args):
+        res = await self._sessao.call_tool(nome, args)
+        texto = texto_do_resultado_mcp(res)
+        anotado = _anotar_resposta_mcp(texto)
+        if anotado == texto:
+            return res
+        log(">>> [MCP] resposta do servidor anotada com a causa provavel")
+        return _resultado_texto(anotado)
+
+    def __getattr__(self, nome):
+        return getattr(self._sessao, nome)
 
 
 def _erro_oracle_no_texto(texto):
@@ -2099,6 +2216,11 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
                 tools_resp = await session.list_tools()
                 mcp_tools = tools_resp.tools
                 log(f">>> MongoDB MCP conectado. {len(mcp_tools)} ferramentas disponiveis.")
+                # O servidor do Mongo responde "the configured connection string
+                # is not valid" para qualquer falha de conexao - inclusive senha
+                # errada e IP bloqueado. Sem contexto, o modelo repete isso ao
+                # operador e ele vai reescrever a string, que estava certa.
+                session = _SessaoAnotada(session)
 
                 modo_ro = ("O banco esta em modo SOMENTE LEITURA (apenas consultas). "
                            if somente_leitura else
@@ -2159,6 +2281,7 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
             dica = " (falha de autenticacao - verifique usuario/senha)"
         elif "econnrefused" in d or "connection refused" in d or "timed out" in d:
             dica = " (o banco nao respondeu - verifique host/porta e a lista de IPs liberados)"
+        dica += _dica_falha_servidor_mcp(detalhe, pacote)
         responder(f"ERRO no MongoDB: {detalhe}{dica}")
 
 
