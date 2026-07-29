@@ -390,6 +390,15 @@ def teste_dicas_de_erro():
         d = A._dica_erro_oracle(f"{cod}: algo")
         checa(f"{cod} traduzido", d.startswith(cod) and len(d) > len(cod) + 5)
 
+    # Mensagens do proprio SQLcl 26.2, lidas dos textos embutidos no produto.
+    for texto, esperado in (("Connection not established", True),
+                            ("ORA-00942: table or view does not exist", True),
+                            ("Connection failed", True),
+                            ("NOME,QTD\nCliente 1,50", False),
+                            ("", False)):
+        checa(f"erro em {texto[:34]!r} -> {esperado}",
+              A._erro_oracle_no_texto(texto) is esperado)
+
     nota = A._nota_para_resposta("The configured connection string is not valid.")
     checa("mensagem enganosa do Mongo tem contra-explicacao",
           "senha" in nota and "IP" in nota)

@@ -1124,6 +1124,11 @@ async def executar_api(api_key, req, objetivo):
 #
 # Isso so e possivel porque NOS somos o cliente MCP: a lista de ferramentas que
 # o modelo enxerga e montada aqui.
+# O servidor MCP da Oracle NAO tem modo somente-leitura. Verificado nos textos
+# embutidos do SQLcl 26.2: a unica restricao dele e ONLY_SELECT_ALLOWED, que
+# protege apenas a propria tabela de auditoria. Ou seja, o validador de SQL
+# deste arquivo e a UNICA coisa entre o modelo e um DELETE - por isso ele e
+# rigoroso ao ponto de recusar o que nao entende.
 FERRAMENTAS_ORACLE_PERMITIDAS = ("sql_run", "schema_information")
 
 # O lancador sql.exe do pacote winget trava com 0xC0000005 nesta geracao;
@@ -1471,9 +1476,15 @@ class _SessaoProtegida:
 
 
 def _erro_oracle_no_texto(texto):
-    """Procura evidencia de erro do Oracle numa resposta de texto livre."""
+    """Procura evidencia de erro do Oracle numa resposta de texto livre.
+
+    "not established" vem do proprio servidor da Oracle: a mensagem
+    CONNECTION_NOT_ESTABLISHED, encontrada nos textos embutidos no SQLcl 26.2.
+    Ela nao traz codigo ORA nenhum, entao sem este padrao uma sessao sem
+    conexao passaria por resposta valida e o modelo relataria um banco vazio."""
     return bool(re.search(r"(?i)(ORA-\d{5}|TNS-\d{5}|SP2-\d{4}|"
-                          r"not found|failed|failure)", texto or ""))
+                          r"not found|not established|failed|failure)",
+                          texto or ""))
 
 
 def _config_dbhub(somente_leitura):
@@ -1963,7 +1974,8 @@ async def executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
         f"({_oracle_rotulo(info)}) em modo {modo}.\n\n"
         f"Objetivo: {objetivo}\n\n"
         f"Use schema_information para entender o schema antes de consultar, e "
-        f"sql_run para executar SQL. "
+        f"sql_run para executar SQL. O sql_run devolve o resultado em CSV, com "
+        f"a primeira linha sendo os nomes das colunas. "
         + ("Apenas consultas sao aceitas: qualquer comando que altere dados sera "
            "recusado automaticamente. " if somente_leitura else
            "O modo de escrita esta habilitado, entao INSERT, UPDATE, DELETE e DDL "
