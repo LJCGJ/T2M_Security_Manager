@@ -29,6 +29,15 @@ namespace T2MSecurityManager {
 		{
 			InitializeComponent();
 
+			// Consulta da lista de modelos. Criado AQUI, e nao junto com o
+			// workerChat: aquele nasce ao abrir o T2M Copilot, e a tela de
+			// Configuracoes - de onde parte o "Buscar" - abre sem passar por la.
+			// Quem clicasse em Configuracoes antes de abrir o Copilot pegaria um
+			// worker nulo.
+			workerModelos = gcnew System::ComponentModel::BackgroundWorker();
+			workerModelos->DoWork += gcnew System::ComponentModel::DoWorkEventHandler(this, &MyForm::workerModelos_DoWork);
+			workerModelos->RunWorkerCompleted += gcnew System::ComponentModel::RunWorkerCompletedEventHandler(this, &MyForm::workerModelos_Completed);
+
 			// --- BOTAO GERAR IA ---
 			this->btnGerarIA = (gcnew System::Windows::Forms::Button());
 			this->btnGerarIA->Name = L"btnGerarIA";
@@ -197,6 +206,14 @@ namespace T2MSecurityManager {
 		System::Text::StringBuilder^ bufLoginErro;
 
 		System::ComponentModel::BackgroundWorker^ workerChat;
+		// Consulta da lista de modelos ao provedor. Roda em segundo plano: na
+		// versao anterior ela esperava ate 60s na thread da interface, e nesse
+		// tempo a janela ficava branca e "Nao respondendo" para o Windows.
+		System::ComponentModel::BackgroundWorker^ workerModelos;
+		System::Windows::Forms::ComboBox^ cbModelosAlvo;
+		System::Windows::Forms::Button^ btnModelosAlvo;
+		System::Windows::Forms::Form^ formModelosAlvo;
+		String^ btnModelosTextoOriginal;
 		// Processo Python da execucao em andamento. Guardado em campo para que o
 		// fechamento da janela consiga encerra-lo: antes o Process era local a
 		// funcao, entao fechar o Copilot no meio de uma automacao deixava o
@@ -2082,20 +2099,19 @@ namespace T2MSecurityManager {
 
 		   // Consulta o provedor da chave selecionada e atualiza a lista de modelos.
 	private: System::Void btnBuscarModelos_Click(System::Object^ sender, System::EventArgs^ e) {
-		Button^ b = safe_cast<Button^>(sender);
-		ComboBox^ alvo = safe_cast<ComboBox^>(b->Tag);
-
-		// Esta consulta reaproveita bufSaidaProc/bufErroProc - os MESMOS buffers que
-		// capturam a saida das automacoes. Reatribui-los com uma automacao rodando
-		// corromperia a captura em andamento (relatorio truncado ou vazio).
-		if (workerChat != nullptr && workerChat->IsBusy) {
+		// Sem esta mensagem o botao pareceria quebrado: se o operador fecha e
+		// reabre Configuracoes com a consulta ainda em voo, o botao novo esta
+		// habilitado e um return mudo nao daria nenhum sinal.
+		if (workerModelos->IsBusy) {
 			MessageBox::Show(
-				L"Ha uma automacao em andamento.\n\n"
-				L"Aguarde ela terminar para buscar a lista de modelos: as duas operacoes "
-				L"usam o mesmo canal de captura de saida.",
-				L"Automacao em andamento", MessageBoxButtons::OK, MessageBoxIcon::Information);
+				L"Ja ha uma consulta de modelos em andamento.\n\n"
+				L"Aguarde alguns segundos e tente de novo.",
+				L"Consulta em andamento", MessageBoxButtons::OK, MessageBoxIcon::Information);
 			return;
 		}
+
+		Button^ b = safe_cast<Button^>(sender);
+		ComboBox^ alvo = safe_cast<ComboBox^>(b->Tag);
 
 		String^ chave = ObterChaveReal();
 		if (String::IsNullOrWhiteSpace(chave)) {
@@ -2106,9 +2122,30 @@ namespace T2MSecurityManager {
 			return;
 		}
 
-		String^ textoAnterior = b->Text;
+		// A consulta nao concorre mais com uma automacao em andamento: ela deixou
+		// de usar bufSaidaProc/bufErroProc, que sao dos processos de automacao, e
+		// le a saida do proprio processo. Por isso a checagem de workerChat->IsBusy
+		// que existia aqui foi removida - o operador nao precisa mais esperar.
+		cbModelosAlvo = alvo;
+		btnModelosAlvo = b;
+		formModelosAlvo = b->FindForm();
+		btnModelosTextoOriginal = b->Text;
+
 		b->Text = L"..."; b->Enabled = false;
-		Application::DoEvents();
+		// A chave viaja como argumento, nao por campo compartilhado: assim ela
+		// nao pode ser sobrescrita nem zerada por uma segunda consulta.
+		workerModelos->RunWorkerAsync(chave);
+	}
+
+		   // Roda FORA da thread da interface: nada aqui pode tocar em controle.
+	private: System::Void workerModelos_DoWork(System::Object^ sender,
+			System::ComponentModel::DoWorkEventArgs^ e) {
+		String^ chave = safe_cast<String^>(e->Argument);
+		// [0] = saida, [1] = erro. Vai inteiro pelo e->Result, sem campo de
+		// instancia no meio: duas consultas nunca disputam o mesmo espaco.
+		cli::array<String^>^ r = gcnew cli::array<String^>(2);
+		r[0] = L""; r[1] = L"";
+		e->Result = r;
 
 		Process^ p = gcnew Process();
 		try {
@@ -2123,15 +2160,13 @@ namespace T2MSecurityManager {
 			psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
 			psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
 			p->StartInfo = psi;
-
-			bufSaidaProc = gcnew System::Text::StringBuilder();
-			bufErroProc = gcnew System::Text::StringBuilder();
-			p->OutputDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procSaida_Handler);
-			p->ErrorDataReceived += gcnew DataReceivedEventHandler(this, &MyForm::procErro_Handler);
-
 			p->Start();
-			p->BeginOutputReadLine();
-			p->BeginErrorReadLine();
+
+			// Leitura assincrona dos DOIS canais antes de esperar. Ler um de cada
+			// vez trava: se o processo enche o buffer do canal que ainda nao
+			// estamos lendo, ele para de escrever e nunca termina.
+			System::Threading::Tasks::Task<String^>^ tSaida = p->StandardOutput->ReadToEndAsync();
+			System::Threading::Tasks::Task<String^>^ tErro = p->StandardError->ReadToEndAsync();
 
 			array<System::Byte>^ bytes = System::Text::Encoding::UTF8->GetBytes(chave);
 			p->StandardInput->BaseStream->Write(bytes, 0, bytes->Length);
@@ -2140,21 +2175,93 @@ namespace T2MSecurityManager {
 			if (!p->WaitForExit(60000)) {
 				try { p->Kill(); p->WaitForExit(3000); }
 				catch (...) {}
-				MessageBox::Show(L"O provedor demorou demais para responder.", L"Tempo esgotado");
+				r[1] = L"__TEMPO__";
 				return;
 			}
 
-			// WaitForExit(int) volta assim que o processo morre, mas NAO garante que
-			// os handlers assincronos de saida terminaram de drenar a fila - so a
-			// sobrecarga SEM parametro espera esse flush. Sem ela, o CHAT_MSG_FIM
-			// podia faltar no buffer e a resposta chegava truncada ao usuario.
-			p->WaitForExit();
+			// As leituras precisam de prazo proprio. O cano so da fim quando TODO
+			// mundo que tem a ponta de escrita a solta - se o listar_modelos.py
+			// deixar um processo neto vivo, o processo-pai morre mas a leitura
+			// esperaria para sempre, e a consulta ficaria travada em "..." pelo
+			// resto da sessao, sem o usuario poder tentar de novo.
+			if (!tSaida->Wait(15000) || !tErro->Wait(15000)) {
+				r[1] = L"__TRAVOU__";
+				return;
+			}
+			r[0] = tSaida->Result;
+			r[1] = tErro->Result;
+		}
+		catch (System::ComponentModel::Win32Exception^) {
+			r[1] = L"__SEM_PYTHON__";
+		}
+		catch (Exception^ ex) {
+			// GetBaseException: o Wait das leituras embrulha a falha real numa
+			// AggregateException, cuja mensagem e o inutil "One or more errors
+			// occurred." O que interessa ao operador e a causa de dentro.
+			r[1] = ex->GetBaseException()->Message;
+		}
+		finally {
+			try { p->Close(); }
+			catch (...) {}
+		}
+	}
 
-			String^ saida = LerBufferSeguro(bufSaidaProc);
+		   // Volta para a thread da interface: aqui pode tocar em controle.
+	private: System::Void workerModelos_Completed(System::Object^ sender,
+			System::ComponentModel::RunWorkerCompletedEventArgs^ e) {
+		// Todo o corpo vai dentro de try: antes da divisao em duas funcoes, o
+		// parsing rodava dentro do try do clique e qualquer falha virava uma
+		// caixa de erro. Sem isto, uma saida malformada derrubaria o aplicativo,
+		// porque excecao em RunWorkerCompleted nao tem quem a pegue.
+		try {
+			if (btnModelosAlvo != nullptr && !btnModelosAlvo->IsDisposed) {
+				btnModelosAlvo->Text = btnModelosTextoOriginal;
+				btnModelosAlvo->Enabled = true;
+			}
+
+			// A janela de Configuracoes pode ter sido fechada durante a consulta,
+			// ou fechada e reaberta - e nesse caso os controles guardados aqui
+			// pertencem a janela ANTIGA. Nao basta olhar IsDisposed: um dialogo
+			// modal fechado com Close() so fica escondido, nunca e descartado, e
+			// IsDisposed continuaria false. Visivel e o teste que distingue os dois.
+			bool telaViva = (formModelosAlvo != nullptr && !formModelosAlvo->IsDisposed
+				&& formModelosAlvo->Visible
+				&& cbModelosAlvo != nullptr && !cbModelosAlvo->IsDisposed);
+			if (!telaViva) return;   // o operador desistiu; nao ha onde mostrar
+
+			if (e->Error != nullptr) {
+				MessageBox::Show(L"Falha ao consultar os modelos: " + e->Error->Message, L"Erro");
+				return;
+			}
+
+			cli::array<String^>^ r = dynamic_cast<cli::array<String^>^>(e->Result);
+			String^ saida = (r != nullptr && r[0] != nullptr) ? r[0] : L"";
+			String^ erro = (r != nullptr && r[1] != nullptr) ? r[1] : L"";
+
+			if (erro == L"__TEMPO__") {
+				MessageBox::Show(L"O provedor demorou demais para responder.", L"Tempo esgotado");
+				return;
+			}
+			if (erro == L"__TRAVOU__") {
+				MessageBox::Show(
+					L"A consulta terminou mas a leitura da resposta nao fechou.\n\n"
+					L"Tente de novo; se repetir, veja se algum processo do Python "
+					L"ficou aberto no Gerenciador de Tarefas.",
+					L"Resposta incompleta", MessageBoxButtons::OK, MessageBoxIcon::Warning);
+				return;
+			}
+			if (erro == L"__SEM_PYTHON__") {
+				MessageBox::Show(L"'python' nao encontrado no PATH.", L"Erro");
+				return;
+			}
+
 			int i = saida->IndexOf("MODELOS_INICIO");
 			int f2 = saida->IndexOf("MODELOS_FIM");
-			if (i < 0 || f2 < 0) {
-				String^ motivo = LerBufferSeguro(bufErroProc)->Trim();
+			// f2 > i tambem e obrigatorio: com os marcadores fora de ordem - saida
+			// truncada, ou a marca vazando dentro de uma mensagem de erro - o
+			// Substring receberia comprimento negativo e lancaria excecao.
+			if (i < 0 || f2 < 0 || f2 < i + 14) {
+				String^ motivo = erro->Trim();
 				MessageBox::Show(
 					L"Nao foi possivel obter a lista de modelos.\n\n" +
 					(String::IsNullOrWhiteSpace(motivo) ? L"(sem detalhes)" : motivo),
@@ -2164,37 +2271,40 @@ namespace T2MSecurityManager {
 
 			String^ bloco = saida->Substring(i + 14, f2 - (i + 14));
 			array<String^>^ linhas = bloco->Split('\n');
-			String^ selecionadoAntes = alvo->Text;
-			alvo->Items->Clear();
+			String^ selecionadoAntes = cbModelosAlvo->Text;
+			cbModelosAlvo->Items->Clear();
 			int qtd = 0;
 			for each (String ^ linha in linhas) {
 				String^ l = linha->Trim();
 				if (String::IsNullOrWhiteSpace(l)) continue;
 				int barra = l->IndexOf('|');
 				String^ ident = (barra > 0) ? l->Substring(0, barra) : l;
-				alvo->Items->Add(ident->Trim());
+				cbModelosAlvo->Items->Add(ident->Trim());
 				qtd++;
 			}
-			alvo->Text = alvo->Items->Contains(selecionadoAntes)
+			cbModelosAlvo->Text = cbModelosAlvo->Items->Contains(selecionadoAntes)
 				? selecionadoAntes
-				: (alvo->Items->Count > 0 ? alvo->Items[0]->ToString() : selecionadoAntes);
+				: (cbModelosAlvo->Items->Count > 0
+					? cbModelosAlvo->Items[0]->ToString() : selecionadoAntes);
 
+			// qtd.ToString() e obrigatorio. "qtd + L\"texto\"" faria o compilador
+			// escolher aritmetica de ponteiro sobre o literal - avancando qtd
+			// caracteres dentro dele - em vez de concatenar o numero.
 			MessageBox::Show(
-				qtd + L" modelos disponiveis foram carregados.\n\n"
+				qtd.ToString() + L" modelos disponiveis foram carregados.\n\n"
 				L"A lista veio direto do provedor, entao esta sempre atualizada.",
 				L"Modelos atualizados", MessageBoxButtons::OK, MessageBoxIcon::Information);
 		}
-		catch (System::ComponentModel::Win32Exception^) {
-			MessageBox::Show(L"'python' nao encontrado no PATH.", L"Erro");
-		}
 		catch (Exception^ ex) {
-			MessageBox::Show(L"Falha ao consultar os modelos: " + ex->Message, L"Erro");
+			MessageBox::Show(L"Falha ao processar a lista de modelos: "
+				+ ex->GetBaseException()->Message, L"Erro");
 		}
 		finally {
-			try { p->Close(); }
-			catch (...) {}
-			b->Text = textoAnterior;
-			b->Enabled = true;
+			// Solta as referencias: sem isto a janela de Configuracoes ja fechada
+			// ficaria presa em memoria ate a proxima busca.
+			cbModelosAlvo = nullptr;
+			btnModelosAlvo = nullptr;
+			formModelosAlvo = nullptr;
 		}
 	}
 
