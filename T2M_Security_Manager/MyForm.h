@@ -154,6 +154,10 @@ namespace T2MSecurityManager {
 		bool cfgPermitirJsPagina;
 		String^ cfgDominiosConfiaveis;   // separados por ';'; vazio = sem restricao
 		int cfgMaxHistorico;      // mensagens reenviadas a IA por chamada
+		// Instrucoes permanentes do operador, aplicadas a todo teste. Guardadas
+		// com quebras de linha de verdade aqui; no arquivo vao escapadas como \n,
+		// porque configuracoes.txt e uma chave por linha.
+		String^ cfgInstrucoesExtras;
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
 		Button^ btnExportarRelatorio;  // exporta a conversa como relatorio HTML
@@ -1706,6 +1710,7 @@ namespace T2MSecurityManager {
 		cfgPermitirJsPagina = false;
 		cfgDominiosConfiaveis = "";
 		cfgMaxHistorico = 20;
+		cfgInstrucoesExtras = "";
 		try {
 			String^ caminho = CaminhoDados("configuracoes.txt");
 			if (!File::Exists(caminho)) return;
@@ -1727,6 +1732,10 @@ namespace T2MSecurityManager {
 				else if (chave == "permitir_js_pagina") cfgPermitirJsPagina = (valor == "1");
 				else if (chave == "dominios_confiaveis") cfgDominiosConfiaveis = valor;
 				else if (chave == "max_historico") Int32::TryParse(valor, cfgMaxHistorico);
+				// \n literal no arquivo volta a ser quebra de linha de verdade na
+				// caixa de texto. Sem isto o operador veria "linha1\nlinha2" numa
+				// linha so e acharia que o app corrompeu o que ele escreveu.
+				else if (chave == "instrucoes_extras") cfgInstrucoesExtras = valor->Replace("\\n", "\n");
 			}
 		}
 		catch (...) {}
@@ -1752,7 +1761,7 @@ namespace T2MSecurityManager {
 				"max_passos", "max_linhas", "modelo_claude", "modelo_openai",
 				"modelo_gemini", "navegador_isolado", "permitir_js_pagina",
 				"dominios_confiaveis",
-				"max_historico"
+				"max_historico", "instrucoes_extras"
 			};
 			System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
 			sb->AppendLine("pasta_relatorios=" + cfgPastaRelatorios);
@@ -1768,6 +1777,10 @@ namespace T2MSecurityManager {
 			sb->AppendLine("permitir_js_pagina=" + (cfgPermitirJsPagina ? "1" : "0"));
 			sb->AppendLine("dominios_confiaveis=" + cfgDominiosConfiaveis);
 			sb->AppendLine("max_historico=" + cfgMaxHistorico);
+			// Uma chave por linha: a quebra tem de virar \n literal, senao a segunda
+			// linha do texto seria lida como uma chave desconhecida e perdida.
+			sb->AppendLine("instrucoes_extras=" + cfgInstrucoesExtras
+				->Replace("\r\n", "\\n")->Replace("\n", "\\n")->Replace("\r", "\\n"));
 
 			// Copia de volta o que a tela nao conhece, na ordem original.
 			String^ caminho = CaminhoDados("configuracoes.txt");
@@ -1792,7 +1805,11 @@ namespace T2MSecurityManager {
 	private: System::Void btnConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
 		Form^ f = gcnew Form();
 		f->Text = L"Configuracoes";
-		f->Size = System::Drawing::Size(720, 782);   // +82: opcao de JavaScript
+		f->Size = System::Drawing::Size(720, 862);   // +80: instrucoes permanentes
+		// Rede de seguranca para monitor pequeno ou escala de fonte alta: sem isto
+		// os botoes Salvar/Cancelar podem cair fora da area visivel e a tela fica
+		// sem saida a nao ser pelo X.
+		f->AutoScroll = true;
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
@@ -2084,6 +2101,47 @@ namespace T2MSecurityManager {
 		dicaDom->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(dicaDom);
 
+		// Secao de instrucoes permanentes para a IA
+		y += 40;
+		Label^ lblSecao4 = gcnew Label();
+		lblSecao4->Text = L"Instrucoes permanentes para a IA";
+		lblSecao4->Location = System::Drawing::Point(x1, y); lblSecao4->AutoSize = true;
+		lblSecao4->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+		f->Controls->Add(lblSecao4);
+
+		// A caixa de verdade fica escondida aqui e e editada num dialogo proprio.
+		// Motivo: 2000 caracteres nao cabem com folga nesta tela, e crescer a
+		// janela mais de 80px faria ela passar do fundo do monitor em 125% de
+		// escala. Escondida, ela ainda entra no array de campos, entao o Cancelar
+		// continua descartando a edicao como o de qualquer outro campo.
+		TextBox^ txtInstrOculto = gcnew TextBox();
+		txtInstrOculto->Multiline = true;
+		txtInstrOculto->Visible = false;
+		txtInstrOculto->Text = cfgInstrucoesExtras;
+		f->Controls->Add(txtInstrOculto);
+
+		y += 26;
+		Button^ btnInstr = gcnew Button();
+		btnInstr->Text = String::IsNullOrWhiteSpace(cfgInstrucoesExtras)
+			? L"Escrever instrucoes..." : L"Editar instrucoes (em uso)";
+		btnInstr->Location = System::Drawing::Point(x1, y);
+		btnInstr->Size = System::Drawing::Size(210, 28);
+		btnInstr->FlatStyle = FlatStyle::Flat;
+		btnInstr->Tag = txtInstrOculto;
+		btnInstr->Click += gcnew System::EventHandler(this, &MyForm::editarInstrucoes_Click);
+		f->Controls->Add(btnInstr);
+
+		Label^ dicaInstr = gcnew Label();
+		dicaInstr->Text =
+			L"Valem para TODO teste, somadas ao objetivo. Ex.: o padrao do relatorio, o que\n"
+			L"sempre conferir, o vocabulario do sistema. As regras de seguranca continuam\n"
+			L"valendo acima delas - este campo nao libera ferramenta bloqueada.";
+		dicaInstr->Location = System::Drawing::Point(x1 + 220, y - 4);
+		dicaInstr->Size = System::Drawing::Size(460, 46);
+		dicaInstr->ForeColor = System::Drawing::Color::DimGray;
+		dicaInstr->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		f->Controls->Add(dicaInstr);
+
 		// Botoes
 		y += 46;
 		Button^ btnOk = gcnew Button();
@@ -2100,11 +2158,12 @@ namespace T2MSecurityManager {
 		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
 		f->Controls->Add(btnCancel);
 
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(11);
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(12);
 		campos[0] = txtRel; campos[1] = txtSes; campos[2] = txtScr;
 		campos[3] = numPassos; campos[4] = numLinhas; campos[5] = numTimeout;
 		campos[6] = cbModelo; campos[7] = numHist;
 		campos[8] = chkIsolado; campos[9] = txtDominios; campos[10] = chkJs;
+		campos[11] = txtInstrOculto;
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
@@ -2337,6 +2396,108 @@ namespace T2MSecurityManager {
 		}
 	}
 
+		   // Dialogo das instrucoes permanentes (Tag = a TextBox escondida que
+		   // carrega o texto de volta para o Salvar da tela de Configuracoes).
+	private: System::Void editarInstrucoes_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		TextBox^ destino = safe_cast<TextBox^>(b->Tag);
+
+		Form^ d = gcnew Form();
+		d->Text = L"Instrucoes permanentes para a IA";
+		d->Size = System::Drawing::Size(680, 520);
+		d->StartPosition = FormStartPosition::CenterParent;
+		d->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
+		d->MaximizeBox = false; d->MinimizeBox = false;
+		AplicarIcone(d);
+
+		Label^ lbl = gcnew Label();
+		lbl->Text =
+			L"Este texto acompanha TODO teste, somado ao objetivo que voce escrever na hora.\n"
+			L"Serve para o que nao muda: o padrao do relatorio da equipe, campos que sempre\n"
+			L"devem ser conferidos, o vocabulario do sistema, o que nunca deve ser tocado.\n\n"
+			L"Exemplo:\n"
+			L"   Relate sempre em portugues, com uma secao 'Risco' no fim.\n"
+			L"   Neste sistema, 'apolice' e o cadastro principal - nunca altere apolice ativa.\n"
+			L"   Ao testar formulario, confira limite de tamanho e caractere acentuado.";
+		lbl->Location = System::Drawing::Point(16, 12);
+		lbl->Size = System::Drawing::Size(640, 156);
+		d->Controls->Add(lbl);
+
+		TextBox^ txt = gcnew TextBox();
+		txt->Multiline = true;
+		txt->ScrollBars = ScrollBars::Vertical;
+		txt->AcceptsReturn = true;
+		txt->Location = System::Drawing::Point(16, 176);
+		txt->Size = System::Drawing::Size(640, 200);
+		// Mesmo teto que o agente Python aplica (INSTRUCOES_OPERADOR_MAX). Cortar
+		// aqui, na digitacao, e melhor que cortar calado na hora de rodar: o
+		// operador ve o limite enquanto escreve, em vez de descobrir depois que
+		// metade da instrucao nunca chegou ao modelo.
+		txt->MaxLength = 2000;
+		txt->Text = destino->Text;
+		d->Controls->Add(txt);
+
+		Label^ lblConta = gcnew Label();
+		lblConta->Location = System::Drawing::Point(16, 382);
+		lblConta->Size = System::Drawing::Size(300, 18);
+		lblConta->ForeColor = System::Drawing::Color::DimGray;
+		lblConta->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		// ToString() e obrigatorio: "int + L\"texto\"" faz o compilador escolher
+		// aritmetica de ponteiro sobre o literal - o rotulo sairia com o texto
+		// cortado pela frente em vez do numero. Ja aconteceu na lista de modelos.
+		lblConta->Text = txt->Text->Length.ToString() + L" de 2000 caracteres";
+		d->Controls->Add(lblConta);
+		txt->Tag = lblConta;
+		txt->TextChanged += gcnew System::EventHandler(this, &MyForm::contarInstrucoes_Handler);
+
+		Label^ aviso = gcnew Label();
+		aviso->Text =
+			L"As regras de seguranca do aplicativo valem acima deste texto: ele nao libera\n"
+			L"ferramenta bloqueada nem desliga o modo somente-leitura. Evite colar texto de\n"
+			L"origem desconhecida aqui - o que estiver escrito chega a IA como sua ordem.";
+		aviso->Location = System::Drawing::Point(16, 404);
+		aviso->Size = System::Drawing::Size(640, 46);
+		aviso->ForeColor = System::Drawing::Color::Firebrick;
+		aviso->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		d->Controls->Add(aviso);
+
+		Button^ ok = gcnew Button();
+		ok->Text = L"Aplicar";
+		ok->Location = System::Drawing::Point(430, 452);
+		ok->Size = System::Drawing::Size(110, 30);
+		ok->BackColor = System::Drawing::Color::MediumSeaGreen;
+		ok->ForeColor = System::Drawing::Color::White; ok->FlatStyle = FlatStyle::Flat;
+		ok->DialogResult = System::Windows::Forms::DialogResult::OK;
+		d->Controls->Add(ok);
+
+		Button^ cancelar = gcnew Button();
+		cancelar->Text = L"Cancelar";
+		cancelar->Location = System::Drawing::Point(548, 452);
+		cancelar->Size = System::Drawing::Size(100, 30);
+		cancelar->FlatStyle = FlatStyle::Flat;
+		cancelar->DialogResult = System::Windows::Forms::DialogResult::Cancel;
+		d->Controls->Add(cancelar);
+		d->AcceptButton = ok; d->CancelButton = cancelar;
+
+		try {
+			// So escreve no destino com Aplicar. Cancelar tem de sair sem tocar em
+			// nada, inclusive depois de o operador ter digitado.
+			if (d->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+				destino->Text = txt->Text->Trim();
+				b->Text = String::IsNullOrWhiteSpace(destino->Text)
+					? L"Escrever instrucoes..." : L"Editar instrucoes (em uso)";
+			}
+		}
+		finally { delete d; }
+	}
+
+		   // Contador de caracteres do dialogo acima (Tag da TextBox = o Label).
+	private: System::Void contarInstrucoes_Handler(System::Object^ sender, System::EventArgs^ e) {
+		TextBox^ t = safe_cast<TextBox^>(sender);
+		Label^ l = dynamic_cast<Label^>(t->Tag);
+		if (l != nullptr) l->Text = t->Text->Length.ToString() + L" de 2000 caracteres";
+	}
+
 		   // Botao de abrir a pasta indicada no campo (Tag = TextBox).
 	private: System::Void abrirPastaConfig_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
@@ -2386,6 +2547,7 @@ namespace T2MSecurityManager {
 		cfgNavegadorIsolado = safe_cast<CheckBox^>(ctl[8])->Checked;
 		cfgDominiosConfiaveis = safe_cast<TextBox^>(ctl[9])->Text->Trim();
 		cfgPermitirJsPagina = safe_cast<CheckBox^>(ctl[10])->Checked;
+		cfgInstrucoesExtras = safe_cast<TextBox^>(ctl[11])->Text->Trim();
 
 		SalvarConfiguracoesApp();
 		MessageBox::Show(L"Configuracoes salvas.\n\nOs limites passam a valer nas proximas execucoes.",

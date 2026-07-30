@@ -539,6 +539,62 @@ def teste_laco_do_modelo():
 
 
 # ==================================================================== #
+def teste_instrucoes_do_operador():
+    """Instrucoes permanentes escritas em Configuracoes.
+
+    O ponto delicado nao e ler o campo - e a ORDEM no prompt. O texto do
+    operador entra antes das regras de seguranca de proposito, para que as
+    regras sejam a ultima palavra. E alguem vai colar aqui texto copiado de um
+    wiki ou de um chamado, entao o bloco tem de se fechar de um jeito que o
+    conteudo colado nao consiga fingir que acabou."""
+    secao("Instrucoes permanentes do operador")
+
+    # configuracoes.txt e uma chave por linha, entao a quebra vem escapada.
+    # Se essa volta quebrar, a instrucao chega ao modelo como uma linha unica
+    # com "\\n" no meio - ele obedece mais ou menos, e ninguem entende por que.
+    cru = "Relate em portugues.\\nNunca altere apolice ativa."
+    volta = A._texto_multilinha_config(cru)
+    checa("o \\n gravado pelo C++ volta a ser quebra de linha",
+          volta == "Relate em portugues.\nNunca altere apolice ativa.")
+    checa("campo vazio nao vira texto", A._texto_multilinha_config("") == "")
+    checa("espaco em volta nao entra no prompt",
+          A._texto_multilinha_config("  x  ") == "x")
+    checa("texto gigante e cortado no teto",
+          len(A._texto_multilinha_config("a" * 9000)) == A.INSTRUCOES_OPERADOR_MAX)
+
+    original = A.INSTRUCOES_OPERADOR
+    try:
+        A.INSTRUCOES_OPERADOR = ""
+        checa("sem instrucoes, o prompt nao cresce",
+              A._instrucoes_do_operador() == "")
+
+        A.INSTRUCOES_OPERADOR = "Relate em portugues.\nNunca altere apolice ativa."
+        bloco = A._instrucoes_do_operador()
+        checa("o texto do operador chega ao modelo",
+              "Nunca altere apolice ativa." in bloco)
+        checa("o bloco diz de onde o texto veio",
+              "Configuracoes" in bloco and "nao de nenhuma pagina" in bloco)
+        checa("o bloco se fecha com marcador proprio",
+              f"[{A.MARCA_OPERADOR}]" in bloco)
+        checa("o bloco avisa que a seguranca vem acima",
+              "valem ACIMA" in bloco)
+
+        # A ordem no prompt e o que faz a precedencia ser real e nao so uma
+        # frase: as regras de seguranca tem de vir DEPOIS do texto do operador.
+        montado = ("objetivo" + A._instrucoes_do_operador()
+                   + A.REGRA_CONTEUDO_NAO_CONFIAVEL
+                   + A._regra_limites(A.FERRAMENTAS_TELA_BLOQUEADAS))
+        checa("as regras de seguranca vem depois das instrucoes do operador",
+              montado.index("Nunca altere apolice ativa.")
+              < montado.index("REGRA DE SEGURANCA"))
+        checa("os limites vem depois das instrucoes do operador",
+              montado.index("Nunca altere apolice ativa.")
+              < montado.index("LIMITES DESTA EXECUCAO"))
+    finally:
+        A.INSTRUCOES_OPERADOR = original
+
+
+# ==================================================================== #
 def teste_aviso_de_limites_no_prompt():
     """O modelo precisa saber do muro ANTES de bater nele. Descobrir a limitacao
     gastando passo e caro; e pior, as vezes ele conclui em silencio que o
@@ -749,7 +805,8 @@ def main():
                   teste_schema_gemini, teste_dicas_de_erro,
                   teste_respostas_do_sqlcl, teste_laco_do_modelo,
                   teste_relatorio_parcial, teste_resumo_de_bloqueios,
-                  teste_aviso_de_limites_no_prompt):
+                  teste_aviso_de_limites_no_prompt,
+                  teste_instrucoes_do_operador):
         try:
             teste()
         except Exception as e:
