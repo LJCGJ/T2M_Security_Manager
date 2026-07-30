@@ -410,6 +410,52 @@ def _e_erro_de_modelo(nome_erro, msg):
             or "is not supported" in m or "not supported for" in m)
 
 
+def _valor_simples(v):
+    """Converte os tipos do protobuf do Gemini em tipos nativos do Python.
+
+    O SDK do Google devolve os argumentos de uma chamada de ferramenta como
+    objetos proto: o mapa vira MapComposite e a lista vira RepeatedComposite.
+    Eles se COMPORTAM como dict e list, o que engana - ate a hora de serializar.
+    Como `dict(fc.args)` converte so o primeiro nivel, qualquer argumento que
+    contenha uma lista ou um objeto aninhado chegava intacto ao json.dumps e
+    derrubava a automacao inteira com "Object of type RepeatedComposite is not
+    JSON serializable" - depois de ja ter gasto os passos.
+
+    Recursivo de proposito: um argumento pode ter lista dentro de objeto dentro
+    de lista, e converter so a casca traria o mesmo problema mais fundo."""
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    if hasattr(v, "items"):                       # MapComposite / dict
+        return {str(k): _valor_simples(x) for k, x in v.items()}
+    if hasattr(v, "__iter__") and not isinstance(v, (str, bytes)):
+        return [_valor_simples(x) for x in v]     # RepeatedComposite / list
+    # Rede de seguranca para um tipo proto que nao se pareca com nenhum dos
+    # dois: melhor mandar a representacao em texto do que abortar o teste.
+    try:
+        json.dumps(v)
+        return v
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _args_do_gemini(fc):
+    """Argumentos de uma chamada de ferramenta, ja em tipos nativos."""
+    bruto = getattr(fc, "args", None)
+    if not bruto:
+        return {}
+    convertido = _valor_simples(bruto)
+    return convertido if isinstance(convertido, dict) else {}
+
+
+def _resumo_args(args, limite=120):
+    """Argumentos em texto para o log. NUNCA levanta: uma linha de log nao pode
+    derrubar um teste que ja custou dinheiro."""
+    try:
+        return json.dumps(args, ensure_ascii=False)[:limite]
+    except Exception:
+        return str(args)[:limite]
+
+
 def _texto_do_modelo(resp):
     """Extrai o texto GERADO PELO MODELO de uma resposta do Gemini.
 
@@ -1300,8 +1346,8 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
         # --- Executa cada ferramenta no navegador via MCP ---
         respostas_fc = []
         for fc in chamadas:
-            args = dict(fc.args) if fc.args else {}
-            log(f">>> [Gemini] Ferramenta: {fc.name} {json.dumps(args)[:120]}")
+            args = _args_do_gemini(fc)
+            log(f">>> [Gemini] Ferramenta: {fc.name} {_resumo_args(args)}")
             # NAO guarda o resultado da ferramenta como texto do modelo: ele
             # seria devolvido como se fosse o relatorio final. O progresso util
             # vem do texto do modelo, capturado logo apos o send_message.
@@ -2865,7 +2911,8 @@ async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
                 return ultimo or "(sem resposta)"
         respostas = []
         for fc in chamadas:
-            args = dict(fc.args) if fc.args else {}
+            args = _args_do_gemini(fc)
+            log(f">>> [Gemini] Ferramenta: {fc.name} {_resumo_args(args)}")
             r = despachar(fc.name, args)
             respostas.append(genai.protos.Part(function_response=genai.protos.FunctionResponse(
                 name=fc.name, response={"resultado": r})))

@@ -19,6 +19,7 @@ gancho de commit ou numa esteira de integracao.
 """
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -610,6 +611,87 @@ def teste_laco_do_modelo():
           "dados-nao-confiaveis" in devolvido)
     checa("o conteudo da ferramenta chegou inteiro",
           "dados que voltaram da ferramenta" in devolvido)
+
+
+# ==================================================================== #
+def teste_args_do_gemini():
+    """Argumentos de ferramenta vindos do SDK do Google.
+
+    Defeito real, encontrado rodando: o SDK devolve os argumentos como objetos
+    proto - MapComposite no lugar de dict, RepeatedComposite no lugar de list.
+    Eles se COMPORTAM como dict e list, o que engana ate a hora de serializar.
+    Como a conversao era `dict(fc.args)`, so a casca virava dict; qualquer lista
+    aninhada chegava ao json.dumps e derrubava a automacao inteira com
+    "Object of type RepeatedComposite is not JSON serializable" - depois de o
+    cliente ja ter pago os passos."""
+    secao("Argumentos de ferramenta do Gemini (tipos proto)")
+
+    class RepeatedComposite:
+        """Dubles fieis: iteram e comparam como list/dict, mas nao serializam."""
+        def __init__(self, itens): self._itens = list(itens)
+        def __iter__(self): return iter(self._itens)
+        def __len__(self): return len(self._itens)
+
+    class MapComposite:
+        def __init__(self, d): self._d = dict(d)
+        def items(self): return self._d.items()
+        def __iter__(self): return iter(self._d)
+        def __len__(self): return len(self._d)
+
+    # Prova que o duble reproduz o defeito: sem isso, o teste passaria por
+    # motivo errado e nao protegeria nada.
+    try:
+        json.dumps({"v": RepeatedComposite([1, 2])})
+        checa("o duble reproduz o tipo que nao serializa", False)
+    except TypeError:
+        checa("o duble reproduz o tipo que nao serializa", True)
+
+    class ChamadaFalsa:
+        def __init__(self, args): self.name = "browser_type"; self.args = args
+
+    # O caso que quebrou: lista aninhada dentro dos argumentos.
+    fc = ChamadaFalsa(MapComposite({
+        "element": "combobox Pesquisar",
+        "values": RepeatedComposite(["a", "b"]),
+        "opcoes": MapComposite({"lista": RepeatedComposite([1, 2, 3]),
+                                "profundo": MapComposite({"x": 1})}),
+        "submit": True,
+    }))
+    args = A._args_do_gemini(fc)
+    checa("o resultado e um dict de verdade", isinstance(args, dict))
+    checa("lista aninhada virou list", args.get("values") == ["a", "b"])
+    checa("objeto aninhado virou dict",
+          args.get("opcoes", {}).get("lista") == [1, 2, 3])
+    checa("a recursao alcanca o terceiro nivel",
+          args.get("opcoes", {}).get("profundo") == {"x": 1})
+    checa("escalares atravessam intactos",
+          args.get("element") == "combobox Pesquisar" and args.get("submit") is True)
+
+    # O que o defeito custava: isto e exatamente o que o agente faz em seguida,
+    # tanto para logar quanto para mandar ao servidor MCP.
+    try:
+        json.dumps(args)
+        checa("o resultado serializa em JSON", True)
+    except TypeError as e:
+        checa("o resultado serializa em JSON", False, str(e))
+
+    checa("sem argumentos vira dicionario vazio",
+          A._args_do_gemini(ChamadaFalsa(None)) == {})
+
+    # Um tipo proto que nao se pareca com dict nem list nao pode abortar o teste.
+    class Esquisito:
+        def __repr__(self): return "<proto esquisito>"
+    esq = A._valor_simples(Esquisito())
+    checa("tipo desconhecido vira texto em vez de quebrar", esq == "<proto esquisito>")
+
+    # E a linha de log jamais pode derrubar uma execucao ja paga.
+    class SoQuebra:
+        def __iter__(self): raise RuntimeError("nao itere em mim")
+    try:
+        r = A._resumo_args({"x": SoQuebra()})
+        checa("o resumo para log nunca levanta", isinstance(r, str))
+    except Exception as e:
+        checa("o resumo para log nunca levanta", False, f"{type(e).__name__}: {e}")
 
 
 # ==================================================================== #
@@ -1241,7 +1323,8 @@ def main():
                   teste_respostas_do_sqlcl, teste_laco_do_modelo,
                   teste_relatorio_parcial, teste_resumo_de_bloqueios,
                   teste_aviso_de_limites_no_prompt,
-                  teste_instrucoes_do_operador, teste_historico_de_execucoes):
+                  teste_instrucoes_do_operador, teste_historico_de_execucoes,
+                  teste_args_do_gemini):
         try:
             teste()
         except Exception as e:
