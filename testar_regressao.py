@@ -1727,6 +1727,78 @@ def teste_relatorio_parcial():
 
 
 # ==================================================================== #
+def teste_modelo_na_conversa():
+    """A conversa tem de dizer com qual modelo cada trecho foi feito.
+
+    Encontrado usando: o indicador do topo mostra o modelo de AGORA, mas quem
+    reabre uma conversa de ontem - ou troca de modelo no meio dela porque a
+    cota acabou - nao tem como saber qual modelo respondeu o que. Num produto
+    de QA isso importa: comparar duas respostas so faz sentido sabendo que
+    modelo deu cada uma."""
+    secao("Modelo anunciado na conversa")
+
+    cpp = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "T2M_Security_Manager", "MyForm.h")
+    if not os.path.exists(cpp):
+        cpp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MyForm.h")
+    if not os.path.exists(cpp):
+        checa("MyForm.h encontrado para inspecao", False, cpp)
+        return
+    fonte = open(cpp, encoding="utf-8", errors="replace").read()
+
+    checa("existe o anunciador de modelo na conversa",
+          "void AnunciarModeloNoChat(bool abertura)" in fonte)
+    checa("existe a funcao que monta provedor + modelo",
+          "String^ ProvedorEModeloAtual()" in fonte)
+    checa("a linha de abertura diz o modelo em uso",
+          'L">>> Modelo em uso: "' in fonte)
+    checa("a troca no meio da conversa gera linha propria",
+          'L">>> Modelo trocado: "' in fonte)
+    checa("a troca mostra tambem qual era o modelo anterior",
+          'L"   (antes: "' in fonte)
+
+    # O anuncio tem de sair na abertura E antes de cada execucao. Só na
+    # abertura nao cobre a troca no meio; so na execucao deixa a primeira
+    # pergunta sem contexto.
+    checa("anuncia ao abrir o Copilot",
+          "AnunciarModeloNoChat(true);" in fonte)
+    checa("reconfere o modelo a cada envio",
+          "AnunciarModeloNoChat(false);" in fonte)
+
+    # Sem o campo de memoria, ou nao ha linha nenhuma, ou ela se repete a cada
+    # mensagem e vira ruido que a pessoa aprende a ignorar.
+    checa("guarda o ultimo modelo anunciado",
+          "String^ modeloAnunciadoNoChat;" in fonte)
+    checa("nao reanuncia quando nada mudou",
+          "if (!abertura && anterior == atual) return;" in fonte)
+
+    # Conversa nova / janela reaberta / sessao restaurada tem de reanunciar:
+    # a linha antiga nao vale para o texto que vem depois dela.
+    zerados = fonte.count("modeloAnunciadoNoChat = nullptr;")
+    checa("o estado e zerado em toda entrada de conversa nova",
+          zerados >= 4, f"encontrados {zerados}")
+    i = fonte.find("Sessao restaurada")
+    checa("sessao restaurada reanuncia o modelo atual",
+          i >= 0 and "AnunciarModeloNoChat(true);" in fonte[i:i + 700])
+
+    # Sem chave selecionada nao ha modelo para anunciar - e escrever uma linha
+    # vazia (ou "IA:  | ") seria pior que nao escrever nada.
+    j = fonte.find("void AnunciarModeloNoChat")
+    bloco = fonte[j:j + 1600] if j >= 0 else ""
+    checa("sem chave, nenhuma linha e escrita",
+          "if (String::IsNullOrWhiteSpace(atual)) return;" in bloco)
+    checa("nao escreve em caixa de chat ja destruida",
+          "rtbChat->IsDisposed" in bloco)
+
+    # Os tres provedores precisam ser cobertos: o campo de modelo e diferente
+    # em cada um, e ate agora so o Gemini tinha tratamento em varios pontos.
+    k = fonte.find("String^ ProvedorEModeloAtual")
+    blocoP = fonte[k:k + 700] if k >= 0 else ""
+    for campo in ("cfgModeloClaude", "cfgModeloOpenAI", "cfgModeloGemini"):
+        checa(f"o anuncio cobre {campo}", campo in blocoP)
+
+
+# ==================================================================== #
 def main():
     print("SUITE DE REGRESSAO DO AGENTE - T2M")
     print("(sem chave de IA, sem internet, sem banco, sem navegador)")
@@ -1742,7 +1814,7 @@ def main():
                   teste_args_do_gemini, teste_falhas_de_ferramenta,
                   teste_pausa_adaptativa, teste_modelo_do_chat,
                   teste_regra_de_qualidade_do_script,
-                  teste_leitura_da_pagina):
+                  teste_leitura_da_pagina, teste_modelo_na_conversa):
         try:
             teste()
         except Exception as e:

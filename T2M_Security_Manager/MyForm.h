@@ -235,6 +235,13 @@ namespace T2MSecurityManager {
 		Label^ lblChatStatus;    // Indicador "processando..."
 		Label^ lblIndicadorIA;   // Mostra qual IA a chave selecionada usa (Claude/Gemini/OpenAI)
 
+		// Ultimo par "provedor | modelo" ja anunciado na conversa. Serve para
+		// escrever a linha de modelo UMA vez na abertura e depois so quando o
+		// usuario realmente troca de modelo ou de chave no meio do chat: sem
+		// isso, ou a conversa nao diz com que modelo cada resposta foi feita,
+		// ou repete a mesma linha a cada mensagem e vira ruido.
+		String^ modeloAnunciadoNoChat;
+
 		// Modo ativo do chat: 0 = Chat (so conversa), 1 = DOM, 2 = Automacao (dropdown).
 		// So um modo fica ligado por vez; o controle ligado fica em destaque.
 		int modoAtivo;
@@ -740,6 +747,7 @@ namespace T2MSecurityManager {
 			   this->balaoTour->UseFading = true;
 			   this->passoTour = 0;
 			   this->passoTourChat = 0;
+		   this->modeloAnunciadoNoChat = nullptr;
 
 			   this->BackColor = System::Drawing::Color::WhiteSmoke;
 			   this->ClientSize = System::Drawing::Size(924, 711);
@@ -763,6 +771,11 @@ namespace T2MSecurityManager {
 			   this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
 			   this->Text = L"T2M Security Manager v4.2 (MCP Edition)";
 			   this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
+			   // A URL e o token passam a ser gravados ao sair do campo, para nao
+			   // dependerem de um fechamento limpo do programa.
+			   this->txtUrl->Leave += gcnew System::EventHandler(this, &MyForm::campoPersistente_Leave);
+			   this->txtToken->Leave += gcnew System::EventHandler(this, &MyForm::campoPersistente_Leave);
+			   this->chkSalvar->CheckedChanged += gcnew System::EventHandler(this, &MyForm::campoPersistente_Leave);
 			   (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->picLogo))->EndInit();
 			   this->ResumeLayout(false);
 			   this->PerformLayout();
@@ -976,6 +989,18 @@ namespace T2MSecurityManager {
 		if (this->IsDisposed || !this->IsHandleCreated) return;
 		try { this->BeginInvoke(gcnew Action<String^>(this, &MyForm::AppendLog), e->Data); }
 		catch (...) {}
+	}
+
+		   // Salva assim que o campo perde o foco, e nao so ao fechar o programa.
+		   //
+		   // Salvar apenas no FormClosing parece suficiente e nao e: basta o
+		   // aplicativo nao fechar pela porta da frente para tudo se perder -
+		   // encerrar pelo Gerenciador de Tarefas (o que acontece toda vez que
+		   // ele fica preso segurando o .exe durante uma compilacao), uma queda,
+		   // ou um desligamento do Windows. O sintoma e cruel: a URL volta a ser
+		   // a de uma sessao antiga, e a pessoa acha que digitou errado.
+	private: System::Void campoPersistente_Leave(System::Object^ sender, System::EventArgs^ e) {
+		SalvarConfiguracao();
 	}
 
 	private: void SalvarConfiguracao() {
@@ -1611,6 +1636,45 @@ namespace T2MSecurityManager {
 			: (L"● IA: " + ia + L"  |  " + modelo);
 	}
 
+		   // Retorna "Provedor  |  modelo" da chave selecionada agora ("" sem chave).
+	private: String^ ProvedorEModeloAtual() {
+		String^ ia = DetectarIA(ObterChaveReal());
+		if (String::IsNullOrWhiteSpace(ia)) return L"";
+		String^ modelo;
+		if (ia == L"Claude") modelo = cfgModeloClaude;
+		else if (ia == L"OpenAI") modelo = cfgModeloOpenAI;
+		else modelo = cfgModeloGemini;
+		if (String::IsNullOrWhiteSpace(modelo)) return ia;
+		return ia + L"  |  " + modelo;
+	}
+
+		   // Escreve na conversa qual modelo esta valendo. Chamada na abertura da
+		   // janela e a cada execucao: a linha so sai quando o par provedor/modelo
+		   // muda, entao quem reler a conversa depois sabe exatamente qual modelo
+		   // produziu cada trecho - inclusive quando o usuario troca no meio.
+		   // O indicador do topo mostra o modelo de AGORA; a conversa precisava
+		   // guardar o de ENTAO, que e outra informacao.
+	private: void AnunciarModeloNoChat(bool abertura) {
+		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
+		String^ atual = ProvedorEModeloAtual();
+		if (String::IsNullOrWhiteSpace(atual)) return;           // sem chave: nada a dizer
+		String^ anterior = modeloAnunciadoNoChat;
+		if (!abertura && anterior == atual) return;              // nada mudou
+
+		System::Drawing::Color corAntiga = rtbChat->SelectionColor;
+		rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+		if (abertura || String::IsNullOrWhiteSpace(anterior))
+			rtbChat->AppendText(L">>> Modelo em uso: " + atual + L"\n\n");
+		else
+			rtbChat->AppendText(L">>> Modelo trocado: " + atual +
+				L"   (antes: " + anterior + L")\n\n");
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+		rtbChat->SelectionColor = corAntiga;
+		rtbChat->ScrollToCaret();
+		modeloAnunciadoNoChat = atual;
+	}
+
 	private: System::Void comboModeloChat_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
 		if (comboModeloChat->SelectedItem != nullptr && comboModeloChat->SelectedItem->ToString() == L"+ Adicionar Nova API Key...") {
 			Form^ formAdd = gcnew Form();
@@ -1995,6 +2059,9 @@ namespace T2MSecurityManager {
 	private: System::Void formIA_FormClosed(System::Object^ sender,
 		System::Windows::Forms::FormClosedEventArgs^ e) {
 		formIA = nullptr;
+		// A proxima janela comeca uma conversa nova: o modelo precisa ser
+		// anunciado de novo, senao a conversa nova nasce sem essa informacao.
+		modeloAnunciadoNoChat = nullptr;
 	}
 
 		   // Manda o log do teste para o Copilot analisar. Fecha o circuito entre
@@ -2074,6 +2141,7 @@ namespace T2MSecurityManager {
 		}
 
 		rtbChat->Clear();
+		modeloAnunciadoNoChat = nullptr;  // conversa nova: reanuncia o modelo
 		formIA_Shown(nullptr, nullptr);   // reexibe a mensagem de boas-vindas
 	}
 
@@ -2137,6 +2205,11 @@ namespace T2MSecurityManager {
 			rtbChat->SelectionColor = System::Drawing::Color::DimGray;
 			rtbChat->AppendText(L"\n>>> Sessao restaurada: " +
 				Path::GetFileName(dlg->FileName) + L"\n\n");
+			// A sessao restaurada foi feita com o modelo daquela epoca. Do ponto
+			// em que a conversa continua, o modelo tem de ser dito de novo -
+			// senao a linha antiga passa a valer para o que vem depois.
+			modeloAnunciadoNoChat = nullptr;
+			AnunciarModeloNoChat(true);
 		}
 		catch (Exception^ ex) {
 			MessageBox::Show(L"Erro ao abrir a sessao: " + ex->Message, L"Erro");
@@ -4733,6 +4806,9 @@ namespace T2MSecurityManager {
 			rtbChat->AppendText(L">>> Selecione uma chave de API acima para comecar.\n\n");
 			rtbChat->SelectionColor = System::Drawing::Color::Black;
 		}
+
+		// Deixa registrado na propria conversa qual modelo esta valendo agora.
+		AnunciarModeloNoChat(true);
 	}
 
 	private: System::Void btnSendChat_Click(System::Object^ sender, System::EventArgs^ e) {
@@ -4763,6 +4839,11 @@ namespace T2MSecurityManager {
 			MessageBox::Show(L"Configure a requisicao de API primeiro (menu Automacao > Teste de API).", L"Aviso");
 			return;
 		}
+
+		// Se o usuario trocou de modelo (ou de chave) desde a ultima execucao,
+		// a troca entra na conversa ANTES da pergunta - assim fica claro qual
+		// modelo respondeu o que, sem precisar cruzar com o log depois.
+		AnunciarModeloNoChat(false);
 
 		// Eco da mensagem do usuario
 		rtbChat->SelectionColor = System::Drawing::Color::DarkBlue;
