@@ -210,6 +210,13 @@ namespace T2MSecurityManager {
 		// com quebras de linha de verdade aqui; no arquivo vao escapadas como \n,
 		// porque configuracoes.txt e uma chave por linha.
 		String^ cfgInstrucoesExtras;
+		// Lista de modelos que o provedor informou no ultimo "Buscar", separada
+		// por ';'. Guardada porque a lista fixa do codigo envelhece: modelo novo
+		// aparece, modelo velho e aposentado, e ninguem quer esperar uma versao
+		// do programa para ver isso.
+		String^ cfgModelosGemini;
+		String^ cfgModelosOpenAI;
+		String^ cfgModelosClaude;
 		Button^ btnMapearSite;
 		Button^ btnSaveScript;
 		Button^ btnExportarRelatorio;  // exporta a conversa como relatorio HTML
@@ -2162,6 +2169,7 @@ namespace T2MSecurityManager {
 		cfgDominiosConfiaveis = "";
 		cfgMaxHistorico = 20;
 		cfgInstrucoesExtras = "";
+		cfgModelosGemini = ""; cfgModelosOpenAI = ""; cfgModelosClaude = "";
 		try {
 			String^ caminho = CaminhoDados("configuracoes.txt");
 			if (!File::Exists(caminho)) return;
@@ -2191,6 +2199,9 @@ namespace T2MSecurityManager {
 				// so na PROXIMA abertura do app - e ele acharia que perdeu o que
 				// escreveu. O Salvar normaliza \r\n, \n e \r na volta.
 				else if (chave == "instrucoes_extras") cfgInstrucoesExtras = valor->Replace("\\n", "\r\n");
+				else if (chave == "modelos_gemini") cfgModelosGemini = valor;
+				else if (chave == "modelos_openai") cfgModelosOpenAI = valor;
+				else if (chave == "modelos_claude") cfgModelosClaude = valor;
 			}
 		}
 		catch (...) {}
@@ -2216,7 +2227,8 @@ namespace T2MSecurityManager {
 				"max_passos", "max_linhas", "modelo_claude", "modelo_openai",
 				"modelo_gemini", "navegador_isolado", "permitir_js_pagina",
 				"dominios_confiaveis",
-				"max_historico", "instrucoes_extras"
+				"max_historico", "instrucoes_extras",
+				"modelos_gemini", "modelos_openai", "modelos_claude"
 			};
 			System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
 			sb->AppendLine("pasta_relatorios=" + cfgPastaRelatorios);
@@ -2241,6 +2253,9 @@ namespace T2MSecurityManager {
 			sb->AppendLine("max_historico=" + cfgMaxHistorico.ToString());
 			// Uma chave por linha: a quebra tem de virar \n literal, senao a segunda
 			// linha do texto seria lida como uma chave desconhecida e perdida.
+			sb->AppendLine("modelos_gemini=" + cfgModelosGemini);
+			sb->AppendLine("modelos_openai=" + cfgModelosOpenAI);
+			sb->AppendLine("modelos_claude=" + cfgModelosClaude);
 			sb->AppendLine("instrucoes_extras=" + cfgInstrucoesExtras
 				->Replace("\r\n", "\\n")->Replace("\n", "\\n")->Replace("\r", "\\n"));
 
@@ -2374,12 +2389,25 @@ namespace T2MSecurityManager {
 		cbModelo->Size = System::Drawing::Size(230, 22);
 		cbModelo->Tag = provedorModelo;   // lido na hora de salvar
 
+		// Lista guardada do ultimo Buscar, se houver. A lista escrita no codigo
+		// vira so o ponto de partida de quem nunca buscou.
+		String^ guardados = (provedorModelo == "OpenAI") ? cfgModelosOpenAI
+			: (provedorModelo == "Gemini") ? cfgModelosGemini : cfgModelosClaude;
+		if (!String::IsNullOrWhiteSpace(guardados)) {
+			for each (String ^ m in guardados->Split(';')) {
+				String^ nome = m->Trim();
+				if (!String::IsNullOrWhiteSpace(nome)) cbModelo->Items->Add(nome);
+			}
+		}
+
 		String^ dicaTexto;
 		if (provedorModelo == "OpenAI") {
-			cbModelo->Items->Add(L"gpt-4o-mini");
-			cbModelo->Items->Add(L"gpt-4o");
-			cbModelo->Items->Add(L"gpt-4.1-mini");
-			cbModelo->Items->Add(L"gpt-4.1");
+			if (cbModelo->Items->Count == 0) {
+				cbModelo->Items->Add(L"gpt-4o-mini");
+				cbModelo->Items->Add(L"gpt-4o");
+				cbModelo->Items->Add(L"gpt-4.1-mini");
+				cbModelo->Items->Add(L"gpt-4.1");
+			}
 			cbModelo->Text = String::IsNullOrWhiteSpace(cfgModeloOpenAI)
 				? L"gpt-4o-mini" : cfgModeloOpenAI;
 			dicaTexto =
@@ -2387,10 +2415,12 @@ namespace T2MSecurityManager {
 				L"Os modelos \"mini\" custam bem menos e costumam bastar para automacao.";
 		}
 		else if (provedorModelo == "Gemini") {
-			cbModelo->Items->Add(L"gemini-2.5-flash");
-			cbModelo->Items->Add(L"gemini-2.0-flash");
-			cbModelo->Items->Add(L"gemini-2.5-flash-lite");
-			cbModelo->Items->Add(L"gemini-flash-latest");
+			if (cbModelo->Items->Count == 0) {
+				cbModelo->Items->Add(L"gemini-2.5-flash");
+				cbModelo->Items->Add(L"gemini-2.0-flash");
+				cbModelo->Items->Add(L"gemini-2.5-flash-lite");
+				cbModelo->Items->Add(L"gemini-flash-latest");
+			}
 			cbModelo->Text = String::IsNullOrWhiteSpace(cfgModeloGemini)
 				? L"gemini-2.5-flash" : cfgModeloGemini;
 			dicaTexto =
@@ -2398,10 +2428,12 @@ namespace T2MSecurityManager {
 				L"No plano gratuito o limite por minuto e baixo; os \"flash\" tem mais folga.";
 		}
 		else {
-			cbModelo->Items->Add(L"claude-haiku-4-5-20251001");
-			cbModelo->Items->Add(L"claude-sonnet-4-6");
-			cbModelo->Items->Add(L"claude-opus-4-8");
-			cbModelo->Items->Add(L"claude-fable-5");
+			if (cbModelo->Items->Count == 0) {
+				cbModelo->Items->Add(L"claude-haiku-4-5-20251001");
+				cbModelo->Items->Add(L"claude-sonnet-4-6");
+				cbModelo->Items->Add(L"claude-opus-4-8");
+				cbModelo->Items->Add(L"claude-fable-5");
+			}
 			cbModelo->Text = String::IsNullOrWhiteSpace(cfgModeloClaude)
 				? L"claude-sonnet-4-6" : cfgModeloClaude;
 			dicaTexto =
@@ -2837,12 +2869,33 @@ namespace T2MSecurityManager {
 				: (cbModelosAlvo->Items->Count > 0
 					? cbModelosAlvo->Items[0]->ToString() : selecionadoAntes);
 
+			// GUARDA a lista. Antes ela vivia so enquanto a janela ficasse
+			// aberta: fechar Configuracoes jogava fora a consulta e, na proxima
+			// vez, voltavam os quatro nomes escritos no codigo - que e
+			// justamente a lista que envelhece. Gravar aqui, e nao no Salvar,
+			// porque isto e um FATO sobre a conta, nao uma preferencia: vale
+			// mesmo que a pessoa desista das outras mudancas e clique Cancelar.
+			System::Text::StringBuilder^ lista = gcnew System::Text::StringBuilder();
+			for each (Object ^ it in cbModelosAlvo->Items) {
+				if (lista->Length > 0) lista->Append(";");
+				lista->Append(it->ToString());
+			}
+			String^ prov = (cbModelosAlvo->Tag == nullptr)
+				? L"Claude" : cbModelosAlvo->Tag->ToString();
+			if (prov == "OpenAI") cfgModelosOpenAI = lista->ToString();
+			else if (prov == "Gemini") cfgModelosGemini = lista->ToString();
+			else cfgModelosClaude = lista->ToString();
+			SalvarConfiguracoesApp();
+
 			// qtd.ToString() e obrigatorio. "qtd + L\"texto\"" faria o compilador
 			// escolher aritmetica de ponteiro sobre o literal - avancando qtd
 			// caracteres dentro dele - em vez de concatenar o numero.
 			MessageBox::Show(
 				qtd.ToString() + L" modelos disponiveis foram carregados.\n\n"
-				L"A lista veio direto do provedor, entao esta sempre atualizada.",
+				L"A lista veio direto do provedor e ficou guardada: nas proximas "
+				L"vezes ela ja abre assim, sem precisar buscar de novo. Clique em "
+				L"Buscar quando quiser conferir se entrou modelo novo ou se algum "
+				L"foi aposentado.",
 				L"Modelos atualizados", MessageBoxButtons::OK, MessageBoxIcon::Information);
 		}
 		catch (Exception^ ex) {
