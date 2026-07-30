@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>T2M - roteiro de verificacao</title>
+<style>
+  :root{--azul:#2c3e6b;--borda:#d6dae2;--cinza:#5f6774;--ok:#166534;}
+  *{box-sizing:border-box;}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f2f4f7;color:#1f2937;
+       margin:0;padding:30px 24px 60px;line-height:1.55;}
+  .wrap{max-width:900px;margin:0 auto;}
+  h1{font-size:22px;margin:0 0 6px;color:var(--azul);}
+  .lead{color:var(--cinza);font-size:13.5px;margin:0 0 8px;}
+  .aviso{background:#fff7ed;border:1px solid #fdba74;border-radius:6px;padding:11px 14px;
+         font-size:13px;margin:16px 0 26px;color:#7c2d12;}
+  h2{font-size:15px;color:var(--azul);margin:30px 0 10px;padding-bottom:6px;
+     border-bottom:2px solid var(--borda);display:flex;justify-content:space-between;
+     align-items:baseline;}
+  h2 small{font-weight:400;color:var(--cinza);font-size:11.5px;}
+  .item{background:#fff;border:1px solid var(--borda);border-radius:7px;
+        padding:13px 15px 13px 44px;margin:9px 0;position:relative;font-size:13.5px;}
+  .item input{position:absolute;left:15px;top:15px;width:16px;height:16px;cursor:pointer;}
+  .item.feito{background:#f0fdf4;border-color:#86efac;}
+  .n{font-weight:700;color:var(--azul);}
+  .faca{margin:2px 0 0;}
+  .esp{margin:6px 0 0;color:#065f46;}
+  .esp b{color:var(--ok);}
+  .falha{margin:6px 0 0;color:#7f1d1d;font-size:12.5px;
+         background:#fef2f2;border-left:3px solid #fca5a5;padding:5px 9px;border-radius:0 4px 4px 0;}
+  code{background:#eef1f6;padding:1px 5px;border-radius:3px;font-size:12.5px;
+       font-family:Consolas,monospace;}
+  .custa{display:inline-block;background:#fef3c7;color:#78350f;font-size:10.5px;
+         font-weight:700;border-radius:9px;padding:1px 8px;margin-left:6px;
+         vertical-align:middle;}
+  .barra{position:sticky;top:0;background:#fff;border:1px solid var(--borda);
+     border-radius:7px;padding:11px 15px;margin-bottom:20px;font-size:13.5px;
+     display:flex;justify-content:space-between;align-items:center;z-index:9;
+     box-shadow:0 2px 8px rgba(0,0,0,.05);}
+  .barra b{color:var(--azul);font-size:16px;}
+  .fim{background:#fff;border:1px solid var(--borda);border-radius:7px;
+       padding:14px 16px;margin-top:26px;font-size:13.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Roteiro de verificacao &mdash; T2M Security Manager</h1>
+<p class="lead">Vinte itens, uns 35 minutos. Atualizado para a versao de hoje: faixa revertida,
+Automacao de volta no Copilot, terminal com o raciocinio completo.</p>
+
+<div class="aviso">
+  <b>Por que agora.</b> Desde a ultima compilacao limpa a tela foi reposicionada duas vezes, a
+  faixa de modos foi criada e revertida, o Automacao mudou de lugar, o console trocou de filtro
+  e ganhou teto, o PARAR passou a alcancar dois processos. Tudo isso foi verificado por leitura
+  &mdash; o que pega colisao de layout, mas nao pega o Playwright inundando o terminal nem um
+  balao saindo da tela. Se tres defeitos aparecerem juntos daqui a uma semana, vai ser dificil
+  saber qual mudanca causou qual. Agora cada um ainda tem endereco.
+</div>
+
+<div class="barra">
+  <span><span id="feitos">0</span> de <span id="total">20</span> conferidos</span>
+  <b id="pct">0%</b>
+</div>
+
+<h2>Sem abrir o aplicativo <small>1 item</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">1.</span> No repositorio: <code>python testar_regressao.py</code></p>
+  <p class="esp"><b>Esperado:</b> <code>275 verificacoes, todas OK</code>.</p>
+  <p class="falha">Falhou: me mande as linhas de FALHOU. Elas dizem exatamente qual contrato quebrou, sem precisar de mais nada.</p>
+</div>
+
+<h2>Tela inicial <small>5 itens</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">2.</span> Abra o aplicativo e olhe a tela inteira.</p>
+  <p class="esp"><b>Esperado:</b> as tres molduras (Scripts, Alvo do teste, Terminal) aparecem
+  <i>atras</i> dos controles; o terminal ocupa da altura da URL ate perto dos botoes; nada
+  cortado nem por cima de nada.</p>
+  <p class="falha">Painel cobrindo a lista ou os campos: o SendToBack nao pegou.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">3.</span> Clique <b>nove</b> vezes no <code>?</code> da barra
+  superior.</p>
+  <p class="esp"><b>Esperado:</b> oito baloes (1 de 8 &hellip; 8 de 8), cada um ancorado no
+  controle certo; o nono clique reinicia no 1.</p>
+  <p class="falha">Os passos 4 a 8 apontam para controles baixos &mdash; se algum balao sair da tela em vez de virar para cima, e a ancora que precisa mudar.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">4.</span> Configuracoes &rarr; <b>Passos maximos</b> = 25,
+  <b>Mensagens no historico</b> = 30. Salve, <b>feche o app</b>, abra e volte em Configuracoes.</p>
+  <p class="esp"><b>Esperado:</b> 25 e 30 continuam la.</p>
+  <p class="falha">Voltou ao padrao: sobrou algum <code>"chave=" + int</code> sem <code>.ToString()</code>.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">5.</span> Configuracoes &rarr; <b>Escrever instrucoes</b>: tres
+  linhas separadas, com acento. Aplique, salve, feche o app, abra e reabra.</p>
+  <p class="esp"><b>Esperado:</b> as tres linhas voltam separadas, acentos certos, e o botao
+  agora diz &ldquo;Editar instrucoes (em uso)&rdquo;.</p>
+  <p class="falha">Tudo numa linha = o CRLF nao voltou. Acento errado = codificacao do arquivo.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">6.</span> Reabra as instrucoes, digite qualquer coisa e clique
+  em <b>Cancelar</b>. Reabra.</p>
+  <p class="esp"><b>Esperado:</b> o que voce digitou sumiu; o texto anterior esta intacto.</p>
+</div>
+
+<h2>O Copilot <small>4 itens</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">7.</span> Abra o Copilot pelo botao roxo e olhe a barra de
+  cima.</p>
+  <p class="esp"><b>Esperado:</b> Chat, Scan DOM e Automacao a esquerda; risco vertical; Nova
+  conversa, Salvar e Abrir a direita; o <code>?</code> sozinho na linha de cima, sem encostar em
+  nada.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">8.</span> Clique <b>dez</b> vezes no <code>?</code> do Copilot.</p>
+  <p class="esp"><b>Esperado:</b> nove baloes (1 de 9 &hellip; 9 de 9); o decimo reinicia. Os
+  passos 8 e 9 apontam para os botoes do rodape &mdash; confira se viram para cima.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">9.</span> Com o Copilot aberto, clique em algo da tela
+  principal (selecione um script, digite na URL).</p>
+  <p class="esp"><b>Esperado:</b> a tela principal responde normalmente.</p>
+  <p class="falha">Travada = o ShowDialog voltou; a janela ainda e modal.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">10.</span> Com o Copilot aberto, clique de novo no botao roxo
+  da tela principal.</p>
+  <p class="esp"><b>Esperado:</b> a janela existente vem para a frente. <i>Nao</i> abre uma
+  segunda.</p>
+  <p class="falha">Duas janelas = duas conversas disputando o mesmo worker e o mesmo arquivo de memoria.</p>
+</div>
+
+<h2>Automacao (MCP) <small>3 itens</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">11.</span> Com a URL Alvo <b>vazia</b>, use
+  <b>Automacao &rarr; Teste de Tela</b> e tente enviar uma mensagem.</p>
+  <p class="esp"><b>Esperado:</b> aviso pedindo a URL. A linha de status ja diz
+  <i>MCP - Teste de Tela</i>.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">12.</span> <b>Automacao &rarr; Banco de Dados</b>, escolha
+  <b>Oracle</b>.</p>
+  <p class="esp"><b>Esperado:</b> a tela de conexao abre com os sete tipos na lista, e ao
+  escolher Oracle aparecem os campos de wallet.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">13.</span> <b>Automacao &rarr; Teste de API</b>.</p>
+  <p class="esp"><b>Esperado:</b> o formulario de requisicao abre; ao confirmar, o status muda
+  para <i>MCP - Teste de API</i>.</p>
+</div>
+
+<h2>Execucao de verdade <small>7 itens &mdash; consome credito</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">14.</span> Modo <b>Chat</b>: mande uma pergunta simples.
+  <span class="custa">gasta token</span></p>
+  <p class="esp"><b>Esperado:</b> no terminal da tela principal aparece <code>&gt;&gt;&gt; [IA]</code>
+  no inicio e, no fim, <code>&gt;&gt;&gt; [IA] Resposta pronta (N caracteres) - enviada para o
+  chat do Copilot.</code></p>
+  <p class="falha">Terminal mudo = o streaming nao pegou. Sem a linha final = o aviso de conclusao nao esta sendo escrito.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">15.</span> <b>Automacao &rarr; Teste de Tela</b> contra um site
+  simples, objetivo curto (&ldquo;abra a pagina e liste os campos do formulario&rdquo;).
+  <span class="custa">gasta token</span></p>
+  <p class="esp"><b>Esperado:</b> o raciocinio da IA sai no terminal em tempo real; as linhas
+  <code>&gt;&gt;&gt;</code> tambem aparecem em cinza no chat; o relatorio final chega no chat.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">16.</span> Durante a execucao acima, olhe o botao
+  <b>PARAR</b>.</p>
+  <p class="esp"><b>Esperado:</b> ele fica <i>habilitado</i> enquanto a IA trabalha. Clicando,
+  pergunta antes de interromper e avisa que o relatorio parcial se perde.</p>
+  <p class="falha">Cinza durante a execucao = a lacuna que eu corrigi voltou; nesse caso a unica saida seria fechar o Copilot.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">17.</span> Ainda durante uma execucao longa, observe se o
+  terminal continua fluido. <span class="custa">gasta token</span></p>
+  <p class="esp"><b>Esperado:</b> rolagem normal, sem engasgo. Se o log passar de 200 mil
+  caracteres, aparece uma linha dizendo que o inicio foi descartado.</p>
+  <p class="falha">Interface travando conforme o log cresce = o teto nao esta funcionando. Foi o risco que eu introduzi ao mandar TODO o stderr para o console.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">18.</span> Rode um teste com uma senha falsa no objetivo:
+  <code>testar postgres://admin:Senha123@10.0.0.5:5432/prod</code>. Depois clique em
+  <b>Relatorio do Teste</b> e abra o HTML. <span class="custa">gasta token</span></p>
+  <p class="esp"><b>Esperado:</b> <code>Senha123</code> <b>nao</b> aparece no arquivo; na janela
+  do chat ela <b>continua visivel</b>.</p>
+  <p class="falha">No arquivo = a mascara nao rodou na exportacao. Sumindo tambem da tela = ela esta no lugar errado; o operador precisa enxergar o que a IA achou.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">19.</span> Abra o <b>Historico</b> e clique numa linha.</p>
+  <p class="esp"><b>Esperado:</b> as execucoes acima estao la com passos gastos (ex.:
+  <code>4/25</code>), duracao e resultado; o detalhe abre embaixo; nenhuma senha visivel;
+  &ldquo;Exportar esta execucao&rdquo; gera o HTML.</p>
+  <p class="falha">Lista vazia = o registro nao esta sendo gravado. Detalhe de outra execucao = o identificador nao esta viajando na lista.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">20.</span> No Historico, <b>Limpar historico</b>. E, no
+  Copilot, peca um script simples e clique em <b>Extrair e Salvar Codigo</b>.
+  <span class="custa">gasta token</span></p>
+  <p class="esp"><b>Esperado:</b> a limpeza avisa <i>quantas</i> execucoes serao apagadas, o
+  botao padrao e Nao, e sobra <b>uma</b> linha (modo <code>Sistema</code>) dizendo quem limpou e
+  quando. O script salvo aparece no topo da lista <i>ja selecionado</i>, e o Copilot
+  <b>continua aberto</b>.</p>
+</div>
+
+<h2>Rastreabilidade: modo e modelo <small>3 itens</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">21.</span> No Copilot, envie uma pergunta em <b>Chat</b>.
+  Depois, <b>sem fechar a janela</b>, va em Configuracoes na tela principal, troque o
+  <b>modelo</b>, salve e envie outra pergunta. <span class="custa">gasta token</span></p>
+  <p class="esp"><b>Esperado:</b> na abertura saiu <code>&gt;&gt;&gt; Modelo em uso: ...</code>;
+  o primeiro envio <b>nao</b> repete essa linha; o segundo traz
+  <code>&gt;&gt;&gt; Modelo trocado: X (antes: Y)</code>. Os dois cabecalhos de resposta trazem
+  modelos <i>diferentes</i>: <code>T2M Copilot (Chat | modelo-novo):</code>.</p>
+  <p class="falha">Sem a linha de troca = a mudanca em Configuracoes nao chegou ao chat. Linha repetida a cada envio = a comparacao com o ultimo anunciado nao esta valendo.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">22.</span> Faca a <b>mesma pergunta</b> em <b>Chat</b> e em
+  <b>Scan DOM</b>, uma depois da outra. <span class="custa">gasta token</span></p>
+  <p class="esp"><b>Esperado:</b> cada envio escreve <code>&gt;&gt;&gt; Modo Chat</code> ou
+  <code>&gt;&gt;&gt; Modo Scan DOM</code>, e o cabecalho de cada resposta diz qual foi. No Chat, a
+  IA precisa <b>admitir que nada foi lido</b> e datar o dado
+  (&ldquo;varredura feita antes nesta conversa&rdquo;), apontando o Scan DOM para o estado atual.</p>
+  <p class="falha">Chat dizendo &ldquo;segundo a leitura recebida&rdquo; = ele esta reapresentando dado antigo como leitura de agora. E o defeito mais caro do produto: a pagina pode ter mudado no intervalo.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">23.</span> Com essa conversa na tela, clique em
+  <b>Nova conversa</b>; depois <b>Abra</b> uma sessao salva.</p>
+  <p class="esp"><b>Esperado:</b> a conversa nova reanuncia <code>&gt;&gt;&gt; Modelo em uso</code>,
+  e a sessao restaurada tambem &mdash; logo depois de
+  <i>&gt;&gt;&gt; Sessao restaurada</i>.</p>
+  <p class="falha">Sem reanuncio = a linha antiga do arquivo passa a valer para o que vier depois, com o modelo errado.</p>
+</div>
+
+<div class="fim">
+  <b>Como me reportar:</b> so os numeros que falharam e o que aconteceu em vez do esperado. Uma
+  linha por item &mdash; do tipo &ldquo;16: PARAR ficou cinza&rdquo;. Cada item foi escrito para
+  que a resposta aponte direto para uma causa.
+  <br><br>
+  <b>Se passar limpo:</b> a fila esta pronta &mdash; diagnostico do ambiente, cenarios salvos com
+  reexecucao, custo visivel por execucao, e o instalador.
+</div>
+
+</div>
+<script>
+  const itens = document.querySelectorAll('.item');
+  const feitos = document.getElementById('feitos');
+  const pct = document.getElementById('pct');
+  document.getElementById('total').textContent = itens.length;
+  function atualizar(){
+    let n = 0;
+    itens.forEach(function(it){
+      const c = it.querySelector('input');
+      it.classList.toggle('feito', c.checked);
+      if (c.checked) n++;
+    });
+    feitos.textContent = n;
+    pct.textContent = Math.round(n / itens.length * 100) + '%';
+  }
+  itens.forEach(function(it){
+    it.querySelector('input').addEventListener('change', atualizar);
+  });
+  atualizar();
+</script>
+</body>
+</html>

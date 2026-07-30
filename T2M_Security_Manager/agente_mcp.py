@@ -832,7 +832,7 @@ def _sem_marcadores(texto):
     os marcadores do historico."""
     saida = str(texto or "")
     for marca in ("CHAT_MSG_INICIO", "CHAT_MSG_FIM", "HIST_INICIO", "HIST_FIM",
-                  "MODELOS_INICIO", "MODELOS_FIM"):
+                  "MODELOS_INICIO", "MODELOS_FIM", "MODELO_USADO:"):
         # Um caractere invisivel no meio basta: some para quem le, e deixa de
         # casar com o IndexOf do C++.
         saida = saida.replace(marca, marca[:4] + "\u200b" + marca[4:])
@@ -853,6 +853,11 @@ def responder(texto, erro=None):
     final = _sem_marcadores(texto) + _resumo_falhas() + _resumo_bloqueios()
     _gravar_historico(final, erro)
     _JA_RESPONDEU = True
+    # Quem REALMENTE respondeu. _MODELO_USADO ja e mantido por _marcar_passo, e
+    # vale para os tres provedores. Vai fora do bloco CHAT_MSG (nao entra no
+    # texto do usuario) e no stdout (nao polui o terminal, que le stderr).
+    if _MODELO_USADO:
+        print("MODELO_USADO:" + _MODELO_USADO)
     print("CHAT_MSG_INICIO")
     print(final)
     print("CHAT_MSG_FIM")

@@ -136,11 +136,23 @@ def _caminho_dados(arquivo):
 ARQUIVO_MEMORIA = _caminho_dados("memoria_chat.json")
 
 
+# Modelo que REALMENTE produziu a resposta. Nem sempre e o escolhido em
+# Configuracoes: quando o escolhido esta sem cota, o laco cai para o proximo da
+# lista. O cabecalho da resposta na tela precisa dizer quem respondeu de fato -
+# carimbar o configurado seria repetir, em outro lugar, o mesmo tipo de engano
+# que o produto existe para evitar.
+_MODELO_EFETIVO = ""
+
+
 def responder(texto):
     """Formato que a interface C++ espera no stdout - o MESMO contrato do
     agente_mcp.py. Mensagens de erro que saiam sem os marcadores caem no
     fallback generico do C++, que despeja o stdout bruto na tela (podendo
     misturar saida do pip com a mensagem real)."""
+    # Fora do bloco CHAT_MSG, entao nao entra no texto mostrado ao usuario; e
+    # no stdout, entao nao polui o terminal (que le stderr).
+    if _MODELO_EFETIVO:
+        print("MODELO_USADO:" + _MODELO_EFETIVO)
     print("CHAT_MSG_INICIO")
     print(texto)
     print("CHAT_MSG_FIM")
@@ -451,6 +463,7 @@ def ler_entrada():
 # --- 5. FUNCAO PRINCIPAL E ROTEAMENTO MULTI-IA ---
 # ==============================================================================
 def main():
+    global _MODELO_EFETIVO
     try:
         try:
             api_key, prompt_usuario, url_alvo = ler_entrada()
@@ -624,6 +637,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
         # --- ROTA ANTHROPIC (CLAUDE) ---
         if api_key.startswith("sk-ant-"):
             log(f">>> Consultando o Claude ({MODELO_CLAUDE})...")
+            _MODELO_EFETIVO = MODELO_CLAUDE
             from anthropic import Anthropic
             client = Anthropic(api_key=api_key)
             response = client.messages.create(
@@ -643,6 +657,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
         # --- ROTA OPENAI (CHATGPT) ---
         elif api_key.startswith("sk-"):
             log(f">>> Consultando a OpenAI ({MODELO_OPENAI})...")
+            _MODELO_EFETIVO = MODELO_OPENAI
             from openai import OpenAI
             client = OpenAI(api_key=api_key)
             response = client.chat.completions.create(
@@ -683,6 +698,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                     response = model.generate_content(mensagens)
                     resposta_ia = response.text.strip()
                     sucesso = True
+                    _MODELO_EFETIVO = nome_modelo
                     _guardar_modelo_que_funcionou(nome_modelo)
                     # Trocar de modelo sem avisar seria pior que falhar: o
                     # operador escolheu um modelo, recebe a resposta de outro, e

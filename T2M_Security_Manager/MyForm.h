@@ -249,6 +249,11 @@ namespace T2MSecurityManager {
 		// Chat ou Scan DOM?" volta inteira.
 		String^ rotuloModoExecucao;
 		String^ rotuloModeloExecucao;
+		// Modelo que o Python informou ter usado DE FATO. Quando o escolhido
+		// esta sem cota, a resposta vem de outro - e carimbar o configurado
+		// faria o cabecalho contradizer o aviso "[T2M] ... veio de X" que vem
+		// logo abaixo, dentro da propria resposta.
+		String^ modeloEfetivoRelatado;
 
 		// Modo ativo do chat: 0 = Chat (so conversa), 1 = DOM, 2 = Automacao (dropdown).
 		// So um modo fica ligado por vez; o controle ligado fica em destaque.
@@ -758,6 +763,7 @@ namespace T2MSecurityManager {
 		   this->modeloAnunciadoNoChat = nullptr;
 		   this->rotuloModoExecucao = L"";
 		   this->rotuloModeloExecucao = L"";
+		   this->modeloEfetivoRelatado = L"";
 
 			   this->BackColor = System::Drawing::Color::WhiteSmoke;
 			   this->ClientSize = System::Drawing::Size(924, 711);
@@ -1504,6 +1510,7 @@ namespace T2MSecurityManager {
 			p->WaitForExit();
 
 			String^ output = LerBufferSeguro(bufSaidaProc);
+			CapturarModeloEfetivo(output);
 			int startIdx = output->IndexOf("CHAT_MSG_INICIO");
 			int endIdx = output->IndexOf("CHAT_MSG_FIM");
 			if (startIdx != -1 && endIdx != -1) {
@@ -1516,6 +1523,31 @@ namespace T2MSecurityManager {
 			procChatAtual = nullptr;
 			p->Close();
 		}
+	}
+
+		   // Le do stdout do Python o marcador MODELO_USADO:<nome>, que diz qual
+		   // modelo REALMENTE respondeu. O marcador fica fora do bloco
+		   // CHAT_MSG_*, entao nao aparece para o usuario, e no stdout, entao
+		   // nao entra no terminal (que mostra o stderr).
+		   //
+		   // Sem isto o cabecalho carimbava o modelo escolhido em Configuracoes,
+		   // e num fallback de cota ele contradizia, na linha seguinte, o proprio
+		   // aviso "[T2M] ... Esta resposta veio de OUTRO modelo" - duas
+		   // afirmacoes opostas coladas uma na outra, e a errada em destaque.
+	private: void CapturarModeloEfetivo(String^ saida) {
+		modeloEfetivoRelatado = L"";
+		if (String::IsNullOrEmpty(saida)) return;
+		int i = saida->IndexOf(L"MODELO_USADO:");
+		if (i < 0) return;
+		i += 13;   // tamanho de "MODELO_USADO:"
+		int fimN = saida->IndexOf(L'\n', i);
+		int fimR = saida->IndexOf(L'\r', i);
+		int fim = (fimN < 0) ? fimR : ((fimR < 0) ? fimN : Math::Min(fimN, fimR));
+		String^ nome = (fim < 0) ? saida->Substring(i) : saida->Substring(i, fim - i);
+		nome = nome->Trim();
+		// Um nome absurdo so pode ser lixo no buffer; melhor cabecalho sem
+		// carimbo do que cabecalho com nome inventado.
+		if (nome->Length > 0 && nome->Length <= 80) modeloEfetivoRelatado = nome;
 	}
 
 		   // --- AGENTE MCP AO VIVO (Playwright) ---
@@ -1572,6 +1604,7 @@ namespace T2MSecurityManager {
 			p->WaitForExit();
 
 			String^ output = LerBufferSeguro(bufSaidaProc);
+			CapturarModeloEfetivo(output);
 			int i = output->IndexOf("CHAT_MSG_INICIO");
 			int f = output->IndexOf("CHAT_MSG_FIM");
 			if (i != -1 && f != -1) return output->Substring(i + 15, f - (i + 15))->Trim();
@@ -4664,11 +4697,15 @@ namespace T2MSecurityManager {
 		// fica la em cima, antes da pergunta; aqui a informacao anda GRUDADA na
 		// resposta - inclusive quando alguem copia so este trecho para um
 		// chamado, ou compara duas respostas lado a lado semanas depois.
+		// O modelo relatado pelo Python vence o configurado: num fallback de
+		// cota, foi ELE que escreveu o texto que esta logo abaixo.
+		String^ modeloDaResposta = String::IsNullOrWhiteSpace(modeloEfetivoRelatado)
+			? rotuloModeloExecucao : modeloEfetivoRelatado;
 		String^ carimbo = L"";
 		if (!String::IsNullOrWhiteSpace(rotuloModoExecucao)) {
 			carimbo = rotuloModoExecucao;
-			if (!String::IsNullOrWhiteSpace(rotuloModeloExecucao))
-				carimbo += L" | " + rotuloModeloExecucao;
+			if (!String::IsNullOrWhiteSpace(modeloDaResposta))
+				carimbo += L" | " + modeloDaResposta;
 		}
 		String^ prefixo = String::IsNullOrWhiteSpace(carimbo)
 			? L"T2M Copilot:\n"
@@ -4931,6 +4968,9 @@ namespace T2MSecurityManager {
 		// ou de modelo, e o cabecalho tem de dizer o que valeu na hora.
 		rotuloModoExecucao = modo;
 		rotuloModeloExecucao = ModeloAtualCurto();
+		// Zera o relato da execucao anterior: se esta falhar antes de o Python
+		// responder, o cabecalho nao pode herdar o modelo da resposta passada.
+		modeloEfetivoRelatado = L"";
 		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
 		rtbChat->SelectionColor = (modoAtivo == 2)
 			? System::Drawing::Color::DarkSlateBlue

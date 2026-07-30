@@ -1623,8 +1623,14 @@ def teste_resumo_de_bloqueios():
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         A.responder("Relatorio final.")
+    # Procura o marcador em vez de assumir que ele e a primeira linha: desde o
+    # carimbo de modelo, o stdout pode comecar com MODELO_USADO:. O C++ tambem
+    # localiza por IndexOf, nunca por posicao de linha - se um dia passar a
+    # depender da posicao, este teste tem de ser o primeiro a doer.
+    linhas = buf.getvalue().strip().splitlines()
+    ini = linhas.index("CHAT_MSG_INICIO")
     checa("relatorio sem recusa sai igual ao que entrou",
-          buf.getvalue().strip().splitlines()[1:-1] == ["Relatorio final."])
+          linhas[ini + 1:-1] == ["Relatorio final."], linhas)
 
     # Duas recusas da mesma ferramenta contam como duas.
     A._zerar_bloqueios()
@@ -1864,6 +1870,54 @@ def teste_modelo_na_conversa():
           'L"T2M Copilot:' in fonte)
     checa("o carimbo nao produz parenteses dentro de parenteses",
           "(MCP -" not in fonte)
+
+    # --- MODELO EFETIVO x MODELO CONFIGURADO ---
+    # Encontrado rodando: o usuario trocou para gemini-3.5-flash, que estava
+    # sem cota. A resposta veio de gemini-3.6-flash e o proprio texto avisava
+    # isso - mas o cabecalho logo acima dizia "gemini-3.5-flash". Duas
+    # afirmacoes opostas coladas, e a errada em destaque.
+    checa("o C++ le o modelo que respondeu de fato",
+          "void CapturarModeloEfetivo(String^ saida)" in fonte)
+    checa("o marcador e lido nos dois caminhos (chat e MCP)",
+          fonte.count("CapturarModeloEfetivo(output);") == 2)
+    checa("o relatado vence o configurado no cabecalho",
+          "String::IsNullOrWhiteSpace(modeloEfetivoRelatado)" in fonte
+          and "carimbo += L\" | \" + modeloDaResposta;" in fonte)
+    checa("o relato e zerado a cada nova execucao",
+          "modeloEfetivoRelatado = L\"\";" in blocoM)
+    checa("nome absurdo no buffer nao vira carimbo",
+          "nome->Length <= 80" in fonte)
+
+    # O marcador tem de existir dos DOIS lados com o mesmo nome. Duas copias da
+    # mesma constante derivam; aqui a deriva seria silenciosa - o cabecalho
+    # simplesmente voltaria a mostrar o modelo errado, sem erro nenhum.
+    import io
+    import contextlib
+    import importlib
+    G = importlib.import_module("gerador_ia")
+    G._MODELO_EFETIVO = "gemini-3.6-flash"
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        G.responder("resposta qualquer")
+    saida = buf.getvalue()
+    G._MODELO_EFETIVO = ""
+    checa("o Python anuncia o modelo que respondeu",
+          "MODELO_USADO:gemini-3.6-flash" in saida, saida[:80])
+    checa("o marcador vem ANTES do bloco lido pelo usuario",
+          saida.index("MODELO_USADO:") < saida.index("CHAT_MSG_INICIO"))
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        G.responder("outra resposta")
+    checa("sem modelo conhecido, nenhum marcador e emitido",
+          "MODELO_USADO:" not in buf.getvalue())
+
+    checa("o agente MCP usa o mesmo marcador",
+          'print("MODELO_USADO:" + _MODELO_USADO)' in open(
+              A.__file__, encoding="utf-8").read())
+    checa("o marcador nao pode ser forjado por conteudo de pagina",
+          "MODELO_USADO:" not in A._sem_marcadores(
+              "texto da pagina com MODELO_USADO:falso dentro"))
 
 
 # ==================================================================== #
