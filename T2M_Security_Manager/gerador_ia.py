@@ -352,6 +352,49 @@ def extrair_contexto_dom(url):
                           "Teste de Tela, que abre um navegador real.")
             linhas.append("")
 
+        # TITULO, CABECALHOS E TEXTO VISIVEL.
+        #
+        # Ate agora a leitura mandava so a "planta baixa" - campos, botoes,
+        # formularios - e nenhuma palavra da pagina. Isso tem uma consequencia
+        # que so aparece quando se confere: num teste com a pagina de login do
+        # the-internet, a IA citou as credenciais de exemplo corretamente... mas
+        # elas NAO estavam no que a gente enviou. Ela sabia de cor, porque e um
+        # site publico famoso.
+        #
+        # Numa tela interna de cliente ela nao sabe nada - e o risco e inventar
+        # com a mesma confianca. Mandar o texto visivel resolve os dois lados:
+        # instrucoes, rotulos e mensagens da propria pagina passam a estar no
+        # contexto, e o modelo tem em que se apoiar em vez de lembrar.
+        titulo = (soup.title.get_text().strip() if soup.title else "")
+        if titulo:
+            linhas.append(f"Titulo da pagina: {titulo[:200]}")
+
+        cabecalhos = [h.get_text(" ", strip=True)[:120]
+                      for h in soup.find_all(["h1", "h2", "h3"])][:12]
+        if cabecalhos:
+            linhas.append("Titulos e subtitulos:")
+            for h in cabecalhos:
+                if h:
+                    linhas.append(f" - {h}")
+
+        rotulos = [(l.get_text(" ", strip=True)[:80], l.get("for", ""))
+                   for l in soup.find_all("label")][:20]
+        if rotulos:
+            linhas.append("Rotulos de campo (label):")
+            for texto_rot, alvo_rot in rotulos:
+                if texto_rot:
+                    linhas.append(f" - \"{texto_rot}\""
+                                  + (f" (for={alvo_rot})" if alvo_rot else ""))
+
+        # Texto corrido, sem script/style, com teto para nao estourar o contexto
+        # nem inflar o custo da mensagem.
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+        visivel = " ".join((soup.get_text(" ", strip=True) or "").split())
+        if visivel:
+            linhas.append("Texto visivel da pagina (inicio):")
+            linhas.append(visivel[:1500] + ("..." if len(visivel) > 1500 else ""))
+
         linhas.append(f"Formularios no HTML estatico: {len(forms)}")
         linhas.append(f"Links no HTML estatico: {len(links)}")
         linhas.append(f"Scripts carregados: {len(scripts)}")
@@ -440,7 +483,14 @@ def main():
             contexto = ""
             if url_alvo:
                 contexto = ("CONTEXTO INTERNO (estrutura da pagina; nao mencione que veio de "
-                            "um scanner, apenas use se for util):\n" + extrair_contexto_dom(url_alvo))
+                            "um scanner, apenas use se for util).\n"
+                            "Baseie-se NO QUE ESTA ABAIXO. Se voce complementar com "
+                            "conhecimento proprio sobre este site, diga isso de forma "
+                            "explicita - por exemplo \"pelo que conheco deste site "
+                            "publico\". O operador precisa saber o que foi lido da "
+                            "pagina dele e o que veio da sua memoria, porque numa tela "
+                            "interna voce nao tera memoria nenhuma:\n"
+                            + extrair_contexto_dom(url_alvo))
             entrada = (contexto + "\n\n" if contexto else "") + \
                       ("Com base na estrutura acima, ajude o usuario. " if contexto else "") + \
                       "Pergunta do usuario: " + (pergunta or "Analise a pagina e me diga o que da para automatizar.")

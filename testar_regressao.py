@@ -619,6 +619,94 @@ def teste_laco_do_modelo():
 
 
 # ==================================================================== #
+def teste_leitura_da_pagina():
+    """O que o Scan DOM manda para a IA.
+
+    Achado conferindo um teste real: na pagina de login do the-internet a IA
+    citou as credenciais de exemplo corretamente - mas elas NAO estavam no que
+    o aplicativo enviou. A leitura mandava so campos, botoes e formularios,
+    nenhuma palavra da pagina; o modelo sabia de cor, por ser um site publico
+    famoso. Numa tela interna de cliente ele nao sabe nada, e o risco vira
+    inventar com a mesma confianca."""
+    secao("Leitura estatica da pagina (Scan DOM)")
+
+    import importlib
+    G = importlib.import_module("gerador_ia")
+    try:
+        import requests
+        import bs4
+        assert bs4 is not None
+    except ImportError:
+        checa("bibliotecas de leitura disponiveis (requests/bs4)", False,
+              "instale com: pip install requests beautifulsoup4")
+        return
+
+    HTML = ("<html><head><title>Portal do Cliente</title></head><body>"
+            "<h1>Area restrita</h1>"
+            "<p>Use o CPF sem pontuacao e a senha enviada por e-mail.</p>"
+            "<form id='acesso'>"
+            "<label for='cpf'>CPF</label><input type='text' id='cpf' name='cpf'>"
+            "<label for='senha'>Senha</label>"
+            "<input type='password' id='senha' name='senha'>"
+            "<button type='submit'>Entrar</button></form>"
+            "<script>var segredo='nao deve aparecer';</script></body></html>")
+
+    class Resp:
+        text = HTML
+        def raise_for_status(self):
+            pass
+
+    original = requests.get
+    requests.get = lambda *a, **k: Resp()
+    try:
+        ctx = G.extrair_contexto_dom("https://exemplo.com/login")
+    finally:
+        requests.get = original
+
+    checa("o titulo da pagina e enviado", "Portal do Cliente" in ctx)
+    checa("os cabecalhos sao enviados", "Area restrita" in ctx)
+    checa("os rotulos de campo sao enviados",
+          '"CPF"' in ctx and "for=cpf" in ctx)
+    # A instrucao da propria pagina e o que da contexto ao teste - e era
+    # exatamente o que faltava.
+    checa("o texto visivel da pagina e enviado",
+          "Use o CPF sem pontuacao" in ctx)
+    checa("o conteudo de <script> NAO vai junto",
+          "nao deve aparecer" not in ctx)
+    checa("os campos continuam sendo enviados",
+          "ID: cpf" in ctx and "ID: senha" in ctx)
+    checa("o botao continua sendo enviado", "Entrar" in ctx)
+
+    # Pagina que monta tudo por JavaScript: admitir a limitacao vale mais que
+    # relatar "nenhum campo", que seria um falso-negativo dito com confianca.
+    SPA = ("<html><head><title>App</title></head><body><div id=\"root\"></div>"
+           "<script src='/bundle.js'></script></body></html>")
+
+    class RespSpa:
+        text = SPA
+        def raise_for_status(self):
+            pass
+
+    requests.get = lambda *a, **k: RespSpa()
+    try:
+        ctx_spa = G.extrair_contexto_dom("https://exemplo.com/app")
+    finally:
+        requests.get = original
+
+    checa("pagina dinamica e reconhecida", "LIMITACAO DESTA LEITURA" in ctx_spa)
+    checa("e o modelo e proibido de concluir que a pagina e vazia",
+          "NAO conclua que a pagina nao tem campos" in ctx_spa)
+    checa("com o caminho certo indicado", "Teste de Tela" in ctx_spa)
+
+    # A regra que separa o que foi LIDO do que o modelo ja sabia.
+    fonte = open(G.__file__, encoding="utf-8").read()
+    checa("o prompt manda separar leitura de conhecimento proprio",
+          "conhecimento proprio sobre este site" in fonte)
+    checa("e explica por que isso importa",
+          "numa tela " in fonte and "voce nao tera memoria nenhuma" in fonte)
+
+
+# ==================================================================== #
 def teste_regra_de_qualidade_do_script():
     """O script gerado E o entregavel. Se ele for flaky, o produto entrega
     ruido.
@@ -1653,7 +1741,8 @@ def main():
                   teste_instrucoes_do_operador, teste_historico_de_execucoes,
                   teste_args_do_gemini, teste_falhas_de_ferramenta,
                   teste_pausa_adaptativa, teste_modelo_do_chat,
-                  teste_regra_de_qualidade_do_script):
+                  teste_regra_de_qualidade_do_script,
+                  teste_leitura_da_pagina):
         try:
             teste()
         except Exception as e:
