@@ -5016,8 +5016,22 @@ namespace T2MSecurityManager {
 					scriptPaths->Add(nomeArq, caminho);
 					lstScripts->Items->Insert(0, nomeArq);   // mais recente no topo
 				}
-				MessageBox::Show(L"Automacao extraida e salva com sucesso:\n" + nomeArq, L"Copilot Integrado");
-				formIA->Close();
+				// Deixa o script novo JA selecionado na tela principal: sem isso, a
+				// pessoa volta para uma lista com um item novo no topo e precisa
+				// adivinhar que e aquele, entre varios com nome parecido.
+				int idxNovo = lstScripts->Items->IndexOf(nomeArq);
+				if (idxNovo >= 0) lstScripts->SelectedIndex = idxNovo;
+
+				MessageBox::Show(
+					L"Script salvo e ja selecionado na tela principal:\n\n" + nomeArq
+					+ L"\n\nClique em INICIAR TESTE para roda-lo. A partir daqui ele "
+					L"roda quantas vezes voce quiser sem consumir credito de IA.",
+					L"Script pronto", MessageBoxButtons::OK, MessageBoxIcon::Information);
+				// A janela do Copilot NAO fecha mais. Ela fechava porque era modal:
+				// so assim a tela principal voltava a responder. Agora que as duas
+				// convivem, fechar seria jogar fora a conversa que gerou o script -
+				// justamente quando a pessoa pode querer pedir um ajuste nele.
+				this->Activate();
 			}
 			else {
 				MessageBox::Show(L"A IA nao finalizou o bloco de codigo corretamente.", L"Aviso de Estrutura");
