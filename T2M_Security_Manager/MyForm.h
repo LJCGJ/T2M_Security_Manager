@@ -235,6 +235,11 @@ namespace T2MSecurityManager {
 
 		// Botoes/controles de modo (toggle): so um ativo por vez.
 		Button^ btnAutomacao;    // Botao "Automacao MCP" que abre menu (Tela/API/Banco)
+		Button^ btnAjudaChat;    // "?" redondo: abre o tutorial
+		Button^ btnAjudaPrincipal;   // "?" redondo da tela inicial
+		System::Windows::Forms::ToolTip^ balaoTour;  // baloes do tour guiado
+		int passoTour;               // 0 = parado; 1..N = passo atual
+		int passoTourChat;           // idem, para o tour do Copilot
 		System::Windows::Forms::ContextMenuStrip^ menuAutomacao;  // menu com as 3 opcoes
 		Button^ btnChatDom;      // Modo Scan DOM (varredura estatica)
 		Button^ btnChatConversa; // Modo Chat (so conversa, padrao)
@@ -723,7 +728,12 @@ namespace T2MSecurityManager {
 			   this->lblModosDica->Size = System::Drawing::Size(230, 32);
 			   this->lblModosDica->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
 			   this->lblModosDica->ForeColor = System::Drawing::Color::Gray;
-			   this->Controls->Add(this->lblModosDica);
+			   // NAO entra na tela: virou o passo 1 do tour em balao. Texto de
+			   // aprendizado colado no botao ensina uma vez e depois ocupa espaco
+			   // para sempre - e este espaco e o mesmo que faz a tela parecer
+			   // cheia. O objeto fica vivo so para nao quebrar o tema, que
+			   // percorre a colecao de controles.
+			   this->lblModosDica->Visible = false;
 
 			   // --- Molduras das tres areas de trabalho ---
 			   this->pnlScripts = (gcnew System::Windows::Forms::Panel());
@@ -780,7 +790,42 @@ namespace T2MSecurityManager {
 			   this->lblCopilotDica->TextAlign = System::Drawing::ContentAlignment::TopRight;
 			   this->lblCopilotDica->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
 			   this->lblCopilotDica->ForeColor = System::Drawing::Color::Gray;
-			   this->Controls->Add(this->lblCopilotDica);
+			   this->lblCopilotDica->Visible = false;
+
+			   // "?" da tela principal: dispara o tour em baloes. Redondo pela
+			   // mesma razao do "?" do Copilot - um circulo pequeno le-se como
+			   // ajuda em qualquer software, e nao compete com os botoes de acao.
+			   this->btnAjudaPrincipal = (gcnew System::Windows::Forms::Button());
+			   this->btnAjudaPrincipal->Text = L"?";
+			   this->btnAjudaPrincipal->Location = System::Drawing::Point(472, 19);
+			   this->btnAjudaPrincipal->Size = System::Drawing::Size(26, 26);
+			   this->btnAjudaPrincipal->BackColor = System::Drawing::Color::FromArgb(44, 62, 107);
+			   this->btnAjudaPrincipal->ForeColor = System::Drawing::Color::White;
+			   this->btnAjudaPrincipal->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnAjudaPrincipal->FlatAppearance->BorderSize = 0;
+			   this->btnAjudaPrincipal->Font = (gcnew System::Drawing::Font(L"Segoe UI", 11, System::Drawing::FontStyle::Bold));
+			   this->btnAjudaPrincipal->Cursor = Cursors::Hand;
+			   {
+				   System::Drawing::Drawing2D::GraphicsPath^ redondo =
+					   gcnew System::Drawing::Drawing2D::GraphicsPath();
+				   redondo->AddEllipse(0, 0, this->btnAjudaPrincipal->Width,
+					   this->btnAjudaPrincipal->Height);
+				   this->btnAjudaPrincipal->Region = gcnew System::Drawing::Region(redondo);
+			   }
+			   this->btnAjudaPrincipal->Click += gcnew System::EventHandler(this, &MyForm::btnAjudaPrincipal_Click);
+			   this->Controls->Add(this->btnAjudaPrincipal);
+
+			   // Balao (IsBalloon) em vez de retangulo: e a forma que o Windows
+			   // usa para "isto aqui esta te explicando algo", nao para "isto e o
+			   // nome do botao". A distincao importa porque a tela ja tem dicas
+			   // de passar o mouse, e as duas coisas nao podem parecer iguais.
+			   this->balaoTour = (gcnew System::Windows::Forms::ToolTip());
+			   this->balaoTour->IsBalloon = true;
+			   this->balaoTour->ToolTipIcon = System::Windows::Forms::ToolTipIcon::Info;
+			   this->balaoTour->UseAnimation = true;
+			   this->balaoTour->UseFading = true;
+			   this->passoTour = 0;
+			   this->passoTourChat = 0;
 
 			   this->BackColor = System::Drawing::Color::WhiteSmoke;
 			   this->ClientSize = System::Drawing::Size(924, 711);
@@ -1671,14 +1716,14 @@ namespace T2MSecurityManager {
 		dica->ReshowDelay = 200;
 
 		Label^ lblInfo = gcnew Label();
-		lblInfo->Text = L"1. Selecione a Chave API:";
-		lblInfo->Location = System::Drawing::Point(20, 20);
+		lblInfo->Text = L"Chave da IA:";
+		lblInfo->Location = System::Drawing::Point(20, 18);
 		lblInfo->AutoSize = true;
 		formIA->Controls->Add(lblInfo);
 
 		// Indicador da IA da chave selecionada (bolinha colorida + nome)
 		lblIndicadorIA = gcnew Label();
-		lblIndicadorIA->Location = System::Drawing::Point(180, 20);
+		lblIndicadorIA->Location = System::Drawing::Point(392, 18);
 		lblIndicadorIA->AutoSize = true;
 		lblIndicadorIA->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
 		lblIndicadorIA->Text = L"";
@@ -1688,8 +1733,8 @@ namespace T2MSecurityManager {
 			L"sk-ant-... = Claude | sk-... = OpenAI | AIza/AQ. = Gemini");
 
 		comboModeloChat = gcnew ComboBox();
-		comboModeloChat->Location = System::Drawing::Point(20, 40);
-		comboModeloChat->Size = System::Drawing::Size(260, 25);
+		comboModeloChat->Location = System::Drawing::Point(112, 13);
+		comboModeloChat->Size = System::Drawing::Size(188, 25);
 		comboModeloChat->DropDownStyle = ComboBoxStyle::DropDownList;
 		comboModeloChat->SelectedIndexChanged += gcnew System::EventHandler(this, &MyForm::comboModeloChat_SelectedIndexChanged);
 		CarregarDropdownAPI(comboModeloChat);
@@ -1697,8 +1742,8 @@ namespace T2MSecurityManager {
 
 		Button^ btnRemoverChave = gcnew Button();
 		btnRemoverChave->Text = L"🗑 Excluir";
-		btnRemoverChave->Location = System::Drawing::Point(290, 39);
-		btnRemoverChave->Size = System::Drawing::Size(80, 27);
+		btnRemoverChave->Location = System::Drawing::Point(306, 13);
+		btnRemoverChave->Size = System::Drawing::Size(76, 25);
 		btnRemoverChave->BackColor = System::Drawing::Color::LightCoral;
 		btnRemoverChave->FlatStyle = FlatStyle::Flat;
 		btnRemoverChave->Click += gcnew System::EventHandler(this, &MyForm::btnRemoverChave_Click);
@@ -1707,8 +1752,8 @@ namespace T2MSecurityManager {
 		// --- NOVA CONVERSA (limpa a tela e o historico enviado a IA) ---
 		Button^ btnNovaConversa = gcnew Button();
 		btnNovaConversa->Text = L"✚ Nova conversa";
-		btnNovaConversa->Location = System::Drawing::Point(282, 13);
-		btnNovaConversa->Size = System::Drawing::Size(140, 23);
+		btnNovaConversa->Location = System::Drawing::Point(356, 48);
+		btnNovaConversa->Size = System::Drawing::Size(124, 28);
 		btnNovaConversa->FlatStyle = FlatStyle::Flat;
 		btnNovaConversa->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		btnNovaConversa->Cursor = Cursors::Hand;
@@ -1722,8 +1767,8 @@ namespace T2MSecurityManager {
 		// --- HISTORICO DE SESSOES (salvar / abrir conversas) ---
 		Button^ btnSalvarSessao = gcnew Button();
 		btnSalvarSessao->Text = L"💾 Salvar Sessao";
-		btnSalvarSessao->Location = System::Drawing::Point(430, 13);
-		btnSalvarSessao->Size = System::Drawing::Size(140, 23);
+		btnSalvarSessao->Location = System::Drawing::Point(486, 48);
+		btnSalvarSessao->Size = System::Drawing::Size(110, 28);
 		btnSalvarSessao->FlatStyle = FlatStyle::Flat;
 		btnSalvarSessao->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		btnSalvarSessao->Cursor = Cursors::Hand;
@@ -1734,8 +1779,8 @@ namespace T2MSecurityManager {
 
 		Button^ btnAbrirSessao = gcnew Button();
 		btnAbrirSessao->Text = L"📂 Abrir Sessao";
-		btnAbrirSessao->Location = System::Drawing::Point(578, 13);
-		btnAbrirSessao->Size = System::Drawing::Size(140, 23);
+		btnAbrirSessao->Location = System::Drawing::Point(602, 48);
+		btnAbrirSessao->Size = System::Drawing::Size(112, 28);
 		btnAbrirSessao->FlatStyle = FlatStyle::Flat;
 		btnAbrirSessao->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		btnAbrirSessao->Cursor = Cursors::Hand;
@@ -1748,30 +1793,30 @@ namespace T2MSecurityManager {
 		lblChatStatus = gcnew Label();
 		lblChatStatus->Text = L"";
 		lblChatStatus->Location = System::Drawing::Point(20, 452);
-		lblChatStatus->Size = System::Drawing::Size(690, 18);
+		lblChatStatus->Size = System::Drawing::Size(694, 18);
 		lblChatStatus->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Italic);
 		lblChatStatus->ForeColor = System::Drawing::Color::DarkSlateBlue;
 		formIA->Controls->Add(lblChatStatus);
 
 		rtbChat = gcnew RichTextBox();
-		rtbChat->Location = System::Drawing::Point(20, 78);
-		rtbChat->Size = System::Drawing::Size(690, 368);
+		rtbChat->Location = System::Drawing::Point(20, 94);
+		rtbChat->Size = System::Drawing::Size(694, 350);
 		rtbChat->ReadOnly = true;
 		rtbChat->BackColor = System::Drawing::Color::White;
 		rtbChat->Font = gcnew System::Drawing::Font("Segoe UI", 10);
 		formIA->Controls->Add(rtbChat);
 
 		txtChatInput = gcnew TextBox();
-		txtChatInput->Location = System::Drawing::Point(20, 475);
-		txtChatInput->Size = System::Drawing::Size(580, 55);
+		txtChatInput->Location = System::Drawing::Point(20, 476);
+		txtChatInput->Size = System::Drawing::Size(594, 54);
 		txtChatInput->Multiline = true;
 		txtChatInput->Font = gcnew System::Drawing::Font("Segoe UI", 10);
 		formIA->Controls->Add(txtChatInput);
 
 		btnSendChat = gcnew Button();
 		btnSendChat->Text = L"➤ Enviar";
-		btnSendChat->Location = System::Drawing::Point(610, 475);
-		btnSendChat->Size = System::Drawing::Size(100, 55);
+		btnSendChat->Location = System::Drawing::Point(622, 476);
+		btnSendChat->Size = System::Drawing::Size(92, 54);
 		btnSendChat->BackColor = System::Drawing::Color::MediumSeaGreen;
 		btnSendChat->ForeColor = System::Drawing::Color::White;
 		btnSendChat->FlatStyle = FlatStyle::Flat;
@@ -1786,8 +1831,8 @@ namespace T2MSecurityManager {
 		btnChatConversa = gcnew Button();
 		btnChatConversa->Text = L"💬 Chat";
 		btnChatConversa->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
-		btnChatConversa->Location = System::Drawing::Point(380, 38);
-		btnChatConversa->Size = System::Drawing::Size(105, 29);
+		btnChatConversa->Location = System::Drawing::Point(20, 48);
+		btnChatConversa->Size = System::Drawing::Size(105, 28);
 		btnChatConversa->FlatStyle = FlatStyle::Flat;
 		btnChatConversa->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
 		btnChatConversa->Click += gcnew System::EventHandler(this, &MyForm::btnModoConversa_Click);
@@ -1801,8 +1846,8 @@ namespace T2MSecurityManager {
 		btnChatDom = gcnew Button();
 		btnChatDom->Text = L"🔍 Scan DOM";
 		btnChatDom->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
-		btnChatDom->Location = System::Drawing::Point(490, 38);
-		btnChatDom->Size = System::Drawing::Size(105, 29);
+		btnChatDom->Location = System::Drawing::Point(131, 48);
+		btnChatDom->Size = System::Drawing::Size(115, 28);
 		btnChatDom->FlatStyle = FlatStyle::Flat;
 		btnChatDom->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
 		btnChatDom->Click += gcnew System::EventHandler(this, &MyForm::btnModoDom_Click);
@@ -1851,8 +1896,8 @@ namespace T2MSecurityManager {
 
 		btnSaveScript = gcnew Button();
 		btnSaveScript->Text = L"💾 Extrair e Salvar Codigo";
-		btnSaveScript->Location = System::Drawing::Point(20, 545);
-		btnSaveScript->Size = System::Drawing::Size(450, 40);
+		btnSaveScript->Location = System::Drawing::Point(20, 548);
+		btnSaveScript->Size = System::Drawing::Size(340, 38);
 		btnSaveScript->BackColor = System::Drawing::Color::Indigo;
 		btnSaveScript->ForeColor = System::Drawing::Color::White;
 		btnSaveScript->FlatStyle = FlatStyle::Flat;
@@ -1864,8 +1909,8 @@ namespace T2MSecurityManager {
 
 		btnExportarRelatorio = gcnew Button();
 		btnExportarRelatorio->Text = L"📄 Relatorio do Teste";
-		btnExportarRelatorio->Location = System::Drawing::Point(480, 545);
-		btnExportarRelatorio->Size = System::Drawing::Size(230, 40);
+		btnExportarRelatorio->Location = System::Drawing::Point(370, 548);
+		btnExportarRelatorio->Size = System::Drawing::Size(230, 38);
 		btnExportarRelatorio->BackColor = System::Drawing::Color::SteelBlue;
 		btnExportarRelatorio->ForeColor = System::Drawing::Color::White;
 		btnExportarRelatorio->FlatStyle = FlatStyle::Flat;
@@ -1891,6 +1936,35 @@ namespace T2MSecurityManager {
 		// Carrega a preferencia de tema salva e aplica
 		temaEscuro = CarregarPreferenciaTema();
 		AplicarTema(temaEscuro);
+
+		// Botao de ajuda: circular, no canto, fora do caminho. Dispara o tour em
+		// baloes desta janela, um passo por clique. A primeira versao abria uma
+		// janela com o manual inteiro - correta e inutil, porque ninguem le seis
+		// paragrafos antes de usar a ferramenta.
+		btnAjudaChat = gcnew Button();
+		btnAjudaChat->Text = L"?";
+		btnAjudaChat->Location = System::Drawing::Point(688, 13);
+		btnAjudaChat->Size = System::Drawing::Size(26, 26);
+		btnAjudaChat->BackColor = System::Drawing::Color::FromArgb(44, 62, 107);
+		btnAjudaChat->ForeColor = System::Drawing::Color::White;
+		btnAjudaChat->FlatStyle = FlatStyle::Flat;
+		btnAjudaChat->FlatAppearance->BorderSize = 0;
+		btnAjudaChat->Font = gcnew System::Drawing::Font("Segoe UI", 11, System::Drawing::FontStyle::Bold);
+		btnAjudaChat->Cursor = Cursors::Hand;
+		btnAjudaChat->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
+		// O recorte redondo: sem ele o "botao circular" e so um quadrado com
+		// uma interrogacao dentro.
+		{
+			System::Drawing::Drawing2D::GraphicsPath^ redondo =
+				gcnew System::Drawing::Drawing2D::GraphicsPath();
+			redondo->AddEllipse(0, 0, btnAjudaChat->Width, btnAjudaChat->Height);
+			btnAjudaChat->Region = gcnew System::Drawing::Region(redondo);
+		}
+		btnAjudaChat->Click += gcnew System::EventHandler(this, &MyForm::btnAjudaChat_Click);
+		formIA->Controls->Add(btnAjudaChat);
+		dica->SetToolTip(btnAjudaChat,
+			L"Tour guiado desta janela. Cada clique explica uma parte, "
+			L"apontando para ela.");
 
 		formIA->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(
 			this, &MyForm::formIA_FormClosing);
@@ -2908,6 +2982,110 @@ namespace T2MSecurityManager {
 			// A mais recente e a que interessa quase sempre.
 			lv->Items[quantas - 1]->Selected = true;
 			lv->Items[quantas - 1]->EnsureVisible();
+		}
+	}
+
+		   // ==========================================================================
+		   // --- TOUR EM BALOES DA TELA INICIAL ---
+		   // Cada clique no "?" leva ao proximo passo, ancorado no controle de que
+		   // ele fala. Passo a passo, e nao tudo de uma vez, porque explicacao
+		   // apontando para o lugar certo ensina; paragrafo solto so ocupa tela.
+		   // Depois do ultimo, o tour reinicia - ninguem fica preso.
+		   // ==========================================================================
+	private: void MostrarBalao(Control^ alvo, String^ titulo, String^ texto) {
+		if (alvo == nullptr || alvo->IsDisposed || balaoTour == nullptr) return;
+		balaoTour->ToolTipTitle = titulo;
+		// Ancora no meio do controle, logo abaixo. O Windows vira o balao
+		// sozinho quando nao ha espaco embaixo, entao nao ha risco de sair da
+		// tela nos controles do rodape.
+		balaoTour->Show(texto, alvo, alvo->Width / 2, alvo->Height + 2, 15000);
+	}
+
+	private: System::Void btnAjudaPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {
+		// Esconde o anterior antes de mostrar o proximo: sem isto, dois baloes
+		// abertos ao mesmo tempo em controles proximos ficam um por cima do outro.
+		if (balaoTour != nullptr) {
+			balaoTour->Hide(this);
+			balaoTour->Hide(btnModoTela);
+			balaoTour->Hide(btnModoBanco);
+			balaoTour->Hide(lstScripts);
+			balaoTour->Hide(txtUrl);
+			balaoTour->Hide(txtOutput);
+			balaoTour->Hide(btnStart);
+			balaoTour->Hide(btnAnalisarSaida);
+			balaoTour->Hide(btnHistorico);
+			balaoTour->Hide(btnConfiguracoes);
+			balaoTour->Hide(btnGerarIA);
+		}
+
+		passoTour++;
+		switch (passoTour) {
+		case 1:
+			MostrarBalao(btnModoTela, L"1 de 9  -  Testar com a IA via MCP",
+				L"Aqui a IA nao escreve SOBRE o teste: ela executa o teste.\n\n"
+				L"Neste modo ela abre um navegador de verdade na URL Alvo, clica, "
+				L"preenche e relata o que encontrou.\n\n"
+				L"Clique no \"?\" de novo para o proximo passo.");
+			break;
+		case 2:
+			MostrarBalao(btnModoBanco, L"2 de 9  -  Banco de dados",
+				L"O mesmo, contra banco. O botao abre um menu com os sete tipos "
+				L"suportados: PostgreSQL, MySQL, MariaDB, SQLite, SQL Server, "
+				L"Oracle e MongoDB.\n\n"
+				L"O modo somente-leitura vem ligado: consulta passa, alteracao e "
+				L"recusada.");
+			break;
+		case 3:
+			MostrarBalao(txtUrl, L"3 de 9  -  URL Alvo",
+				L"O endereco do sistema em teste.\n\n"
+				L"Serve para o modo Tela e tambem para os scripts da lista: o "
+				L"aplicativo entrega essa URL ao script quando o executa.");
+			break;
+		case 4:
+			MostrarBalao(lstScripts, L"4 de 9  -  Scripts de teste",
+				L"Os scripts que voce ja tem, ou que a IA gerou para voce.\n\n"
+				L"Rodar um script daqui NAO consome credito de IA. E o objetivo "
+				L"final: a IA descobre o teste uma vez, o script repete quantas "
+				L"vezes voce quiser.");
+			break;
+		case 5:
+			MostrarBalao(btnStart, L"5 de 9  -  Iniciar teste",
+				L"Executa o script selecionado contra a URL Alvo.\n\n"
+				L"O token de autenticacao vai por variavel de ambiente, nunca na "
+				L"linha de comando - assim ele nao aparece na lista de processos "
+				L"da maquina.");
+			break;
+		case 6:
+			MostrarBalao(txtOutput, L"6 de 9  -  Saida e progresso",
+				L"Aqui sai tudo: a saida do script e, quando a IA esta "
+				L"trabalhando, cada passo dela em tempo real.\n\n"
+				L"Como a janela do Copilot nao bloqueia mais esta tela, da para "
+				L"deixar a IA trabalhando e acompanhar por aqui.");
+			break;
+		case 7:
+			MostrarBalao(btnAnalisarSaida, L"7 de 9  -  Analisar com a IA",
+				L"Leva a saida acima para o Copilot explicar o que falhou e por que.\n\n"
+				L"Senhas e tokens sao mascarados antes de sair da maquina. O envio "
+				L"nao e automatico: voce revisa a pergunta e decide a hora.");
+			break;
+		case 8:
+			MostrarBalao(btnHistorico, L"8 de 9  -  Historico",
+				L"Toda execucao fica registrada: data, alvo, quantos passos a IA "
+				L"gastou, o que foi recusado e o relatorio completo.\n\n"
+				L"E a trilha de auditoria para quando perguntarem o que foi "
+				L"testado, e quando.");
+			break;
+		case 9:
+			MostrarBalao(btnConfiguracoes, L"9 de 9  -  Configuracoes",
+				L"Onde ficam os limites que controlam o custo (passos da IA por "
+				L"tarefa), as protecoes de seguranca e as instrucoes permanentes "
+				L"que valem para todo teste.\n\n"
+				L"Fim do tour. Clique no \"?\" para recomecar, ou no \"?\" dentro "
+				L"do Copilot para o manual completo.");
+			break;
+		default:
+			passoTour = 0;   // recomeca no proximo clique
+			break;
 		}
 	}
 
@@ -4328,6 +4506,96 @@ namespace T2MSecurityManager {
 
 		DefinirOcupado(false, L"");
 		AtualizarBotoesModo();  // restaura o destaque e o texto de status do modo ativo
+	}
+
+		   // ==========================================================================
+		   // --- TOUR EM BALOES DO COPILOT ---
+		   // Mesma ideia da tela inicial. A primeira versao disto era uma janela
+		   // com o manual inteiro: correta e inutil, porque ninguem le seis
+		   // paragrafos antes de usar. Apontar para um controle de cada vez ensina
+		   // no lugar onde a duvida aparece.
+		   // ==========================================================================
+	private: void EsconderBaloesChat() {
+		if (balaoTour == nullptr) return;
+		// Esconder um a um: dois baloes abertos em controles vizinhos ficam um
+		// por cima do outro, e o de tras nunca some sozinho.
+		balaoTour->Hide(comboModeloChat);
+		balaoTour->Hide(btnChatConversa);
+		balaoTour->Hide(btnChatDom);
+		balaoTour->Hide(rtbChat);
+		balaoTour->Hide(lblChatStatus);
+		balaoTour->Hide(txtChatInput);
+		balaoTour->Hide(btnSendChat);
+		balaoTour->Hide(btnSaveScript);
+		balaoTour->Hide(btnExportarRelatorio);
+	}
+
+	private: System::Void btnAjudaChat_Click(System::Object^ sender, System::EventArgs^ e) {
+		EsconderBaloesChat();
+		passoTourChat++;
+		switch (passoTourChat) {
+		case 1:
+			MostrarBalao(comboModeloChat, L"1 de 8  -  A chave da IA",
+				L"O provedor e detectado pelo inicio da chave: sk-ant e Claude, "
+				L"sk- e OpenAI, AIza ou AQ. e Gemini.\n\n"
+				L"A chave fica cifrada no seu perfil do Windows e nunca vai por "
+				L"linha de comando.\n\n"
+				L"Clique no \"?\" de novo para o proximo passo.");
+			break;
+		case 2:
+			MostrarBalao(btnChatConversa, L"2 de 8  -  Modo Chat",
+				L"Conversa comum: planejar o teste, entender um resultado, "
+				L"discutir o que testar antes de gastar.\n\n"
+				L"E o modo barato - uma ida ao modelo por mensagem, sem abrir "
+				L"navegador nem banco.");
+			break;
+		case 3:
+			MostrarBalao(btnChatDom, L"3 de 8  -  Scan DOM",
+				L"Le a estrutura da pagina da URL Alvo - campos, botoes, "
+				L"formularios - direto do HTML.\n\n"
+				L"Rapido e barato: nao abre navegador nem executa acao nenhuma. "
+				L"Bom para dar contexto inicial antes de um teste de verdade.");
+			break;
+		case 4:
+			MostrarBalao(lblChatStatus, L"4 de 8  -  A linha mais importante",
+				L"Esta linha diz o que a sua PROXIMA mensagem vai fazer.\n\n"
+				L"Se ela disser MCP, a mensagem vai EXECUTAR de verdade e custar "
+				L"mais. Se disser Chat, e so conversa. Vale conferir antes de "
+				L"enviar.");
+			break;
+		case 5:
+			MostrarBalao(txtChatInput, L"5 de 8  -  Descreva o teste",
+				L"Escreva como explicaria para um colega: o que testar e o que "
+				L"considerar um problema.\n\n"
+				L"Objetivo claro rende relatorio melhor e gasta menos passos - "
+				L"a IA nao precisa adivinhar o que voce quis dizer.");
+			break;
+		case 6:
+			MostrarBalao(rtbChat, L"6 de 8  -  Onde o resultado aparece",
+				L"Os relatorios dos testes disparados pela faixa da tela "
+				L"principal voltam para ca, e a conversa continua a partir deles.\n\n"
+				L"Se algo foi bloqueado durante o teste, o relatorio termina "
+				L"dizendo o que foi recusado e onde fica a opcao que libera.");
+			break;
+		case 7:
+			MostrarBalao(btnSaveScript, L"7 de 8  -  Extrair e salvar codigo",
+				L"Pega o ultimo bloco de codigo da conversa e salva como script "
+				L"(.py, .robot, .sql, .js, .ps1).\n\n"
+				L"Dali em diante ele roda pela tela principal quantas vezes voce "
+				L"quiser, SEM consumir credito de IA. E aqui que o teste deixa de "
+				L"custar por execucao.");
+			break;
+		case 8:
+			MostrarBalao(btnExportarRelatorio, L"8 de 8  -  Relatorio do teste",
+				L"Exporta a conversa como um HTML formatado, para anexar em "
+				L"chamado ou auditoria.\n\n"
+				L"Senhas e tokens sao mascarados antes de sair da maquina.\n\n"
+				L"Fim do tour. Clique no \"?\" para recomecar.");
+			break;
+		default:
+			passoTourChat = 0;
+			break;
+		}
 	}
 
 	private: System::Void formIA_Shown(System::Object^ sender, System::EventArgs^ e) {
