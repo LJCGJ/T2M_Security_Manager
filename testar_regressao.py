@@ -707,6 +707,29 @@ def teste_modelo_do_chat():
         checa("espaco em branco na configuracao nao vira modelo",
               G._ordem_modelos("   ", "", padrao) == padrao)
 
+        # Modelo inexistente: o oposto de cota. Aqui esperar nao adianta, so
+        # trocar o nome - e a mensagem tem de dizer isso, para os TRES
+        # provedores. Ate agora so o Gemini tinha tratamento: com Claude ou
+        # OpenAI, o mesmo problema chegava como "Erro interno no motor de IA:
+        # RateLimitError", tecnicamente correto e praticamente inutil.
+        for nome, msg in (("NotFoundError", "404 model_not_found: gpt-9"),
+                          ("APIError", "The model claude-3-opus is deprecated"),
+                          ("InvalidArgument", "model is not supported")):
+            e = type(nome, (Exception,), {})(msg)
+            checa(f"modelo inexistente reconhecido: {nome}", G._e_erro_de_modelo(e))
+            checa(f"e nao confundido com cota: {nome}", not G._e_erro_de_cota(e))
+
+        for nome, msg in (("RateLimitError", "429 rate limit exceeded"),
+                          ("ResourceExhausted", "quota exceeded")):
+            e = type(nome, (Exception,), {})(msg)
+            checa(f"cota nao e confundida com modelo: {nome}",
+                  G._e_erro_de_cota(e) and not G._e_erro_de_modelo(e))
+
+        erro_comum = ConnectionError("connection reset by peer")
+        checa("erro de rede nao vira nem cota nem modelo",
+              not G._e_erro_de_cota(erro_comum)
+              and not G._e_erro_de_modelo(erro_comum))
+
         # A distincao que estava faltando.
         class ResourceExhausted(Exception):
             pass

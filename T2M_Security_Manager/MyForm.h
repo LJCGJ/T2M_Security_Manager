@@ -1590,7 +1590,18 @@ namespace T2MSecurityManager {
 		else if (ia == L"OpenAI") cor = System::Drawing::Color::MediumSeaGreen;
 		else cor = System::Drawing::Color::SteelBlue;  // Gemini
 		lblIndicadorIA->ForeColor = cor;
-		lblIndicadorIA->Text = L"● IA: " + ia;
+
+		// Mostra TAMBEM o modelo, ao lado do provedor. Sem isso, a unica forma
+		// de saber qual modelo esta valendo era abrir Configuracoes ou ler o log
+		// depois de gastar uma mensagem - e trocar de modelo virava um ato de fe.
+		String^ modelo;
+		if (ia == L"Claude") modelo = cfgModeloClaude;
+		else if (ia == L"OpenAI") modelo = cfgModeloOpenAI;
+		else modelo = cfgModeloGemini;
+
+		lblIndicadorIA->Text = String::IsNullOrWhiteSpace(modelo)
+			? (L"● IA: " + ia)
+			: (L"● IA: " + ia + L"  |  " + modelo);
 	}
 
 	private: System::Void comboModeloChat_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
@@ -3421,6 +3432,10 @@ namespace T2MSecurityManager {
 		cfgInstrucoesExtras = safe_cast<TextBox^>(ctl[11])->Text->Trim();
 
 		SalvarConfiguracoesApp();
+		// O indicador do Copilot passa a mostrar o modelo novo na hora, se a
+		// janela estiver aberta. Antes so mudava ao reabrir - e era exatamente
+		// isso que dava a impressao de que a configuracao "nao tinha pegado".
+		AtualizarIndicadorIA();
 		// Diz QUAL modelo foi salvo e para QUAL provedor. O campo de modelo muda
 		// de dono conforme a chave selecionada, entao salvar com a chave errada
 		// em foco grava o nome no provedor errado - e o efeito e o pior

@@ -95,6 +95,18 @@ def _e_erro_de_cota(e):
             or "quota" in msg or "rate limit" in msg or "exhausted" in msg)
 
 
+def _e_erro_de_modelo(e):
+    """Modelo que nao existe, foi aposentado, ou nao esta liberado para a chave.
+    O oposto de cota: aqui esperar nao adianta, so trocar o nome."""
+    nome = type(e).__name__
+    msg = str(e).lower()
+    return ("NotFound" in nome or "InvalidArgument" in nome
+            or "PermissionDenied" in nome
+            or "404" in msg or "not found" in msg or "does not exist" in msg
+            or "is not supported" in msg or "not supported for" in msg
+            or "model_not_found" in msg or "deprecated" in msg)
+
+
 def _caminho_dados(arquivo):
     """Caminho de um arquivo GRAVAVEL do usuario, espelhando o CaminhoDados()
     do MyForm.h: %APPDATA%/T2M Security Manager/<arquivo>.
@@ -581,6 +593,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                                       'gemini-flash-latest'])
             sucesso = False
             erros = []
+            houve_cota = False
             for nome_modelo in modelos:
                 try:
                     log(f">>> Consultando o Gemini ({nome_modelo})...")
@@ -589,33 +602,48 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                     resposta_ia = response.text.strip()
                     sucesso = True
                     _guardar_modelo_que_funcionou(nome_modelo)
+                    # Trocar de modelo sem avisar seria pior que falhar: o
+                    # operador escolheu um modelo, recebe a resposta de outro, e
+                    # nada na tela conta isso. Ele precisa saber para decidir se
+                    # muda a configuracao de vez.
+                    if MODELO_GEMINI and nome_modelo != MODELO_GEMINI:
+                        motivo = ("esta sem cota agora" if houve_cota
+                                  else "nao respondeu")
+                        resposta_ia = (
+                            f"[T2M] O modelo escolhido em Configuracoes "
+                            f"({MODELO_GEMINI}) {motivo}. Esta resposta veio de "
+                            f"{nome_modelo}.\n\n" + resposta_ia)
                     break
                 except Exception as e:
                     # Guarda o erro de CADA modelo, para diagnostico (nao so o ultimo)
                     erros.append(f"{nome_modelo}: {str(e)[:150]}")
 
-                    # Cota estourada NAO e modelo indisponivel. Antes qualquer
-                    # erro virava "indisponivel, tentando o proximo": com a cota
-                    # cheia, o log dizia que tres modelos estavam fora do ar
-                    # quando o problema era outro - e ainda gastava as tres
-                    # tentativas contra o mesmo limite.
+                    # Cota estourada NAO e a mesma coisa que modelo inexistente,
+                    # e a diferenca importa no LOG. Mas o proximo modelo continua
+                    # valendo a tentativa: no Gemini o limite e POR MODELO, entao
+                    # o seguinte pode ter cota propria - foi exatamente o que
+                    # aconteceu num teste real, com tres modelos estourados e o
+                    # quarto respondendo na hora. Parar no primeiro 429 tornava o
+                    # aplicativo inutil justamente quando ele ainda tinha saida.
                     if _e_erro_de_cota(e):
-                        log(f">>> {nome_modelo}: limite de uso atingido.")
-                        responder(
-                            "Limite de uso da IA atingido (cota da sua chave do "
-                            "Gemini).\n\nO que costuma resolver, em ordem de "
-                            "esforco:\n"
-                            "- aguardar 1-2 minutos e tentar de novo;\n"
-                            "- trocar para gemini-2.0-flash em Configuracoes, que "
-                            "tem limite por minuto mais folgado;\n"
-                            "- usar uma chave da Anthropic ou da OpenAI;\n"
-                            "- ativar billing no Google AI Studio.")
-                        return
-
-                    log(f">>> {nome_modelo} indisponivel ({type(e).__name__}), "
-                        f"tentando o proximo...")
+                        houve_cota = True
+                        log(f">>> {nome_modelo}: sem cota agora, tentando o proximo...")
+                    else:
+                        log(f">>> {nome_modelo} indisponivel ({type(e).__name__}), "
+                            f"tentando o proximo...")
                     continue
             if not sucesso:
+                if houve_cota:
+                    responder(
+                        "Limite de uso atingido em todos os modelos Gemini "
+                        "disponiveis para a sua chave.\n\nO que costuma "
+                        "resolver, em ordem de esforco:\n"
+                        "- aguardar 1-2 minutos e tentar de novo;\n"
+                        "- trocar de modelo em Configuracoes (o limite e por "
+                        "modelo, entao outro pode ter cota livre);\n"
+                        "- usar uma chave da Anthropic ou da OpenAI;\n"
+                        "- ativar billing no Google AI Studio.")
+                    return
                 detalhe = " || ".join(erros)
                 responder(f"Nenhum modelo Gemini respondeu.\n\nDetalhes: {detalhe}")
                 return
@@ -638,6 +666,41 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
         responder(resposta_ia)
 
     except Exception as e:
+        # Cota e modelo inexistente sao os dois erros que a pessoa PODE resolver
+        # sozinha, e valem para os tres provedores. Ate agora so o Gemini tinha
+        # tratamento: com Claude ou OpenAI, o mesmo problema chegava como
+        # "Erro interno no motor de IA: RateLimitError" - tecnicamente correto e
+        # praticamente inutil, porque nao diz o que fazer.
+        try:
+            chave = locals().get("api_key", "") or ""
+        except Exception:
+            chave = ""
+        if chave.startswith("sk-ant-"):
+            provedor, modelo_cfg, alternativa = "Claude", MODELO_CLAUDE, "claude-haiku"
+        elif chave.startswith("sk-"):
+            provedor, modelo_cfg, alternativa = "OpenAI", MODELO_OPENAI, "gpt-4o-mini"
+        else:
+            provedor, modelo_cfg, alternativa = "Gemini", MODELO_GEMINI, "gemini-2.0-flash"
+
+        if _e_erro_de_cota(e):
+            responder(
+                f"Limite de uso atingido na sua chave da {provedor} "
+                f"(modelo {modelo_cfg or 'padrao'}).\n\nO que costuma resolver, "
+                f"em ordem de esforco:\n"
+                f"- aguardar 1-2 minutos e tentar de novo;\n"
+                f"- trocar de modelo em Configuracoes (o limite costuma ser por "
+                f"modelo, entao um mais leve como {alternativa} pode ter cota "
+                f"livre);\n"
+                f"- usar uma chave de outro provedor;\n"
+                f"- revisar o plano da sua conta na {provedor}.")
+            return
+        if _e_erro_de_modelo(e):
+            responder(
+                f"O modelo \"{modelo_cfg}\" nao esta disponivel para esta chave "
+                f"da {provedor}.\n\nAbra Configuracoes e clique em Buscar: o "
+                f"aplicativo pergunta ao provedor quais modelos a SUA chave tem "
+                f"hoje e preenche a lista com a resposta.")
+            return
         responder(f"Erro interno no motor de IA: {type(e).__name__}: {e}")
 
 
