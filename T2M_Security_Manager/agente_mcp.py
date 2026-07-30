@@ -523,6 +523,45 @@ def log(msg):
 _BLOQUEIOS = {}
 
 
+# Chamadas de ferramenta que FALHARAM nesta execucao. Diferente de bloqueio:
+# ali fomos nos que recusamos; aqui a ferramenta foi chamada e nao funcionou -
+# parametro com nome errado, elemento que sumiu da pagina, tempo esgotado.
+#
+# Isto existe por causa de um teste real. A IA chamou browser_type duas vezes
+# com o parametro errado, as duas falharam, e mesmo assim ela escreveu um
+# relatorio dizendo "a pesquisa foi realizada com sucesso", citando ate a URL e
+# o titulo da pagina de resultados. Num produto cujo valor inteiro e a confianca
+# no laudo, laudo falso-positivo e a pior falha possivel: ninguem percebe.
+#
+# A licao e a mesma do resumo de recusas: nao adianta pedir honestidade ao
+# modelo no prompt e torcer. O fato tem de ser afirmado de FORA, por quem viu
+# a chamada falhar.
+_FALHAS_FERRAMENTA = {}
+
+
+def _registrar_falha_ferramenta(nome):
+    _FALHAS_FERRAMENTA[nome] = _FALHAS_FERRAMENTA.get(nome, 0) + 1
+
+
+def _zerar_falhas_ferramenta():
+    _FALHAS_FERRAMENTA.clear()
+
+
+def _resumo_falhas():
+    """Rodape factual. Vazio quando nada falhou - o caso comum."""
+    if not _FALHAS_FERRAMENTA:
+        return ""
+    total = sum(_FALHAS_FERRAMENTA.values())
+    itens = ", ".join(f"{n} ({v}x)" if v > 1 else n
+                      for n, v in sorted(_FALHAS_FERRAMENTA.items()))
+    return (f"\n\n[T2M] ATENCAO: {total} chamada(s) de ferramenta FALHARAM "
+            f"durante este teste: {itens}.\n"
+            f"Se o relatorio acima afirma que essas acoes funcionaram, ele esta "
+            f"errado - confira voce mesmo antes de dar o teste por concluido. "
+            f"Falha repetida na mesma ferramenta costuma ser a IA insistindo em "
+            f"um parametro que nao existe.")
+
+
 def _registrar_bloqueio(chave):
     _BLOQUEIOS[chave] = _BLOQUEIOS.get(chave, 0) + 1
 
@@ -586,6 +625,7 @@ def iniciar_execucao(modo, alvo, objetivo, somente_leitura=None):
     # recusa do primeiro reaparecia no relatorio do segundo, e o operador lia um
     # aviso sobre um bloqueio que nao aconteceu no teste que ele estava vendo.
     _zerar_bloqueios()
+    _zerar_falhas_ferramenta()
     _PASSOS_USADOS = 0
     _PROVEDOR_USADO = ""
     _MODELO_USADO = ""
@@ -760,6 +800,7 @@ def _gravar_historico(resultado, erro=None):
             "passos_usados": _PASSOS_USADOS,
             "limite_atingido": _LIMITE_ATINGIDO,
             "recusas": dict(_BLOQUEIOS),
+            "falhas_ferramenta": dict(_FALHAS_FERRAMENTA),
             "erro": bool(erro),
             "relatorio": _mascarar_credenciais(resultado or "")[:40000],
         })
@@ -801,7 +842,7 @@ def responder(texto, erro=None):
     # relatorio sem o rodape de recusas - justamente a ressalva de que o
     # resultado podia estar incompleto sumia da copia arquivada.
     global _JA_RESPONDEU
-    final = _sem_marcadores(texto) + _resumo_bloqueios()
+    final = _sem_marcadores(texto) + _resumo_falhas() + _resumo_bloqueios()
     _gravar_historico(final, erro)
     _JA_RESPONDEU = True
     print("CHAT_MSG_INICIO")
@@ -1036,9 +1077,14 @@ async def _chamar_ferramenta_mcp(session, nome, args):
                                    timeout=TIMEOUT_OPERACAO)
         return texto_do_resultado_mcp(r), False
     except asyncio.TimeoutError:
+        _registrar_falha_ferramenta(nome)
         return (f"ERRO: a ferramenta {nome} nao respondeu em {TIMEOUT_OPERACAO}s "
                 f"(limite definido em Configuracoes)."), False
     except Exception as e:
+        # Parametro invalido cai aqui: o cliente MCP valida contra o schema e
+        # levanta antes de chegar ao servidor. Foi assim que as duas chamadas
+        # do teste real morreram sem que o relatorio admitisse.
+        _registrar_falha_ferramenta(nome)
         return f"ERRO ao executar {nome}: {e}", _navegador_fechado(str(e))
 
 
@@ -2068,6 +2114,8 @@ class _SessaoProtegida:
                 f"{json.dumps(args or {}, ensure_ascii=False)[:600]}")
 
         res = await self._sessao.call_tool(nome, args)
+        if getattr(res, "isError", False):
+            _registrar_falha_ferramenta(nome)
         texto = texto_do_resultado_mcp(res)
         # Resultado sem texto nao tem o que envolver: um bloco de dados vazio so
         # gastaria contexto do modelo e ainda pareceria que algo veio do alvo.

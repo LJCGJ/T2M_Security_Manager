@@ -271,6 +271,11 @@ def teste_sessao_protegida():
             ServidorFalso("algo", esperado)).call_tool("x", {}))
         checa(f"isError={esperado} atravessa o proxy",
               getattr(r, "isError", None) is esperado)
+    # O proxy agora tambem CONTA o isError como falha de ferramenta. Limpa aqui
+    # para nao contaminar quem vem depois.
+    checa("isError foi contabilizado como falha de ferramenta",
+          A._FALHAS_FERRAMENTA.get("x") == 1, A._FALHAS_FERRAMENTA)
+    A._zerar_falhas_ferramenta()
 
     # browser_evaluate: desligada por padrao, mas com explicacao de como ligar.
     # A recusa e a documentacao - o operador descobre a opcao no momento em que
@@ -614,6 +619,91 @@ def teste_laco_do_modelo():
 
 
 # ==================================================================== #
+def teste_falhas_de_ferramenta():
+    """Chamada que falhou tem de aparecer no relatorio, dita por NOS.
+
+    Caso real: a IA chamou browser_type duas vezes com o parametro errado, as
+    duas falharam, e o relatorio final dizia "a pesquisa foi realizada com
+    sucesso", citando ate a URL e o titulo da pagina de resultados. Num produto
+    cujo valor e a confianca no laudo, o falso-positivo e a pior falha: ninguem
+    percebe. Pedir honestidade ao modelo no prompt nao resolve - o fato precisa
+    ser afirmado de fora, por quem viu a chamada falhar."""
+    secao("Falhas de ferramenta no relatorio")
+
+    import io
+    import contextlib
+
+    A._zerar_falhas_ferramenta()
+    checa("sem falha, nao ha rodape", A._resumo_falhas() == "")
+
+    # Erro devolvido pelo servidor MCP (isError).
+    A._zerar_falhas_ferramenta()
+    srv = ServidorFalso("Error: unknown parameter 'target'", erro=True)
+    asyncio.run(A._SessaoProtegida(srv, rotulo="Teste").call_tool("browser_type", {}))
+    checa("erro do servidor MCP e contabilizado",
+          A._FALHAS_FERRAMENTA.get("browser_type") == 1, A._FALHAS_FERRAMENTA)
+
+    # Excecao do cliente MCP: e por aqui que passa parametro com nome errado,
+    # porque a validacao contra o schema acontece antes de ir ao servidor.
+    class ServidorQueLevanta:
+        async def call_tool(self, nome, args):
+            raise ValueError("unexpected keyword 'target'")
+        def __getattr__(self, n): raise AttributeError(n)
+
+    A._zerar_falhas_ferramenta()
+    texto, morreu = asyncio.run(
+        A._chamar_ferramenta_mcp(ServidorQueLevanta(), "browser_type", {"target": "x"}))
+    checa("excecao na chamada e contabilizada",
+          A._FALHAS_FERRAMENTA.get("browser_type") == 1, A._FALHAS_FERRAMENTA)
+    checa("o modelo recebe o erro em texto", "ERRO ao executar" in texto)
+    checa("erro comum nao e confundido com navegador fechado", morreu is False)
+
+    # O rodape precisa ser explicito o bastante para o operador desconfiar do
+    # laudo, que e justamente o que ele nao faria sozinho.
+    A._zerar_falhas_ferramenta()
+    A._registrar_falha_ferramenta("browser_type")
+    A._registrar_falha_ferramenta("browser_type")
+    r = A._resumo_falhas()
+    checa("o rodape conta quantas falharam", "2 chamada(s)" in r and "(2x)" in r)
+    checa("o rodape nomeia a ferramenta", "browser_type" in r)
+    checa("o rodape manda desconfiar do relatorio",
+          "esta errado" in r and "confira voce mesmo" in r)
+
+    # E o mais importante: sai junto do relatorio que o operador le.
+    original = A.ARQUIVO_HISTORICO
+    pasta = tempfile.mkdtemp(prefix="t2m_falhas_")
+    A.ARQUIVO_HISTORICO = os.path.join(pasta, "h.jsonl")
+    try:
+        A.iniciar_execucao("Tela", "https://x", "pesquisar algo")
+        A._registrar_falha_ferramenta("browser_type")
+        A._registrar_falha_ferramenta("browser_type")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            A.responder("A pesquisa foi realizada com sucesso no Google.")
+        saida = buf.getvalue()
+        corpo = saida[saida.index("CHAT_MSG_INICIO") + 15:saida.index("CHAT_MSG_FIM")]
+        checa("o aviso acompanha o relatorio entregue ao operador",
+              "FALHARAM" in corpo and "browser_type" in corpo)
+        checa("o relatorio da IA continua inteiro junto do aviso",
+              "realizada com sucesso" in corpo)
+        regs, _ = A.ler_historico()
+        checa("as falhas ficam registradas no historico",
+              (regs[-1].get("falhas_ferramenta") or {}).get("browser_type") == 2,
+              regs[-1].get("falhas_ferramenta"))
+    finally:
+        A.ARQUIVO_HISTORICO = original
+        A._zerar_execucao()
+        A._zerar_falhas_ferramenta()
+
+    # Uma execucao nova nao pode herdar as falhas da anterior.
+    A._registrar_falha_ferramenta("browser_click")
+    A.iniciar_execucao("Tela", "x", "y")
+    checa("execucao nova comeca sem as falhas da anterior",
+          A._resumo_falhas() == "")
+    A._zerar_execucao()
+
+
+# ==================================================================== #
 def teste_args_do_gemini():
     """Argumentos de ferramenta vindos do SDK do Google.
 
@@ -714,6 +804,7 @@ def teste_historico_de_execucoes():
         def rodar(resultado, **kw):
             """Uma execucao completa, do jeito que os modos fazem."""
             A._zerar_bloqueios()
+            A._zerar_falhas_ferramenta()
             A.iniciar_execucao(kw.get("modo", "Tela"), kw.get("alvo", "x"),
                                kw.get("objetivo", "objetivo"),
                                kw.get("somente_leitura"))
@@ -1179,8 +1270,11 @@ def teste_resumo_de_bloqueios():
     A._zerar_bloqueios()
     checa("sem recusa nenhuma, nao ha resumo", A._resumo_bloqueios() == "")
 
-    # Relatorio limpo nao pode ganhar ruido.
+    # Relatorio limpo nao pode ganhar ruido. Zera TAMBEM as falhas: o proxy
+    # conta isError, e teste_sessao_protegida exercita isError=True de
+    # proposito - sem isto a contagem vaza de um teste para o outro.
     A._zerar_bloqueios()
+    A._zerar_falhas_ferramenta()
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         A.responder("Relatorio final.")
@@ -1324,7 +1418,7 @@ def main():
                   teste_relatorio_parcial, teste_resumo_de_bloqueios,
                   teste_aviso_de_limites_no_prompt,
                   teste_instrucoes_do_operador, teste_historico_de_execucoes,
-                  teste_args_do_gemini):
+                  teste_args_do_gemini, teste_falhas_de_ferramenta):
         try:
             teste()
         except Exception as e:
