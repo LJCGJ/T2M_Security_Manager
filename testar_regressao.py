@@ -619,6 +619,41 @@ def teste_laco_do_modelo():
 
 
 # ==================================================================== #
+def teste_regra_de_qualidade_do_script():
+    """O script gerado E o entregavel. Se ele for flaky, o produto entrega
+    ruido.
+
+    Encontrado lendo a saida real: a IA gerava asserções com count() e
+    text_content() imediatos, que nao reesperam. Isso passa na maquina de quem
+    escreveu e falha de forma intermitente na esteira - o defeito mais caro de
+    um teste automatizado, porque ensina a equipe a ignorar o vermelho."""
+    secao("Regra de qualidade do script gerado")
+
+    import importlib
+    G = importlib.import_module("gerador_ia")
+    fonte_chat = open(G.__file__, encoding="utf-8").read()
+
+    for onde, texto in (("agente (modos MCP)", A.INSTRUCAO_LINGUAGEM),
+                        ("chat (gerador_ia)", fonte_chat)):
+        checa(f"{onde}: manda usar asserção que espera",
+              "to_have_count" in texto and "ESPERAM" in texto)
+        checa(f"{onde}: nomeia o que evitar",
+              "count()" in texto and "text_content()" in texto)
+        checa(f"{onde}: explica o custo do teste intermitente",
+              "intermitente" in texto)
+        checa(f"{onde}: pede seletor estavel",
+              "data-testid" in texto)
+
+    # O contrato antigo nao pode ter sido perdido no meio da regra nova.
+    checa("o contrato de argv[1] continua no agente",
+          "argv[1]" in A.INSTRUCAO_LINGUAGEM)
+    checa("o contrato do token continua no agente",
+          "T2M_AUTH_TOKEN" in A.INSTRUCAO_LINGUAGEM)
+    checa("o pedido de bloco de codigo continua no agente",
+          "```linguagem" in A.INSTRUCAO_LINGUAGEM)
+
+
+# ==================================================================== #
 def teste_modelo_do_chat():
     """Escolha de modelo no chat (gerador_ia.py).
 
@@ -1594,7 +1629,8 @@ def main():
                   teste_aviso_de_limites_no_prompt,
                   teste_instrucoes_do_operador, teste_historico_de_execucoes,
                   teste_args_do_gemini, teste_falhas_de_ferramenta,
-                  teste_pausa_adaptativa, teste_modelo_do_chat):
+                  teste_pausa_adaptativa, teste_modelo_do_chat,
+                  teste_regra_de_qualidade_do_script):
         try:
             teste()
         except Exception as e:

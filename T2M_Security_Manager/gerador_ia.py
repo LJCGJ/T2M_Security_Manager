@@ -509,7 +509,16 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             "aplicativo executa o script pela tela principal, prefira Python (.py), "
             "JavaScript/Node (.js), PowerShell (.ps1), batch (.bat) ou Robot Framework "
             "(.robot). NAO pergunte a linguagem ao usuario: escolha voce, use Python "
-            "por padrao, e so mude se ele pedir outra. O script recebe a URL em argv[1] e o token "
+            "por padrao, e so mude se ele pedir outra. "
+            "QUALIDADE DO TESTE: em teste de navegador, use asserções que ESPERAM pelo "
+            "estado (no Playwright, expect(...).to_have_count(...), to_have_text(...), "
+            "to_be_visible()) em vez de comparar o retorno imediato de count() ou "
+            "text_content(). Os imediatos nao reesperam: passam na maquina de quem "
+            "escreveu e falham de forma intermitente na esteira, que e o defeito mais "
+            "caro de um teste automatizado - ele ensina a equipe a ignorar o resultado "
+            "vermelho. Prefira tambem seletores estaveis (data-testid, papel ou texto "
+            "visivel) a classes de CSS, que mudam com a folha de estilo. "
+            "O script recebe a URL em argv[1] e o token "
             "na variavel de ambiente T2M_AUTH_TOKEN. Sempre que gerar codigo, coloque-o em "
             "blocos ```linguagem ... ``` para o sistema conseguir extrair e salvar.")
 
