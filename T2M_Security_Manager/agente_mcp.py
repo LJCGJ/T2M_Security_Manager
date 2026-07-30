@@ -1369,6 +1369,14 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     proxima_mensagem = objetivo
     ultimo_texto = ""          # guarda o ultimo texto util, para devolver algo se travar
     navegador_morto = False
+    # Pausa entre passos, em segundos. Comeca em ZERO e so aparece depois do
+    # primeiro estouro de cota. Antes era fixa em 4s: numa chave paga, onde
+    # 429 nao acontece, isso jogava fora 4 segundos por passo - com o teto em
+    # 25 passos, um minuto e quarenta de espera pura em toda execucao, sem
+    # nenhum ganho. Adaptativa serve os dois casos sem ninguem configurar nada:
+    # quem tem cota folgada nunca paga o pedagio, quem nao tem passa a pagar
+    # sozinho a partir do primeiro aviso.
+    pausa_passo = _cfg_int(_CFG, "pausa_gemini", 0, 0, 60)
     # Contado pela EXECUCAO INTEIRA, e nao por passo. Zerando a cada passo, uma
     # chave de plano gratuito rendia 60s de espera parada em CADA passo, sem
     # fim - o operador ficava olhando para uma janela que nao respondia, e a
@@ -1378,10 +1386,8 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
 
     for passo in range(MAX_ITERACOES):
         _marcar_passo("Gemini", modelos_tentar[idx_modelo], passo + 1)
-        # Pausa entre passos para respeitar o limite por minuto do tier gratuito
-        # (evita ResourceExhausted no meio da automacao). Nao pausa no 1o passo.
-        if passo > 0:
-            time.sleep(4)
+        if passo > 0 and pausa_passo > 0:
+            time.sleep(pausa_passo)
 
         # --- Envia a mensagem, com RETRY para cota / MALFORMED / modelo ruim ---
         # Cada motivo tem o seu proprio contador: antes um unico "tentativa < 2"
@@ -1401,6 +1407,12 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
                 # 1) Cota por minuto estourada: espera e refaz.
                 if ("ResourceExhausted" in nome_erro or "429" in msg
                         or "quota" in msg.lower() or "exhausted" in msg.lower()):
+                    # A partir do primeiro 429, passa a espacar os passos - e
+                    # o sinal de que esta chave tem limite por minuto apertado.
+                    if pausa_passo < 6:
+                        pausa_passo = 6
+                        log(">>> Cota apertada nesta chave: vou espacar os "
+                            "proximos passos em 6s para reduzir novos bloqueios.")
                     if esperas_cota < 3:
                         esperas_cota += 1
                         log(f">>> Limite por minuto atingido. Aguardando 30s "
@@ -3018,14 +3030,17 @@ async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
     chat = model.start_chat()
     proxima = instrucao
     ultimo = ""
+    pausa_passo = _cfg_int(_CFG, "pausa_gemini", 0, 0, 60)
     for passo in range(MAX_ITERACOES):
         _marcar_passo("Gemini", getattr(model, "model_name", ""), passo + 1)
-        if passo > 0:
-            time.sleep(4)
+        if passo > 0 and pausa_passo > 0:
+            time.sleep(pausa_passo)
         try:
             resp = chat.send_message(proxima)
         except Exception as e:
             if "ResourceExhausted" in type(e).__name__ or "429" in str(e):
+                if pausa_passo < 6:
+                    pausa_passo = 6
                 return (ultimo or "") + "\n[Limite de uso da IA atingido. Aguarde 1-2 min.]"
             return f"O modelo Gemini falhou: {type(e).__name__}"
         texto_parcial = _texto_do_modelo(resp)

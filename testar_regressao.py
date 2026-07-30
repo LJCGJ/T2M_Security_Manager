@@ -619,6 +619,42 @@ def teste_laco_do_modelo():
 
 
 # ==================================================================== #
+def teste_pausa_adaptativa():
+    """A pausa entre passos do Gemini nao pode ser um pedagio fixo.
+
+    Ela era fixa em 4 segundos para respeitar a cota do plano gratuito. Numa
+    chave paga, onde 429 nao acontece, isso jogava fora 4s por passo - com o
+    teto em 25 passos, um minuto e quarenta de espera pura por execucao, sem
+    ganho nenhum. Agora comeca em zero e so aparece depois do primeiro
+    estouro."""
+    secao("Pausa adaptativa entre passos do Gemini")
+
+    fonte = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "T2M_Security_Manager", "agente_mcp.py")
+                 if os.path.isdir(PASTA) else A.__file__,
+                 encoding="utf-8").read()
+
+    checa("nao ha mais pausa fixa de 4s entre passos",
+          "time.sleep(4)" not in fonte)
+    checa("a pausa comeca em zero por padrao",
+          '_cfg_int(_CFG, "pausa_gemini", 0, 0, 60)' in fonte)
+    checa("a pausa e configuravel para quem quiser fixar",
+          fonte.count('"pausa_gemini"') == 2)
+    checa("os dois lacos do Gemini so pausam quando ha pausa definida",
+          fonte.count("if passo > 0 and pausa_passo > 0:") == 2)
+    checa("o primeiro 429 liga o espacamento",
+          fonte.count("pausa_passo = 6") == 2)
+
+    # O teto de configuracao precisa continuar sendo respeitado.
+    checa("valor absurdo na configuracao e limitado",
+          A._cfg_int({"pausa_gemini": "999"}, "pausa_gemini", 0, 0, 60) == 60)
+    checa("valor negativo vira zero",
+          A._cfg_int({"pausa_gemini": "-5"}, "pausa_gemini", 0, 0, 60) == 0)
+    checa("texto invalido cai no padrao",
+          A._cfg_int({"pausa_gemini": "abc"}, "pausa_gemini", 0, 0, 60) == 0)
+
+
+# ==================================================================== #
 def teste_falhas_de_ferramenta():
     """Chamada que falhou tem de aparecer no relatorio, dita por NOS.
 
@@ -1482,7 +1518,8 @@ def main():
                   teste_relatorio_parcial, teste_resumo_de_bloqueios,
                   teste_aviso_de_limites_no_prompt,
                   teste_instrucoes_do_operador, teste_historico_de_execucoes,
-                  teste_args_do_gemini, teste_falhas_de_ferramenta):
+                  teste_args_do_gemini, teste_falhas_de_ferramenta,
+                  teste_pausa_adaptativa):
         try:
             teste()
         except Exception as e:
