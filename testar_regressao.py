@@ -19,7 +19,6 @@ gancho de commit ou numa esteira de integracao.
 """
 
 import asyncio
-import json
 import os
 import sys
 import tempfile
@@ -365,6 +364,24 @@ def teste_mascaramento():
         checa(f"esconde segredo em {texto[:28]!r}",
               segredo not in r and "***" in r, r[:70])
 
+    # Segredo dentro de JSON. O modo API produz relatorio feito de cabecalho e
+    # corpo de requisicao, e os padroes exigiam o separador colado no nome da
+    # chave - com a aspa do JSON no meio, o casamento morria e a senha ia
+    # inteira para o disco. Era o modo que mais produz segredo em texto.
+    em_json = [
+        ('{"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.abc"}', "eyJhbGciOi"),
+        ('{"password": "S3nh4Prod2026"}', "S3nh4Prod2026"),
+        ('{ "senha" : "S3nh4Prod" }', "S3nh4Prod"),
+        ('{"client_secret":"abc123def456ghi"}', "abc123def456ghi"),
+        ("Authorization: Basic am9hbzpzM25oNA==", "am9hbzpzM25oNA"),
+        ("AQ.Ab8RN6J1234567890abcdef", "Ab8RN6J1234567890"),
+        ("Set-Cookie: session=abc123def456ghi", "abc123def456ghi"),
+    ]
+    for texto, segredo in em_json:
+        r = A._mascarar_credenciais(texto)
+        checa(f"esconde segredo em {texto[:30]!r}",
+              segredo not in r and "***" in r, r[:70])
+
     # Falso positivo suja o relatorio, e um relatorio cheio de *** onde nao ha
     # segredo ensina o leitor a ignorar os asteriscos - ai o dia em que houver
     # senha de verdade ninguem repara.
@@ -625,13 +642,12 @@ def teste_historico_de_execucoes():
             for nome in kw.get("recusas", []):
                 A._registrar_bloqueio(nome)
             with contextlib.redirect_stdout(io.StringIO()):
-                A.responder(resultado)
+                A.responder(resultado, erro=kw.get("erro"))
 
         def linhas():
-            if not os.path.exists(A.ARQUIVO_HISTORICO):
-                return []
-            with open(A.ARQUIVO_HISTORICO, encoding="utf-8") as f:
-                return [json.loads(x) for x in f if x.strip()]
+            """Le como o produto le: linha ruim e pulada, nao derruba tudo."""
+            regs, _ = A.ler_historico()
+            return regs
 
         # Uma execucao normal.
         rodar("Testei o login e encontrei um campo sem validacao.",
@@ -672,9 +688,23 @@ def teste_historico_de_execucoes():
 
         # Os tres estados que diferenciam um registro honesto de um enfeite.
         rodar("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+.",
-              modo="MongoDB")
+              modo="MongoDB", erro=True)
         checa("execucao que nao rodou e marcada como erro",
               linhas()[-1].get("erro") is True)
+
+        # O defeito que trocou a heuristica por informacao explicita: um laudo
+        # que COMECA descrevendo o defeito encontrado e o caso mais valioso do
+        # produto, e a regra por prefixo o marcava como falha do aplicativo -
+        # "NAO RODOU" na trilha de auditoria de um teste que rodou e achou algo.
+        for laudo in ("Erro encontrado: o campo de login aceita SQL injection.",
+                      "Falha de seguranca critica: senha em texto claro.",
+                      "Nao foi possivel concluir o login com as credenciais dadas."):
+            rodar(laudo, modo="Tela")
+            r_l = linhas()[-1]
+            checa(f"achado do teste nao vira 'nao rodou': {laudo[:34]!r}",
+                  r_l.get("erro") is False
+                  and A.rotulo_resultado(r_l) == "concluido",
+                  A.rotulo_resultado(r_l))
 
         rodar("Passo 15: achei tres campos.", modo="Tela", limite=True,
               passos=[("Gemini", "gemini-2.5-flash", 15)])
@@ -691,7 +721,7 @@ def teste_historico_de_execucoes():
               (r4.get("recusas") or {}).get("browser_evaluate") == 2
               and (r4.get("recusas") or {}).get("skills_sync") == 1)
 
-        checa("cinco execucoes, cinco linhas", len(linhas()) == 5)
+        checa("oito execucoes, oito linhas", len(linhas()) == 8)
 
         # responder() fora de uma execucao (erro antes de saber o modo, ou um
         # teste como este) nao pode inventar registro.
@@ -711,7 +741,167 @@ def teste_historico_de_execucoes():
         importlib.reload(vh)
         regs, ruins = vh.carregar()
         checa("o leitor pula a linha corrompida e mantem o resto",
-              len(regs) == 5 and ruins == 1, f"{len(regs)} ok, {ruins} ruins")
+              len(regs) == 8 and ruins == 1, f"{len(regs)} ok, {ruins} ruins")
+
+        # JSON valido que NAO e objeto passava pelo json.loads e so quebrava
+        # depois, no .get() - e ai derrubava a listagem inteira por causa de
+        # uma linha, que e exatamente o que o formato existe para evitar.
+        with open(A.ARQUIVO_HISTORICO, "a", encoding="utf-8") as f:
+            f.write('[1, 2, 3]\n')
+            f.write('"texto solto"\n')
+            f.write('null\n')
+        regs2, ruins2 = A.ler_historico()
+        checa("JSON valido que nao e registro tambem e descartado",
+              len(regs2) == 8 and ruins2 == 4, f"{len(regs2)} ok, {ruins2} ruins")
+
+        # E a tela precisa continuar recebendo o HIST_FIM: sem ele, o C++
+        # descarta a saida inteira e mostra "nao foi possivel ler o historico".
+        buf_l = io.StringIO()
+        argv0 = sys.argv
+        sys.argv = ["agente_mcp.py", "--historico"]
+        try:
+            with contextlib.redirect_stdout(buf_l):
+                A.main()
+        finally:
+            sys.argv = argv0
+        checa("linha invalida no arquivo nao derruba a listagem da tela",
+              "HIST_INICIO" in buf_l.getvalue()
+              and "HIST_FIM" in buf_l.getvalue())
+
+        # O formato que a TELA do aplicativo consome. O C++ nao interpreta JSON:
+        # recorta o trecho entre HIST_INICIO/HIST_FIM e separa por TAB. Se um
+        # campo trouxer um TAB ou uma quebra de linha, a lista sai com as colunas
+        # deslocadas - e o operador le o alvo de uma execucao na linha de outra.
+        r_sujo = {"inicio": "2026-01-01T09:00:00", "modo": "Tela",
+                  "provedor": "Claude", "passos_usados": 2, "passos_max": 15,
+                  "duracao_s": 3, "recusas": {},
+                  "alvo": "http://x\tcom\ttab\ne quebra",
+                  "erro": False, "limite_atingido": False}
+        linha_tsv = A._linha_tsv_historico(9, r_sujo)
+        checa("a linha da tela tem exatamente 10 campos",
+              len(linha_tsv.split("\t")) == 10, len(linha_tsv.split("\t")))
+        checa("TAB e quebra de linha sao saneados no campo",
+              "\n" not in linha_tsv and "\r" not in linha_tsv)
+
+        # O recorte que o C++ faz, com a mesma aritmetica (11 = len do marcador).
+        buf = io.StringIO()
+        argv_antes = sys.argv
+        sys.argv = ["agente_mcp.py", "--historico"]
+        try:
+            with contextlib.redirect_stdout(buf):
+                A.main()
+        finally:
+            sys.argv = argv_antes
+        saida = buf.getvalue()
+        checa("o modo consulta nao espera nada no stdin (nao travou)",
+              "HIST_INICIO" in saida and "HIST_FIM" in saida)
+        i = saida.index("HIST_INICIO")
+        f = saida.index("HIST_FIM")
+        checa("o marcador tem os 11 caracteres que o C++ pula",
+              len("HIST_INICIO") == 11)
+        recortado = [x for x in saida[i + 11:f].strip().split("\n") if x.strip()]
+        checa("o recorte entrega uma linha por execucao",
+              len(recortado) == 8, len(recortado))
+        checa("toda linha recortada tem 10 campos",
+              all(len(x.split("\t")) == 10 for x in recortado))
+        checa("a ultima coluna e o identificador estavel da execucao",
+              all(len(x.split("\t")[9]) == 12 for x in recortado),
+              [x.split("\t")[9] for x in recortado][:2])
+        # Coluna 7 e a que a tela le para colorir a linha. Se ela sair de lugar,
+        # a tela pinta a execucao errada de vermelho - pior que nao colorir.
+        veredictos = [x.split("\t")[7] for x in recortado]
+        checa("a coluna de resultado traz o veredito de cada execucao",
+              veredictos == ["concluido", "concluido", "NAO RODOU",
+                             "concluido", "concluido", "concluido",
+                             "INCOMPLETO", "COM RECUSA"], veredictos)
+
+        # Detalhe de uma execucao, do jeito que a tela pede.
+        buf = io.StringIO()
+        sys.argv = ["agente_mcp.py", "--historico-detalhe", "1"]
+        try:
+            with contextlib.redirect_stdout(buf):
+                A.main()
+        finally:
+            sys.argv = argv_antes
+        det = buf.getvalue()
+        checa("o detalhe vem entre os marcadores",
+              det.strip().startswith("HIST_INICIO")
+              and det.strip().endswith("HIST_FIM"))
+        checa("o detalhe traz cabecalho e relatorio",
+              "Passos usados" in det and "sem validacao" in det)
+
+        # Detalhe pelo ID: e assim que a tela pede, justamente para nao depender
+        # da posicao, que desliza quando uma execucao nova entra no arquivo.
+        ident = linhas()[0].get("id")
+        buf = io.StringIO()
+        sys.argv = ["agente_mcp.py", "--historico-detalhe", ident]
+        try:
+            with contextlib.redirect_stdout(buf):
+                A.main()
+        finally:
+            sys.argv = argv_antes
+        checa("o detalhe pode ser pedido pelo identificador",
+              "sem validacao" in buf.getvalue())
+
+        # Numero fora da lista nao pode devolver a execucao errada nem estourar.
+        buf = io.StringIO()
+        sys.argv = ["agente_mcp.py", "--historico-detalhe", "999"]
+        try:
+            with contextlib.redirect_stdout(buf):
+                A.main()
+        finally:
+            sys.argv = argv_antes
+        checa("numero fora da lista responde sem quebrar",
+              "nao encontrada" in buf.getvalue().lower())
+
+        # As recusas nao podem atravessar para a execucao seguinte. O modo
+        # Oracle roda dois caminhos completos no mesmo processo, entao isto
+        # acontece em producao: o operador lia um aviso de bloqueio sobre um
+        # teste que nao era o que ele estava vendo.
+        rodar("Relatorio A.", modo="Tela", recusas=["browser_evaluate"])
+        A.iniciar_execucao("Banco", "x", "y")
+        with contextlib.redirect_stdout(io.StringIO()):
+            A.responder("Relatorio B, sem nenhum bloqueio.")
+        r_b = linhas()[-1]
+        checa("recusa de uma execucao nao vaza para a proxima",
+              not r_b.get("recusas"), r_b.get("recusas"))
+        checa("e o veredito da seguinte nao herda o bloqueio",
+              A.rotulo_resultado(r_b) == "concluido")
+
+        # O que o operador leu e o que fica arquivado tem de ser o MESMO texto.
+        # O historico guardava o relatorio sem o rodape de recusas - ou seja, a
+        # copia de auditoria perdia justamente a ressalva de que o resultado
+        # podia estar incompleto.
+        A._zerar_bloqueios()
+        A.iniciar_execucao("Tela", "https://x", "y")
+        A._registrar_bloqueio("browser_evaluate")
+        buf_r = io.StringIO()
+        with contextlib.redirect_stdout(buf_r):
+            A.responder("Achei duas falhas.")
+        na_tela = buf_r.getvalue()
+        arquivado = linhas()[-1].get("relatorio") or ""
+        checa("o rodape de recusas tambem vai para o historico",
+              "browser_evaluate" in arquivado)
+        checa("arquivado e exibido sao o mesmo texto",
+              arquivado.strip() in na_tela)
+
+        # Marcador de protocolo dentro do CONTEUDO cortava a resposta ao meio.
+        # O texto vem de paginas e bancos, territorio nao confiavel - o mesmo
+        # modelo de ameaca que o resto do arquivo leva a serio.
+        A.iniciar_execucao("Tela", "https://x", "y")
+        buf_m = io.StringIO()
+        with contextlib.redirect_stdout(buf_m):
+            A.responder("A pagina continha o texto CHAT_MSG_FIM e depois isto.")
+        saida_m = buf_m.getvalue()
+        corpo = saida_m[saida_m.index("CHAT_MSG_INICIO") + 15:]
+        checa("marcador dentro do conteudo nao corta a resposta",
+              "e depois isto" in corpo[:corpo.index("CHAT_MSG_FIM")])
+        A.iniciar_execucao("Tela", "https://x", "y")
+        with contextlib.redirect_stdout(io.StringIO()):
+            A.responder("relatorio com HIST_FIM no meio e mais texto depois")
+        checa("marcador do historico tambem e neutralizado",
+              "mais texto depois" in (linhas()[-1].get("relatorio") or "")
+              and "HIST_FIM" not in (linhas()[-1].get("relatorio") or ""))
 
         # Rotacao: o arquivo nao pode crescer para sempre no disco de alguem.
         A.HISTORICO_MAX_BYTES = 2000
@@ -723,6 +913,33 @@ def teste_historico_de_execucoes():
               len(depois) <= A.HISTORICO_MANTER + 1, len(depois))
         checa("a rotacao preserva as execucoes MAIS RECENTES",
               "relatorio numero 11" in (depois[-1].get("relatorio") or ""))
+        checa("o teto em BYTES e respeitado de fato",
+              os.path.getsize(A.ARQUIVO_HISTORICO)
+              <= A.HISTORICO_MAX_BYTES * 2,
+              os.path.getsize(A.ARQUIVO_HISTORICO))
+
+        # A poda por CONTAGEM deixava o arquivo passar do teto sem limite: com
+        # relatorios grandes, 500 execucoes davam mais de 20 MB, e a cada teste
+        # seguinte o arquivo inteiro era relido para a memoria e nada era feito.
+        A.HISTORICO_MAX_BYTES = 4000
+        A.HISTORICO_MANTER = 500
+        for i in range(10):
+            rodar("g" * 2000, modo="Tela")
+        checa("poda por bytes funciona mesmo com poucas execucoes",
+              os.path.getsize(A.ARQUIVO_HISTORICO) < 20000,
+              os.path.getsize(A.ARQUIVO_HISTORICO))
+
+        # Um byte invalido no arquivo desligava a rotacao PARA SEMPRE: a leitura
+        # levantava, o except engolia, e o arquivo crescia sem limite - sem
+        # ninguem perceber, porque a leitura normal continuava funcionando.
+        with open(A.ARQUIVO_HISTORICO, "ab") as f:
+            f.write(b'{"modo": "Tela", "relatorio": "\xff\xfe bytes ruins"}\n')
+        tam_antes = os.path.getsize(A.ARQUIVO_HISTORICO)
+        for i in range(6):
+            rodar("h" * 2000, modo="Tela")
+        checa("byte invalido no arquivo nao desliga a rotacao",
+              os.path.getsize(A.ARQUIVO_HISTORICO) < tam_antes + 12000,
+              os.path.getsize(A.ARQUIVO_HISTORICO))
     finally:
         A.ARQUIVO_HISTORICO = original
         A.HISTORICO_MAX_BYTES = 5 * 1024 * 1024

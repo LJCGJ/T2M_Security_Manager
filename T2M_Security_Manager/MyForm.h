@@ -67,6 +67,18 @@ namespace T2MSecurityManager {
 			this->Controls->Add(this->btnTemaChat);
 
 			// --- BOTAO DE CONFIGURACOES ---
+			this->btnHistorico = (gcnew System::Windows::Forms::Button());
+			this->btnHistorico->Name = L"btnHistorico";
+			this->btnHistorico->Text = L"🕓  Historico";
+			this->btnHistorico->Location = System::Drawing::Point(460, 30);
+			this->btnHistorico->Size = System::Drawing::Size(140, 28);
+			this->btnHistorico->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnHistorico->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
+			this->btnHistorico->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			this->btnHistorico->Cursor = Cursors::Hand;
+			this->btnHistorico->Click += gcnew System::EventHandler(this, &MyForm::btnHistorico_Click);
+			this->Controls->Add(this->btnHistorico);
+
 			this->btnConfiguracoes = (gcnew System::Windows::Forms::Button());
 			this->btnConfiguracoes->Name = L"btnConfiguracoes";
 			this->btnConfiguracoes->Text = L"⚙  Configuracoes";
@@ -85,6 +97,9 @@ namespace T2MSecurityManager {
 			dicaMain->SetToolTip(this->btnAbrirPasta,
 				L"Abre a pasta onde os scripts de teste sao salvos.\n"
 				L"(a pasta pode ser alterada em Configuracoes)");
+			dicaMain->SetToolTip(this->btnHistorico,
+				L"Trilha de auditoria: toda execucao ja feita, com passos gastos, "
+				L"recusas e resultado.");
 			dicaMain->SetToolTip(this->btnConfiguracoes,
 				L"Pastas padrao e limites de execucao (passos da IA, linhas, timeout).");
 			dicaMain->SetToolTip(this->btnTemaChat,
@@ -131,6 +146,7 @@ namespace T2MSecurityManager {
 		bool temaEscuro;         // estado atual do tema
 
 		Button^ btnConfiguracoes;   // abre a tela de configuracoes
+		Button^ btnHistorico;       // abre a trilha de execucoes ja feitas
 		// Preferencias do app (persistidas em configuracoes.txt, lidas tambem pelo Python)
 		String^ cfgPastaRelatorios;
 		String^ cfgPastaSessoes;
@@ -1128,7 +1144,7 @@ namespace T2MSecurityManager {
 			if (!p->WaitForExit(limite * 1000)) {
 				try { p->Kill(); p->WaitForExit(3000); }
 				catch (...) {}
-				return L"Tempo esgotado (" + limite + L"s) aguardando a IA.\n\n"
+				return L"Tempo esgotado (" + limite.ToString() + L"s) aguardando a IA.\n\n"
 					L"Possiveis causas: chave de API invalida ou revogada, sem conexao, "
 					L"ou a tarefa e longa demais.\n"
 					L"Voce pode aumentar o tempo em Configuracoes.";
@@ -1735,7 +1751,11 @@ namespace T2MSecurityManager {
 				// \n literal no arquivo volta a ser quebra de linha de verdade na
 				// caixa de texto. Sem isto o operador veria "linha1\nlinha2" numa
 				// linha so e acharia que o app corrompeu o que ele escreveu.
-				else if (chave == "instrucoes_extras") cfgInstrucoesExtras = valor->Replace("\\n", "\n");
+				// CRLF, nao LF: o controle de texto do Windows so quebra linha em
+				// CRLF. Com LF puro o texto do operador voltaria grudado numa linha
+				// so na PROXIMA abertura do app - e ele acharia que perdeu o que
+				// escreveu. O Salvar normaliza \r\n, \n e \r na volta.
+				else if (chave == "instrucoes_extras") cfgInstrucoesExtras = valor->Replace("\\n", "\r\n");
 			}
 		}
 		catch (...) {}
@@ -1767,16 +1787,23 @@ namespace T2MSecurityManager {
 			sb->AppendLine("pasta_relatorios=" + cfgPastaRelatorios);
 			sb->AppendLine("pasta_sessoes=" + cfgPastaSessoes);
 			sb->AppendLine("pasta_scripts=" + cfgPastaScripts);
-			sb->AppendLine("timeout=" + cfgTimeout);
-			sb->AppendLine("max_passos=" + cfgMaxPassos);
-			sb->AppendLine("max_linhas=" + cfgMaxLinhas);
+			// ToString() OBRIGATORIO. "literal" + int nao concatena: o compilador
+			// escolhe o operator+(const char*, int) embutido e faz ARITMETICA DE
+			// PONTEIRO, avancando N bytes dentro do literal. O que ia para o
+			// arquivo era lixo sem '=', a linha era descartada na leitura, e o
+			// efeito visivel era este: timeout, max_passos, max_linhas e
+			// max_historico NUNCA persistiam - voltavam ao padrao a cada abertura,
+			// em silencio. E o mesmo defeito ja documentado na lista de modelos.
+			sb->AppendLine("timeout=" + cfgTimeout.ToString());
+			sb->AppendLine("max_passos=" + cfgMaxPassos.ToString());
+			sb->AppendLine("max_linhas=" + cfgMaxLinhas.ToString());
 			sb->AppendLine("modelo_claude=" + cfgModeloClaude);
 			sb->AppendLine("modelo_openai=" + cfgModeloOpenAI);
 			sb->AppendLine("modelo_gemini=" + cfgModeloGemini);
 			sb->AppendLine("navegador_isolado=" + (cfgNavegadorIsolado ? "1" : "0"));
 			sb->AppendLine("permitir_js_pagina=" + (cfgPermitirJsPagina ? "1" : "0"));
 			sb->AppendLine("dominios_confiaveis=" + cfgDominiosConfiaveis);
-			sb->AppendLine("max_historico=" + cfgMaxHistorico);
+			sb->AppendLine("max_historico=" + cfgMaxHistorico.ToString());
 			// Uma chave por linha: a quebra tem de virar \n literal, senao a segunda
 			// linha do texto seria lida como uma chave desconhecida e perdida.
 			sb->AppendLine("instrucoes_extras=" + cfgInstrucoesExtras
@@ -2396,6 +2423,281 @@ namespace T2MSecurityManager {
 		}
 	}
 
+		   // ==========================================================================
+		   // --- HISTORICO DE EXECUCOES ---
+		   // A trilha de auditoria. O agente Python grava uma linha de JSON por
+		   // teste; aqui a gente so LE. O C++ nao interpreta JSON: pede ao proprio
+		   // agente a lista em campos separados por TAB. Escrever um interpretador
+		   // de JSON a mao para exibir uma lista seria trocar um problema resolvido
+		   // por um bug futuro.
+		   // ==========================================================================
+
+		   // Roda o agente em modo consulta e devolve o que veio entre os
+		   // marcadores. Nao passa chave de IA nem gasta token: ler o que ja foi
+		   // executado nao precisa de segredo nenhum.
+	private: String^ ConsultarHistorico(String^ argumentos, String^% erro) {
+		erro = L"";
+		// Roda na thread da interface: subir o python leva uns instantes e a
+		// janela fica parada. Sem a ampulheta, parar parece travar.
+		System::Windows::Forms::Cursor^ antes = this->Cursor;
+		this->Cursor = Cursors::WaitCursor;
+		Process^ p = gcnew Process();
+		try {
+			ProcessStartInfo^ psi = gcnew ProcessStartInfo();
+			psi->FileName = "python";
+			psi->Arguments = "-u \"" + CaminhoApp("agente_mcp.py") + "\" " + argumentos;
+			psi->UseShellExecute = false;
+			psi->RedirectStandardInput = true;
+			psi->RedirectStandardOutput = true;
+			psi->RedirectStandardError = true;
+			psi->CreateNoWindow = true;
+			psi->StandardOutputEncoding = System::Text::Encoding::UTF8;
+			psi->StandardErrorEncoding = System::Text::Encoding::UTF8;
+			p->StartInfo = psi;
+			p->Start();
+
+			// Os DOIS canais em leitura assincrona antes de esperar pelo fim. Ler
+			// um de cada vez trava quando o processo enche o buffer do canal que
+			// ainda nao esta sendo lido.
+			System::Threading::Tasks::Task<String^>^ tSaida = p->StandardOutput->ReadToEndAsync();
+			System::Threading::Tasks::Task<String^>^ tErro = p->StandardError->ReadToEndAsync();
+			p->StandardInput->Close();   // o modo consulta nao le stdin
+
+			if (!p->WaitForExit(30000)) {
+				try { p->Kill(); p->WaitForExit(3000); }
+				catch (...) {}
+				erro = L"a consulta ao historico demorou demais.";
+				return L"";
+			}
+			String^ saida = tSaida->Wait(10000) ? tSaida->Result : L"";
+			String^ eSaida = tErro->Wait(3000) ? tErro->Result : L"";
+
+			int i = saida->IndexOf(L"HIST_INICIO");
+			int f = saida->IndexOf(L"HIST_FIM");
+			// f < i + 11 e nao f < i: com "HIST_FIM" caindo dentro dos 11 primeiros
+			// caracteres, o Substring receberia comprimento negativo e lancaria.
+			if (i < 0 || f < i + 11) {
+				erro = String::IsNullOrWhiteSpace(eSaida)
+					? L"o agente nao devolveu o historico." : eSaida->Trim();
+				return L"";
+			}
+			return saida->Substring(i + 11, f - (i + 11))->Trim();
+		}
+		catch (System::ComponentModel::Win32Exception^) {
+			erro = L"'python' nao encontrado no PATH.";
+			return L"";
+		}
+		catch (Exception^ ex) {
+			// Isto roda na thread da INTERFACE. Sem este catch, qualquer falha -
+			// e o Wait() de uma Task falha como AggregateException, que e o
+			// caminho normal quando o python morre no meio - fecharia o
+			// aplicativo inteiro em vez de virar uma mensagem na tela.
+			erro = ex->GetBaseException()->Message;
+			return L"";
+		}
+		// delete e nao Close: Close solta o handle do processo mas nao descarta
+		// os canais de leitura. Como este metodo roda a cada clique na lista, os
+		// handles iam se acumulando pela sessao inteira.
+		finally { delete p; this->Cursor = antes; }
+	}
+
+		   // Preenche a lista. Tag do ListView = a TextBox de detalhe, para os
+		   // handlers acharem uma coisa a partir da outra sem campo de instancia.
+	private: void CarregarHistoricoNaLista(ListView^ lv, TextBox^ detalhe) {
+		String^ erro = L"";
+		String^ bruto = ConsultarHistorico(L"--historico", erro);
+		lv->Items->Clear();
+		if (!String::IsNullOrWhiteSpace(erro)) {
+			detalhe->Text = L"Nao foi possivel ler o historico:\r\n\r\n" + erro;
+			return;
+		}
+		int quantas = 0;
+		for each (String ^ linha in bruto->Split('\n')) {
+			String^ l = linha->Trim();
+			if (String::IsNullOrWhiteSpace(l)) continue;
+			array<String^>^ campos = l->Split('\t');
+			if (campos->Length < 9) continue;
+			ListViewItem^ item = gcnew ListViewItem(campos[0]);
+			for (int c = 1; c < 9; c++) item->SubItems->Add(campos[c]);
+			// O IDENTIFICADOR da execucao viaja no Tag, nao a posicao na lista.
+			// Entre listar e clicar, um teste pode terminar ou o arquivo pode
+			// rotacionar - e as posicoes deslizariam sem aviso, abrindo o laudo
+			// de outra execucao. Registros antigos, sem id, caem na posicao.
+			item->Tag = (campos->Length >= 10 && !String::IsNullOrWhiteSpace(campos[9]))
+				? campos[9] : campos[0];
+			if (campos[7] == L"NAO RODOU")
+				item->ForeColor = System::Drawing::Color::Firebrick;
+			else if (campos[7] == L"INCOMPLETO")
+				item->ForeColor = System::Drawing::Color::DarkOrange;
+			else if (campos[7] == L"COM RECUSA")
+				item->ForeColor = System::Drawing::Color::SteelBlue;
+			lv->Items->Add(item);
+			quantas++;
+		}
+		if (quantas == 0) {
+			detalhe->Text =
+				L"Nenhuma execucao registrada ainda.\r\n\r\n"
+				L"O historico e gravado automaticamente a cada teste executado "
+				L"pelo aplicativo - tela, banco, MongoDB, Oracle ou API. Rode um "
+				L"teste e volte aqui.";
+		}
+		else {
+			detalhe->Text = String::Format(
+				L"{0} execucao(oes) no historico.\r\n\r\n"
+				L"Clique numa linha para ver o relatorio completo, quantos passos "
+				L"a IA gastou e o que foi recusado durante o teste.", quantas);
+			// A mais recente e a que interessa quase sempre.
+			lv->Items[quantas - 1]->Selected = true;
+			lv->Items[quantas - 1]->EnsureVisible();
+		}
+	}
+
+	private: System::Void btnHistorico_Click(System::Object^ sender, System::EventArgs^ e) {
+		Form^ d = gcnew Form();
+		d->Text = L"Historico de execucoes";
+		d->Size = System::Drawing::Size(1000, 660);
+		d->StartPosition = FormStartPosition::CenterParent;
+		d->MinimumSize = System::Drawing::Size(760, 480);
+		AplicarIcone(d);
+
+		Label^ topo = gcnew Label();
+		topo->Text =
+			L"Toda execucao fica registrada aqui, com data, alvo, quantos passos a IA gastou "
+			L"e o que foi recusado.\nSenhas e tokens sao mascarados antes de gravar.";
+		topo->Location = System::Drawing::Point(12, 10);
+		topo->Size = System::Drawing::Size(960, 34);
+		topo->ForeColor = System::Drawing::Color::DimGray;
+		topo->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		d->Controls->Add(topo);
+
+		ListView^ lv = gcnew ListView();
+		lv->View = System::Windows::Forms::View::Details;
+		lv->FullRowSelect = true;
+		lv->GridLines = true;
+		lv->MultiSelect = false;
+		lv->HideSelection = false;
+		lv->Location = System::Drawing::Point(12, 48);
+		lv->Size = System::Drawing::Size(960, 250);
+		lv->Anchor = static_cast<AnchorStyles>(
+			AnchorStyles::Top | AnchorStyles::Left | AnchorStyles::Right);
+		lv->Columns->Add(L"#", 42);
+		lv->Columns->Add(L"Quando", 118);
+		lv->Columns->Add(L"Modo", 70);
+		lv->Columns->Add(L"IA", 66);
+		lv->Columns->Add(L"Passos", 58);
+		lv->Columns->Add(L"Tempo", 56);
+		lv->Columns->Add(L"Recusas", 62);
+		lv->Columns->Add(L"Resultado", 92);
+		lv->Columns->Add(L"Alvo", 280);
+		d->Controls->Add(lv);
+
+		TextBox^ detalhe = gcnew TextBox();
+		detalhe->Multiline = true;
+		detalhe->ReadOnly = true;
+		detalhe->ScrollBars = ScrollBars::Both;
+		detalhe->WordWrap = false;
+		detalhe->Font = gcnew System::Drawing::Font("Consolas", 9);
+		detalhe->BackColor = System::Drawing::Color::White;
+		detalhe->Location = System::Drawing::Point(12, 306);
+		detalhe->Size = System::Drawing::Size(960, 258);
+		detalhe->Anchor = static_cast<AnchorStyles>(
+			AnchorStyles::Top | AnchorStyles::Bottom | AnchorStyles::Left | AnchorStyles::Right);
+		d->Controls->Add(detalhe);
+
+		lv->Tag = detalhe;
+		lv->SelectedIndexChanged += gcnew System::EventHandler(
+			this, &MyForm::historicoSelecionado_Handler);
+
+		Button^ atualizar = gcnew Button();
+		atualizar->Text = L"Atualizar";
+		atualizar->Location = System::Drawing::Point(12, 578);
+		atualizar->Size = System::Drawing::Size(110, 30);
+		atualizar->FlatStyle = FlatStyle::Flat;
+		atualizar->Anchor = static_cast<AnchorStyles>(
+			AnchorStyles::Bottom | AnchorStyles::Left);
+		atualizar->Tag = lv;
+		atualizar->Click += gcnew System::EventHandler(
+			this, &MyForm::historicoAtualizar_Handler);
+		d->Controls->Add(atualizar);
+
+		Button^ exportar = gcnew Button();
+		exportar->Text = L"Exportar esta execucao";
+		exportar->Location = System::Drawing::Point(130, 578);
+		exportar->Size = System::Drawing::Size(180, 30);
+		exportar->FlatStyle = FlatStyle::Flat;
+		exportar->Anchor = static_cast<AnchorStyles>(
+			AnchorStyles::Bottom | AnchorStyles::Left);
+		exportar->Tag = detalhe;
+		exportar->Click += gcnew System::EventHandler(
+			this, &MyForm::historicoExportar_Handler);
+		d->Controls->Add(exportar);
+
+		Button^ pasta = gcnew Button();
+		pasta->Text = L"Abrir a pasta do arquivo";
+		pasta->Location = System::Drawing::Point(318, 578);
+		pasta->Size = System::Drawing::Size(180, 30);
+		pasta->FlatStyle = FlatStyle::Flat;
+		pasta->Anchor = static_cast<AnchorStyles>(
+			AnchorStyles::Bottom | AnchorStyles::Left);
+		pasta->Click += gcnew System::EventHandler(
+			this, &MyForm::historicoAbrirPasta_Handler);
+		d->Controls->Add(pasta);
+
+		Button^ fechar = gcnew Button();
+		fechar->Text = L"Fechar";
+		fechar->Location = System::Drawing::Point(862, 578);
+		fechar->Size = System::Drawing::Size(110, 30);
+		fechar->FlatStyle = FlatStyle::Flat;
+		fechar->Anchor = static_cast<AnchorStyles>(
+			AnchorStyles::Bottom | AnchorStyles::Right);
+		fechar->DialogResult = System::Windows::Forms::DialogResult::Cancel;
+		d->Controls->Add(fechar);
+		d->CancelButton = fechar;
+
+		AplicarTemaRecursivo(d, temaEscuro);
+		CarregarHistoricoNaLista(lv, detalhe);
+		try { d->ShowDialog(); }
+		finally { delete d; }
+	}
+
+	private: System::Void historicoSelecionado_Handler(System::Object^ sender, System::EventArgs^ e) {
+		ListView^ lv = safe_cast<ListView^>(sender);
+		TextBox^ detalhe = dynamic_cast<TextBox^>(lv->Tag);
+		if (detalhe == nullptr || lv->SelectedItems->Count == 0) return;
+		String^ n = lv->SelectedItems[0]->Tag == nullptr
+			? L"" : lv->SelectedItems[0]->Tag->ToString();
+		if (String::IsNullOrWhiteSpace(n)) return;
+		String^ erro = L"";
+		String^ texto = ConsultarHistorico(L"--historico-detalhe " + n, erro);
+		detalhe->Text = String::IsNullOrWhiteSpace(erro)
+			? texto->Replace(L"\n", L"\r\n")   // Multiline do WinForms exige CRLF
+			: (L"Nao foi possivel ler esta execucao:\r\n\r\n" + erro);
+		detalhe->Select(0, 0);
+		detalhe->ScrollToCaret();
+	}
+
+	private: System::Void historicoAtualizar_Handler(System::Object^ sender, System::EventArgs^ e) {
+		ListView^ lv = dynamic_cast<ListView^>(safe_cast<Button^>(sender)->Tag);
+		if (lv == nullptr) return;
+		TextBox^ detalhe = dynamic_cast<TextBox^>(lv->Tag);
+		if (detalhe != nullptr) CarregarHistoricoNaLista(lv, detalhe);
+	}
+
+	private: System::Void historicoExportar_Handler(System::Object^ sender, System::EventArgs^ e) {
+		TextBox^ detalhe = dynamic_cast<TextBox^>(safe_cast<Button^>(sender)->Tag);
+		if (detalhe == nullptr || String::IsNullOrWhiteSpace(detalhe->Text)) {
+			MessageBox::Show(L"Escolha uma execucao na lista primeiro.", L"Aviso");
+			return;
+		}
+		ExportarComoHtml(detalhe->Text, L"Execucao do Historico",
+			L"Registro de um teste conduzido pela IA", L"execucao_T2M_");
+	}
+
+	private: System::Void historicoAbrirPasta_Handler(System::Object^ sender, System::EventArgs^ e) {
+		AbrirPastaNoExplorer(Path::GetDirectoryName(
+			CaminhoDados("historico_execucoes.jsonl")));
+	}
+
 		   // Dialogo das instrucoes permanentes (Tag = a TextBox escondida que
 		   // carrega o texto de volta para o Salvar da tela de Configuracoes).
 	private: System::Void editarInstrucoes_Click(System::Object^ sender, System::EventArgs^ e) {
@@ -2479,6 +2781,7 @@ namespace T2MSecurityManager {
 		d->Controls->Add(cancelar);
 		d->AcceptButton = ok; d->CancelButton = cancelar;
 
+		AplicarTemaRecursivo(d, temaEscuro);
 		try {
 			// So escreve no destino com Aplicar. Cancelar tem de sair sem tocar em
 			// nada, inclusive depois de o operador ter digitado.
@@ -3229,16 +3532,22 @@ namespace T2MSecurityManager {
 			L"(?i)\\b([a-z][a-z0-9+.-]*://[^:/\\s]+):([^@/\\s]+)@",
 			// EZConnect do Oracle: usuario/senha@host:porta/servico
 			L"(?i)(\\b[a-z][\\w$#]{0,29})/([^@\\s/]{1,128})@([\\w\\-]+[:/]|[\\w\\-]+\\.[\\w.\\-]+)",
-			// Password=x / senha: x
-			L"(?i)\\b(password|passwd|pwd|senha)(\\s*[=:]\\s*)([^;,\\s\"']{1,128})",
-			// Authorization: Bearer xxx / x-api-key: xxx
-			L"(?i)\\b(authorization|x-api-key|api[-_]?key|token)(\\s*:\\s*)(bearer\\s+)?([^\\s\"',;]{8,})",
+			// Password=x / senha: x / "password": "x"  (as aspas opcionais sao o
+			// que faz o padrao alcancar JSON - o relatorio do modo API e feito
+			// disso, e sem elas o segredo saia inteiro no arquivo exportado)
+			L"(?i)([\"']?)\\b(password|passwd|pwd|senha|secret|client_secret)\\1(\\s*[=:]\\s*)([\"']?)([^;,\\s\"']{1,128})\\4",
+			// Authorization: Bearer/Basic xxx, x-api-key, token, access_token
+			L"(?i)([\"']?)\\b(authorization|x-api-key|api[-_]?key|token|access_token)\\1(\\s*[=:]\\s*)([\"']?)((?:bearer|basic)\\s+)?([^\\s\"',;}]{8,})",
 			L"\\bsk-[A-Za-z0-9_\\-]{16,}",
-			L"\\bAIza[A-Za-z0-9_\\-]{16,}"
+			L"\\bAIza[A-Za-z0-9_\\-]{16,}",
+			// Formato novo das chaves do Google (AIza -> AQ.)
+			L"\\bAQ[._][A-Za-z0-9_\\-]{16,}",
+			// Cookie de sessao: nao e senha, mas entra como o usuario
+			L"(?i)\\b(set-cookie|cookie)(\\s*:\\s*)([^\\s;]{8,})"
 		};
 		cli::array<String^>^ trocas = gcnew cli::array<String^>{
-			L"$1:***@", L"$1/***@$3", L"$1$2***", L"$1$2$3***",
-			L"sk-***", L"AIza***"
+			L"$1:***@", L"$1/***@$3", L"$1$2$1$3$4***$4", L"$1$2$1$3$4$5***",
+			L"sk-***", L"AIza***", L"AQ.***", L"$1$2***"
 		};
 		try {
 			for (int i = 0; i < padroes->Length; i++)

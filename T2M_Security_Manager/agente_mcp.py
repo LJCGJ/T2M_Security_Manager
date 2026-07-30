@@ -105,11 +105,22 @@ def _carregar_configuracoes():
         candidatos.append(os.path.join(SCRIPT_DIR, "configuracoes.txt"))
         caminho = next((c for c in candidatos if os.path.exists(c)), candidatos[-1])
         if os.path.exists(caminho):
-            with open(caminho, "r", encoding="utf-8") as f:
+            # utf-8-sig descarta o BOM que um editor do Windows costuma por (com
+            # ele, a primeira chave viraria "\ufeffpasta_relatorios" e seria
+            # ignorada). errors="replace" e o try por LINHA evitam o pior: antes,
+            # um unico byte fora do UTF-8 - salvar no Bloco de Notas como ANSI,
+            # facil de acontecer no campo de instrucoes em portugues - fazia o
+            # aplicativo INTEIRO voltar aos padroes em silencio, inclusive as
+            # versoes fixadas dos servidores MCP.
+            with open(caminho, "r", encoding="utf-8-sig",
+                      errors="replace") as f:
                 for linha in f:
-                    if "=" in linha:
-                        chave, valor = linha.split("=", 1)
-                        cfg[chave.strip()] = valor.strip()
+                    try:
+                        if "=" in linha:
+                            chave, valor = linha.split("=", 1)
+                            cfg[chave.strip()] = valor.strip()
+                    except Exception:
+                        continue
     except Exception:
         pass
     return cfg
@@ -510,6 +521,7 @@ HISTORICO_MAX_BYTES = 5 * 1024 * 1024
 HISTORICO_MANTER = 500          # execucoes preservadas ao rotacionar
 
 _EXECUCAO = None                # dict enquanto uma execucao esta em curso
+_JA_RESPONDEU = False           # o operador ja recebeu um relatorio desta execucao
 _PASSOS_USADOS = 0
 _PROVEDOR_USADO = ""
 _MODELO_USADO = ""
@@ -521,18 +533,29 @@ def iniciar_execucao(modo, alvo, objetivo, somente_leitura=None):
     assim uma execucao que falha ao conectar tambem entra no historico, que e
     justamente o caso que alguem vai querer conferir depois."""
     global _EXECUCAO, _PASSOS_USADOS, _PROVEDOR_USADO, _MODELO_USADO
-    global _LIMITE_ATINGIDO
+    global _LIMITE_ATINGIDO, _JA_RESPONDEU
+    _JA_RESPONDEU = False
+    # Zerar as recusas AQUI e nao so no fim: o modo Oracle roda dois caminhos
+    # completos no mesmo processo (MCP e depois o driver nativo). Sem isto, uma
+    # recusa do primeiro reaparecia no relatorio do segundo, e o operador lia um
+    # aviso sobre um bloqueio que nao aconteceu no teste que ele estava vendo.
+    _zerar_bloqueios()
     _PASSOS_USADOS = 0
     _PROVEDOR_USADO = ""
     _MODELO_USADO = ""
     _LIMITE_ATINGIDO = False
     _EXECUCAO = {
+        # Identidade propria. A tela lista num momento e pede o detalhe em
+        # outro; entre os dois, uma execucao pode terminar ou o arquivo pode
+        # rotacionar, e a posicao na lista deixaria de apontar para a mesma
+        # execucao. O operador abriria o laudo de outro teste sem perceber.
+        "id": uuid.uuid4().hex[:12],
         "inicio": datetime.datetime.now().isoformat(timespec="seconds"),
         "modo": modo,
         # Mascarado ja na entrada: o alvo costuma ser uma string de conexao, e
         # este arquivo fica no disco por tempo indeterminado.
-        "alvo": _mascarar_credenciais(alvo or "")[:400],
-        "objetivo": _mascarar_credenciais(objetivo or "")[:2000],
+        "alvo": _sem_marcadores(_mascarar_credenciais(alvo or ""))[:400],
+        "objetivo": _sem_marcadores(_mascarar_credenciais(objetivo or ""))[:2000],
         "passos_max": MAX_ITERACOES,
         "somente_leitura": somente_leitura,
         "instrucoes_operador": bool(INSTRUCOES_OPERADOR),
@@ -559,6 +582,81 @@ def _marcar_limite_atingido():
     _LIMITE_ATINGIDO = True
 
 
+def ler_historico():
+    """Le o JSONL pulando linha corrompida em vez de desistir do arquivo todo.
+
+    Uma linha quebrada - falta de energia no meio de uma escrita - nao pode
+    custar o historico inteiro. Foi por isso que o formato e uma linha por
+    execucao e nao um JSON unico.
+
+    Devolve (registros, quantas_linhas_ruins). Fica aqui, e nao no visualizador,
+    porque agora tem tres leitores: a tela do aplicativo, o script de linha de
+    comando e a suite de testes. Regra de leitura em tres copias derivaria."""
+    if not os.path.exists(ARQUIVO_HISTORICO):
+        return [], 0
+    registros, ruins = [], 0
+    try:
+        with open(ARQUIVO_HISTORICO, "r", encoding="utf-8", errors="replace") as f:
+            for linha in f:
+                linha = linha.strip()
+                if not linha:
+                    continue
+                try:
+                    obj = json.loads(linha)
+                except Exception:
+                    ruins += 1
+                    continue
+                # JSON valido que nao e objeto ("[1,2]", "null", "12") passava
+                # pelo json.loads e so quebrava la na frente, no .get() - e ai
+                # derrubava a listagem inteira por causa de uma linha.
+                if isinstance(obj, dict):
+                    registros.append(obj)
+                else:
+                    ruins += 1
+    except Exception as e:
+        log(f">>> Nao foi possivel ler o historico: {e}")
+    return registros, ruins
+
+
+def rotulo_resultado(r):
+    """Uma palavra que diz o que aconteceu. A ordem importa: 'nao rodou' vem
+    antes de tudo, porque uma execucao que nem comecou nao pode ser exibida como
+    incompleta - seria uma promessa de que algo foi testado."""
+    if r.get("erro"):
+        return "NAO RODOU"
+    if r.get("limite_atingido"):
+        return "INCOMPLETO"
+    if r.get("recusas"):
+        return "COM RECUSA"
+    return "concluido"
+
+
+def _linha_tsv_historico(n, r):
+    """Uma execucao em campos separados por TAB, para a tela do aplicativo.
+
+    Por que TSV e nao JSON: o lado C++ nao tem biblioteca de JSON, e escrever um
+    interpretador de JSON a mao para exibir uma lista seria trocar um problema
+    resolvido por um bug futuro. TAB nunca aparece nos campos - eles sao
+    saneados aqui, no unico lugar que os produz."""
+    def limpo(v):
+        return str(v if v is not None else "").replace("\t", " ").replace("\n", " ")
+    recusas = sum((r.get("recusas") or {}).values())
+    return "\t".join(limpo(x) for x in (
+        n,
+        (r.get("inicio") or "").replace("T", " ")[:16],
+        r.get("modo"),
+        r.get("provedor") or "-",
+        f"{r.get('passos_usados', 0)}/{r.get('passos_max', 0)}",
+        f"{r.get('duracao_s', 0)}s",
+        recusas if recusas else "",
+        rotulo_resultado(r),
+        (r.get("alvo") or "")[:120],
+        # O id vai por ULTIMO de proposito: as colunas que a tela ja exibe
+        # mantem a posicao, e acrescentar um campo no fim nao desloca nada.
+        r.get("id") or "",
+    ))
+
+
 def _rotacionar_historico():
     """Mantem as ultimas HISTORICO_MANTER execucoes quando o arquivo passa do
     teto. Reescreve num temporario e troca: se faltar energia no meio, o
@@ -566,31 +664,39 @@ def _rotacionar_historico():
     try:
         if os.path.getsize(ARQUIVO_HISTORICO) <= HISTORICO_MAX_BYTES:
             return
-        with open(ARQUIVO_HISTORICO, "r", encoding="utf-8") as f:
+        # errors="replace": um unico byte invalido - o cenario de queda de
+        # energia que este formato existe para tolerar - fazia a leitura
+        # levantar, o except engolir, e a rotacao NUNCA MAIS acontecer. O
+        # arquivo crescia sem limite e ninguem percebia, porque a leitura
+        # normal continuava funcionando.
+        with open(ARQUIVO_HISTORICO, "r", encoding="utf-8",
+                  errors="replace") as f:
             linhas = f.readlines()
-        if len(linhas) <= HISTORICO_MANTER:
+        # Poda por BYTES, nao por contagem. Com relatorio de ate 40 mil
+        # caracteres, 500 execucoes passam de 20 MB - e a versao anterior saia
+        # sem fazer nada sempre que houvesse menos de 500 linhas, relendo o
+        # arquivo inteiro para a memoria a cada execucao seguinte.
+        mantidas, total = [], 0
+        for linha in reversed(linhas):
+            total += len(linha.encode("utf-8", "replace"))
+            if mantidas and (total > HISTORICO_MAX_BYTES
+                             or len(mantidas) >= HISTORICO_MANTER):
+                break
+            mantidas.append(linha)
+        mantidas.reverse()
+        if len(mantidas) >= len(linhas):
             return
         temp = ARQUIVO_HISTORICO + ".novo"
         with open(temp, "w", encoding="utf-8") as f:
-            f.writelines(linhas[-HISTORICO_MANTER:])
+            f.writelines(mantidas)
         os.replace(temp, ARQUIVO_HISTORICO)
         log(f">>> Historico rotacionado: mantidas as ultimas "
-            f"{HISTORICO_MANTER} execucoes.")
+            f"{len(mantidas)} execucoes.")
     except Exception as e:
         log(f">>> Aviso: nao foi possivel rotacionar o historico: {e}")
 
 
-def _parece_erro_do_app(texto):
-    """Distingue 'o teste rodou e achou algo' de 'o teste nao rodou'. Sem essa
-    marca, uma falha de conexao fica no historico com a mesma cara de um teste
-    concluido, e a trilha de auditoria passa a mentir por omissao."""
-    inicio = (texto or "").strip()[:80].lower()
-    return any(inicio.startswith(p) for p in
-               ("erro", "erro:", "biblioteca ausente", "arquivo ausente",
-                "tempo esgotado", "nao foi possivel", "falha"))
-
-
-def _gravar_historico(resultado):
+def _gravar_historico(resultado, erro=None):
     """Fecha o registro da execucao em curso. Silencioso quando nenhuma foi
     aberta - e o caso das mensagens de erro que saem antes de saber o modo, e
     tambem dos testes que chamam responder() direto."""
@@ -608,7 +714,7 @@ def _gravar_historico(resultado):
             "passos_usados": _PASSOS_USADOS,
             "limite_atingido": _LIMITE_ATINGIDO,
             "recusas": dict(_BLOQUEIOS),
-            "erro": _parece_erro_do_app(resultado),
+            "erro": bool(erro),
             "relatorio": _mascarar_credenciais(resultado or "")[:40000],
         })
         with open(ARQUIVO_HISTORICO, "a", encoding="utf-8") as f:
@@ -622,11 +728,38 @@ def _gravar_historico(resultado):
         _zerar_execucao()
 
 
-def responder(texto):
-    """Formato que a interface C++ espera no stdout."""
-    _gravar_historico(texto)
+def _sem_marcadores(texto):
+    """Neutraliza os marcadores de protocolo dentro do CONTEUDO.
+
+    O relatorio carrega texto que veio de paginas e bancos - territorio nao
+    confiavel. Uma pagina que contenha a palavra CHAT_MSG_FIM fazia o C++ cortar
+    a resposta ali e jogar fora o resto do laudo, em silencio. Vale o mesmo para
+    os marcadores do historico."""
+    saida = str(texto or "")
+    for marca in ("CHAT_MSG_INICIO", "CHAT_MSG_FIM", "HIST_INICIO", "HIST_FIM",
+                  "MODELOS_INICIO", "MODELOS_FIM"):
+        # Um caractere invisivel no meio basta: some para quem le, e deixa de
+        # casar com o IndexOf do C++.
+        saida = saida.replace(marca, marca[:4] + "\u200b" + marca[4:])
+    return saida
+
+
+def responder(texto, erro=None):
+    """Formato que a interface C++ espera no stdout.
+
+    erro=True marca a execucao no historico como 'nao chegou a rodar'. E
+    informado por quem chama, nunca adivinhado pelo texto: um laudo que comeca
+    com 'Erro encontrado: o campo aceita SQL injection' e o caso mais VALIOSO do
+    produto, e uma heuristica de prefixo o marcava como falha do aplicativo."""
+    # O mesmo texto para os dois destinos. Antes o historico guardava o
+    # relatorio sem o rodape de recusas - justamente a ressalva de que o
+    # resultado podia estar incompleto sumia da copia arquivada.
+    global _JA_RESPONDEU
+    final = _sem_marcadores(texto) + _resumo_bloqueios()
+    _gravar_historico(final, erro)
+    _JA_RESPONDEU = True
     print("CHAT_MSG_INICIO")
-    print(texto + _resumo_bloqueios())
+    print(final)
     print("CHAT_MSG_FIM")
 
 
@@ -701,15 +834,27 @@ _PADROES_SEGREDO = (
     # mascarar prosa comum ensina o leitor a ignorar os asteriscos.
     (r"(?i)(\b[a-z][\w$#]{0,29})/([^@\s/]{1,128})@"
      r"([\w\-]+[:/]|[\w\-]+\.[\w.\-]+)", r"\1/***@\3"),
-    # Par chave=valor de string de conexao ODBC/JDBC/.NET:
-    # Password=x; senha=x; pwd=x
-    (r"(?i)\b(password|passwd|pwd|senha)(\s*[=:]\s*)([^;,\s\"']{1,128})", r"\1\2***"),
-    # Cabecalho de autorizacao, o caso do modo API.
-    (r"(?i)\b(authorization|x-api-key|api[-_]?key|token)(\s*:\s*)"
-     r"(bearer\s+)?([^\s\"',;]{8,})", r"\1\2\3***"),
+    # Par chave=valor de string de conexao ODBC/JDBC/.NET e tambem de JSON:
+    # Password=x;  senha: x  "password": "x"
+    #
+    # As aspas opcionais em volta do separador nao sao capricho. Sem elas, um
+    # relatorio do modo API - que e feito de JSON, cabecalhos e corpos de
+    # requisicao - entregava {"password": "S3nh4"} intacto para o disco. Era o
+    # modo que mais produz segredo em texto e o unico que o padrao nao pegava.
+    (r"(?i)([\"']?)\b(password|passwd|pwd|senha|secret|client_secret)\1"
+     r"(\s*[=:]\s*)([\"']?)([^;,\s\"']{1,128})\4", r"\1\2\1\3\4***\4"),
+    # Cabecalho de autorizacao, com ou sem aspas em volta, Bearer ou Basic.
+    (r"(?i)([\"']?)\b(authorization|x-api-key|api[-_]?key|token|access_token)\1"
+     r"(\s*[=:]\s*)([\"']?)((?:bearer|basic)\s+)?([^\s\"',;}]{8,})",
+     r"\1\2\1\3\4\5***"),
     # Chaves dos proprios provedores de IA, no formato publicado por cada um.
     (r"\bsk-[A-Za-z0-9_\-]{16,}", "sk-***"),
     (r"\bAIza[A-Za-z0-9_\-]{16,}", "AIza***"),
+    # Formato novo das chaves do Google, que o proprio arquivo ja documenta em
+    # outro ponto (AIza -> AQ.) e que nenhum padrao cobria.
+    (r"\bAQ[._][A-Za-z0-9_\-]{16,}", "AQ.***"),
+    # Cookie de sessao: nao e senha, mas serve para entrar como o usuario.
+    (r"(?i)\b(set-cookie|cookie)(\s*:\s*)([^\s;]{8,})", r"\1\2***"),
 )
 
 
@@ -1188,7 +1333,7 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
 async def executar(api_key, url_alvo, objetivo):
     iniciar_execucao("Tela", url_alvo, objetivo)
     if not tem_lib("mcp"):
-        responder("Biblioteca ausente: mcp. Rode: pip install mcp")
+        responder("Biblioteca ausente: mcp. Rode: pip install mcp", erro=True)
         return
 
     from mcp import ClientSession, StdioServerParameters
@@ -1254,19 +1399,19 @@ async def executar(api_key, url_alvo, objetivo):
                 # quebraria com chaves novas. Ver: prefixos AIza, AQ., AQ_ e afins.
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic.")
+                        responder("Biblioteca ausente: anthropic.", erro=True)
                         return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
                 elif api_key.startswith("sk-"):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai.")
+                        responder("Biblioteca ausente: openai.", erro=True)
                         return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
                 else:
                     # Gemini: aceita AIza (classico), AQ./AQ_ (novo formato 2026)
                     # e qualquer outro que nao seja Claude/OpenAI.
                     if not tem_lib("google.generativeai"):
-                        responder("Biblioteca ausente: google-generativeai. Rode: pip install google-generativeai")
+                        responder("Biblioteca ausente: google-generativeai. Rode: pip install google-generativeai", erro=True)
                         return
                     resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
@@ -1294,7 +1439,7 @@ async def executar(api_key, url_alvo, objetivo):
 
                 responder(resultado)
     except FileNotFoundError:
-        responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
+        responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.", erro=True)
     except BaseException as e:
         # ExceptionGroup (TaskGroup) esconde a causa real; desempacota para mostrar.
         import traceback
@@ -1302,7 +1447,7 @@ async def executar(api_key, url_alvo, objetivo):
         log("=== TRACEBACK COMPLETO ===")
         log(traceback.format_exc())
         responder(f"ERRO no agente MCP: {detalhe}"
-                  + _dica_falha_servidor_mcp(detalhe, pacote))
+                  + _dica_falha_servidor_mcp(detalhe, pacote), erro=True)
 
 
 async def executar_banco(api_key, dsn, somente_leitura, objetivo):
@@ -1311,7 +1456,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
     somente_leitura: se True, o DBHub e configurado para so aceitar leitura."""
     iniciar_execucao("Banco", dsn, objetivo, somente_leitura)
     if not tem_lib("mcp"):
-        responder("Biblioteca ausente: mcp. Rode: pip install mcp")
+        responder("Biblioteca ausente: mcp. Rode: pip install mcp", erro=True)
         return
 
     from mcp import ClientSession, StdioServerParameters
@@ -1365,15 +1510,15 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
                 # Reusa os mesmos loops de IA do modo tela
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic."); return
+                        responder("Biblioteca ausente: anthropic.", erro=True); return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
                 elif api_key.startswith("sk-"):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai."); return
+                        responder("Biblioteca ausente: openai.", erro=True); return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
                 else:
                     if not tem_lib("google.generativeai"):
-                        responder("Biblioteca ausente: google-generativeai."); return
+                        responder("Biblioteca ausente: google-generativeai.", erro=True); return
                     resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
                 # Grava na memoria compartilhada com o chat
@@ -1396,7 +1541,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
 
                 responder(resultado)
     except FileNotFoundError:
-        responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
+        responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.", erro=True)
     except BaseException as e:
         import traceback
         detalhe = _mascarar_credenciais(_detalhar_excecao(e))
@@ -1412,7 +1557,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
         elif "not found" in d and "npx" in d:
             dica = " (Node.js/npx nao encontrado - instale o Node 18+)"
         dica += _dica_falha_servidor_mcp(detalhe, pacote)
-        responder(f"ERRO no agente de banco: {detalhe}{dica}")
+        responder(f"ERRO no agente de banco: {detalhe}{dica}", erro=True)
 
 
 async def executar_api(api_key, req, objetivo):
@@ -1427,10 +1572,10 @@ async def executar_api(api_key, req, objetivo):
                      f"{req.get('metodo') or 'GET'} {req.get('url') or ''}".strip(),
                      objetivo)
     if not tem_lib("mcp"):
-        responder("Biblioteca ausente: mcp. Rode: pip install mcp")
+        responder("Biblioteca ausente: mcp. Rode: pip install mcp", erro=True)
         return
     if not tem_lib("requests"):
-        responder("Biblioteca ausente: requests. Rode: pip install requests")
+        responder("Biblioteca ausente: requests. Rode: pip install requests", erro=True)
         return
 
     from mcp import ClientSession, StdioServerParameters
@@ -1440,7 +1585,8 @@ async def executar_api(api_key, req, objetivo):
     if not os.path.exists(caminho_servidor):
         responder("Arquivo ausente: servidor_http_mcp.py.\n\n"
                   f"Ele deveria estar em: {SCRIPT_DIR}\n"
-                  "Reinstale o T2M ou recompile o projeto (o build copia os .py).")
+                  "Reinstale o T2M ou recompile o projeto (o build copia os .py).",
+                  erro=True)
         return
 
     metodo0 = req.get("metodo", "GET")
@@ -1480,15 +1626,15 @@ async def executar_api(api_key, req, objetivo):
 
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic."); return
+                        responder("Biblioteca ausente: anthropic.", erro=True); return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
                 elif api_key.startswith("sk-"):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai."); return
+                        responder("Biblioteca ausente: openai.", erro=True); return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
                 else:
                     if not tem_lib("google.generativeai"):
-                        responder("Biblioteca ausente: google-generativeai."); return
+                        responder("Biblioteca ausente: google-generativeai.", erro=True); return
                     resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
                 try:
@@ -1510,12 +1656,12 @@ async def executar_api(api_key, req, objetivo):
                 responder(resultado)
     except FileNotFoundError:
         responder("Erro: nao foi possivel iniciar o Python para subir o servidor "
-                  "MCP de HTTP. Verifique a instalacao do Python.")
+                  "MCP de HTTP. Verifique a instalacao do Python.", erro=True)
     except BaseException as e:
         import traceback
         log("=== TRACEBACK COMPLETO (api) ===")
         log(traceback.format_exc())
-        responder(f"ERRO no teste de API: {_detalhar_excecao(e)}")
+        responder(f"ERRO no teste de API: {_detalhar_excecao(e)}", erro=True)
 
 
 # ------------------------------------------------------------------ #
@@ -2470,15 +2616,15 @@ async def executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
 
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic."); return True
+                        responder("Biblioteca ausente: anthropic.", erro=True); return True
                     resultado = await loop_anthropic(filtrada, api_key, instrucao, permitidas)
                 elif api_key.startswith("sk-"):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai."); return True
+                        responder("Biblioteca ausente: openai.", erro=True); return True
                     resultado = await loop_openai(filtrada, api_key, instrucao, permitidas)
                 else:
                     if not tem_lib("google.generativeai"):
-                        responder("Biblioteca ausente: google-generativeai."); return True
+                        responder("Biblioteca ausente: google-generativeai.", erro=True); return True
                     resultado = await loop_gemini(filtrada, api_key, instrucao, permitidas)
 
                 try:
@@ -2518,10 +2664,18 @@ async def executar_oracle(api_key, info, somente_leitura, objetivo):
                 return
         except Exception as e:
             log(f">>> Erro inesperado no caminho MCP: {type(e).__name__}: {e}")
+        # O caminho MCP responde DENTRO dos gerenciadores de contexto. Se a falha
+        # vier no fechamento deles - "cancel scope in a different task", classico
+        # do anyio -, o 'return True' nunca executa e o despachante caia para o
+        # driver nativo, refazendo o teste inteiro: o operador recebia dois
+        # relatorios e pagava dois testes. Se o relatorio ja saiu, acabou.
+        if _JA_RESPONDEU:
+            log(">>> O relatorio ja foi entregue; nao vou refazer o teste.")
+            return
         if ORACLE_VIA_MCP == "1":
             responder("O modo Oracle via MCP esta forcado em Configuracoes, mas o "
                       "SQLcl nao pode ser usado.\n\nInstale o SQLcl 25.2+ e o Java 17+, "
-                      "ou volte 'oracle_via_mcp' para 'auto'.")
+                      "ou volte 'oracle_via_mcp' para 'auto'.", erro=True)
             return
         log(">>> Caindo para o driver nativo (oracledb).")
     await executar_oracle_nativo(api_key, info, somente_leitura, objetivo)
@@ -2532,14 +2686,14 @@ async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
     A IA recebe ferramentas (listar/descrever/executar) no mesmo padrao de tool-use."""
     if not tem_lib("oracledb"):
         responder("Biblioteca ausente: oracledb (driver oficial da Oracle).\n"
-                  "Instale com: pip install oracledb")
+                  "Instale com: pip install oracledb", erro=True)
         return
 
     log(">>> Conectando ao Oracle (thin mode, driver oficial)...")
     try:
         conn = _oracle_abrir_conexao(info)
     except Exception as e:
-        responder(f"Nao foi possivel conectar ao Oracle: {type(e).__name__}: {e}")
+        responder(f"Nao foi possivel conectar ao Oracle: {type(e).__name__}: {e}", erro=True)
         return
 
     log(">>> Oracle conectado.")
@@ -2562,15 +2716,15 @@ async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
     try:
         if api_key.startswith("sk-ant-"):
             if not tem_lib("anthropic"):
-                responder("Biblioteca ausente: anthropic."); return
+                responder("Biblioteca ausente: anthropic.", erro=True); return
             resultado = await _loop_ferramentas_anthropic(api_key, instrucao, ferramentas, despachar)
         elif api_key.startswith("sk-"):
             if not tem_lib("openai"):
-                responder("Biblioteca ausente: openai."); return
+                responder("Biblioteca ausente: openai.", erro=True); return
             resultado = await _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar)
         else:
             if not tem_lib("google.generativeai"):
-                responder("Biblioteca ausente: google-generativeai."); return
+                responder("Biblioteca ausente: google-generativeai.", erro=True); return
             resultado = await _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar)
 
         try:
@@ -2590,7 +2744,7 @@ async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
     except Exception as e:
         import traceback
         log(traceback.format_exc())
-        responder(f"ERRO no teste Oracle: {type(e).__name__}: {e}")
+        responder(f"ERRO no teste Oracle: {type(e).__name__}: {e}", erro=True)
     finally:
         try:
             conn.close()
@@ -2604,21 +2758,32 @@ async def _loop_ferramentas_anthropic(api_key, instrucao, ferramentas, despachar
     from anthropic import Anthropic
     client = Anthropic(api_key=api_key)
     mensagens = [{"role": "user", "content": instrucao}]
+    ultimo_texto = ""
     for passo in range(MAX_ITERACOES):
         _marcar_passo("Claude", MODELO_CLAUDE, passo + 1)
         resp = client.messages.create(model=MODELO_CLAUDE,
                                       max_tokens=MAX_TOKENS, tools=ferramentas, messages=mensagens)
         mensagens.append({"role": "assistant", "content": resp.content})
+        parcial = "".join(b.text for b in resp.content if b.type == "text").strip()
+        if parcial:
+            ultimo_texto = parcial
         usos = [b for b in resp.content if b.type == "tool_use"]
         if not usos:
-            return "".join(b.text for b in resp.content if b.type == "text").strip() or "(sem resposta)"
+            return parcial or "(sem resposta)"
         resultados = []
         for uso in usos:
             r = despachar(uso.name, dict(uso.input) if uso.input else {})
             resultados.append({"type": "tool_result", "tool_use_id": uso.id,
                                "content": json.dumps(r, ensure_ascii=False, default=str)[:6000]})
         mensagens.append({"role": "user", "content": resultados})
-    return "Limite de passos atingido."
+    # Mesmo contrato dos lacos dos outros modos: devolver o que ja foi apurado e
+    # avisar que esta incompleto. Antes estes dois lacos do Oracle nativo
+    # jogavam fora todo o trabalho e devolviam uma frase seca - e o registro no
+    # historico saia como "concluido" para um teste cortado no meio.
+    _marcar_limite_atingido()
+    return (ultimo_texto + AVISO_LIMITE) if ultimo_texto else (
+        "O teste nao produziu nenhum relatorio antes de atingir o limite "
+        "de passos." + AVISO_LIMITE)
 
 
 async def _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar):
@@ -2628,12 +2793,15 @@ async def _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar):
         "name": f["name"], "description": f["description"], "parameters": f["input_schema"]}}
         for f in ferramentas]
     mensagens = [{"role": "user", "content": instrucao}]
+    ultimo_texto = ""
     for passo in range(MAX_ITERACOES):
         _marcar_passo("OpenAI", MODELO_OPENAI, passo + 1)
         resp = client.chat.completions.create(model=MODELO_OPENAI, tools=tools,
                                               messages=mensagens, max_tokens=MAX_TOKENS)
         msg = resp.choices[0].message
         mensagens.append(msg.model_dump(exclude_none=True))
+        if (msg.content or "").strip():
+            ultimo_texto = msg.content.strip()
         if not msg.tool_calls:
             return (msg.content or "(sem resposta)").strip()
         for tc in msg.tool_calls:
@@ -2644,7 +2812,10 @@ async def _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar):
             r = despachar(tc.function.name, args)
             mensagens.append({"role": "tool", "tool_call_id": tc.id,
                               "content": json.dumps(r, ensure_ascii=False, default=str)[:6000]})
-    return "Limite de passos atingido."
+    _marcar_limite_atingido()
+    return (ultimo_texto + AVISO_LIMITE) if ultimo_texto else (
+        "O teste nao produziu nenhum relatorio antes de atingir o limite "
+        "de passos." + AVISO_LIMITE)
 
 
 async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
@@ -2713,7 +2884,7 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
     fica restrito ao banco informado."""
     iniciar_execucao("MongoDB", conn_string, objetivo, somente_leitura)
     if not tem_lib("mcp"):
-        responder("Biblioteca ausente: mcp. Rode: pip install mcp")
+        responder("Biblioteca ausente: mcp. Rode: pip install mcp", erro=True)
         return
 
     from mcp import ClientSession, StdioServerParameters
@@ -2765,15 +2936,15 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
 
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic."); return
+                        responder("Biblioteca ausente: anthropic.", erro=True); return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
                 elif api_key.startswith("sk-"):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai."); return
+                        responder("Biblioteca ausente: openai.", erro=True); return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
                 else:
                     if not tem_lib("google.generativeai"):
-                        responder("Biblioteca ausente: google-generativeai."); return
+                        responder("Biblioteca ausente: google-generativeai.", erro=True); return
                     resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
 
                 try:
@@ -2792,7 +2963,7 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
 
                 responder(resultado)
     except FileNotFoundError:
-        responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.")
+        responder("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+ de nodejs.org.", erro=True)
     except BaseException as e:
         # BaseException (nao Exception): um BaseExceptionGroup - que o anyio pode
         # levantar ao cancelar - escapava daqui, o script morria sem imprimir
@@ -2808,10 +2979,95 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
         elif "econnrefused" in d or "connection refused" in d or "timed out" in d:
             dica = " (o banco nao respondeu - verifique host/porta e a lista de IPs liberados)"
         dica += _dica_falha_servidor_mcp(detalhe, pacote)
-        responder(f"ERRO no MongoDB: {detalhe}{dica}")
+        responder(f"ERRO no MongoDB: {detalhe}{dica}", erro=True)
+
+
+def _saida_historico():
+    """Modos de consulta do historico, usados pela tela do aplicativo.
+
+    Sao os unicos caminhos deste arquivo que NAO leem stdin e nao pedem chave de
+    IA: consultar o que ja foi executado nao gasta token nem precisa de segredo.
+    Devolve True quando tratou o argumento, para o main() sair sem esperar
+    entrada nenhuma - se esperasse, a tela ficaria travada."""
+    args = [a.lower() for a in sys.argv[1:]]
+    if "--historico" in args:
+        registros, ruins = ler_historico()
+        print("HIST_INICIO")
+        for n, r in enumerate(registros, 1):
+            # Um registro estranho nao pode custar a lista inteira: sem o
+            # HIST_FIM, a tela descarta tudo e mostra "nao foi possivel ler".
+            try:
+                print(_linha_tsv_historico(n, r))
+            except Exception:
+                ruins += 1
+        print("HIST_FIM")
+        if ruins:
+            log(f">>> {ruins} linha(s) do historico estavam ilegiveis e foram "
+                f"puladas.")
+        return True
+
+    if "--historico-detalhe" in args:
+        i = args.index("--historico-detalhe")
+        chave = args[i + 1] if i + 1 < len(args) else ""
+        registros, _ = ler_historico()
+        # Procura pelo ID primeiro. A posicao na lista so vale como reserva,
+        # para registros antigos gravados antes de existir id: entre listar e
+        # clicar, uma execucao nova pode ter entrado no arquivo e todas as
+        # posicoes teriam deslizado.
+        achado = next((r for r in registros
+                       if chave and r.get("id") == chave), None)
+        if achado is None and chave.isdigit():
+            n = int(chave)
+            if 1 <= n <= len(registros):
+                achado = registros[n - 1]
+        print("HIST_INICIO")
+        try:
+            print(_texto_detalhe_historico(achado) if achado is not None
+                  else "Execucao nao encontrada no historico.")
+        except Exception as e:
+            print(f"Nao foi possivel montar o detalhe: {type(e).__name__}: {e}")
+        print("HIST_FIM")
+        return True
+
+    return False
+
+
+def _texto_detalhe_historico(r):
+    """O registro inteiro em texto, do jeito que vai para a tela e para o
+    relatorio exportado. Cabecalho primeiro, relatorio depois: quem abre isto
+    quer saber o que foi testado antes de ler o que a IA escreveu."""
+    linhas = []
+    for chave, rotulo in (("inicio", "Inicio"), ("fim", "Fim"),
+                          ("duracao_s", "Duracao (s)"), ("modo", "Modo"),
+                          ("alvo", "Alvo"),
+                          ("somente_leitura", "Somente leitura"),
+                          ("provedor", "Provedor"), ("modelo", "Modelo"),
+                          ("passos_usados", "Passos usados"),
+                          ("passos_max", "Passos maximos"),
+                          ("limite_atingido", "Bateu no teto de passos"),
+                          ("instrucoes_operador", "Instrucoes permanentes ativas"),
+                          ("erro", "Nao chegou a rodar")):
+        if r.get(chave) is not None:
+            linhas.append(f"{rotulo:<30}: {r.get(chave)}")
+    recusas = r.get("recusas") or {}
+    if recusas:
+        linhas.append("Ferramentas recusadas          : "
+                      + ", ".join(f"{k} ({v}x)" for k, v in recusas.items()))
+    linhas.append("")
+    linhas.append("Objetivo:")
+    linhas.append(r.get("objetivo") or "(vazio)")
+    linhas.append("")
+    linhas.append("-" * 66)
+    linhas.append("")
+    linhas.append(r.get("relatorio") or "(sem relatorio)")
+    return "\n".join(linhas)
 
 
 def main():
+    # Antes de qualquer leitura de stdin: os modos de consulta nao recebem nada.
+    if _saida_historico():
+        return
+
     dados = sys.stdin.read()
     partes = dados.split("\n", 2)
     api_key = partes[0].strip() if len(partes) > 0 else ""
@@ -2819,10 +3075,10 @@ def main():
     objetivo = partes[2].strip() if len(partes) > 2 else ""
 
     if not api_key:
-        responder("Erro: nenhuma chave de API foi informada.")
+        responder("Erro: nenhuma chave de API foi informada.", erro=True)
         return
     if not objetivo:
-        responder("Erro: nenhum objetivo de teste foi informado.")
+        responder("Erro: nenhum objetivo de teste foi informado.", erro=True)
         return
 
     # Fica no log de proposito. Instrucao invisivel que muda o comportamento do

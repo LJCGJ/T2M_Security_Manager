@@ -20,7 +20,6 @@ COMO USAR:
     python ver_historico.py --resumo        # contagem por modo e por resultado
 """
 
-import json
 import os
 import sys
 
@@ -37,35 +36,16 @@ except Exception as e:
     sys.exit(1)
 
 
+# A leitura do arquivo e o veredito de cada execucao vivem no agente_mcp.py: sao
+# os mesmos para os tres leitores (esta tela de linha de comando, a tela do
+# aplicativo e a suite de testes). Regra de leitura em tres copias derivaria, e a
+# copia esquecida seria sempre a que ninguem testa.
 def carregar():
-    """Le o JSONL pulando linha corrompida em vez de desistir do arquivo todo.
-
-    Uma linha quebrada (falta de energia no meio de uma escrita) nao pode custar
-    o historico inteiro - foi justamente por isso que o formato e uma linha por
-    execucao e nao um JSON unico."""
-    if not os.path.exists(A.ARQUIVO_HISTORICO):
-        return [], 0
-    registros, ruins = [], 0
-    with open(A.ARQUIVO_HISTORICO, "r", encoding="utf-8", errors="replace") as f:
-        for linha in f:
-            linha = linha.strip()
-            if not linha:
-                continue
-            try:
-                registros.append(json.loads(linha))
-            except Exception:
-                ruins += 1
-    return registros, ruins
+    return A.ler_historico()
 
 
 def rotulo_resultado(r):
-    if r.get("erro"):
-        return "NAO RODOU"
-    if r.get("limite_atingido"):
-        return "INCOMPLETO"
-    if r.get("recusas"):
-        return "COM RECUSA"
-    return "concluido"
+    return A.rotulo_resultado(r)
 
 
 def uma_linha(i, r):
