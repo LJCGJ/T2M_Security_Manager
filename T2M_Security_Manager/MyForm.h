@@ -1823,7 +1823,13 @@ namespace T2MSecurityManager {
 		btnAutomacao->FlatStyle = FlatStyle::Flat;
 		btnAutomacao->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
 		btnAutomacao->Click += gcnew System::EventHandler(this, &MyForm::btnAutomacao_Click);
-		formIA->Controls->Add(btnAutomacao);
+		// NAO entra na janela. Depois que os modos MCP passaram a viver na faixa
+		// da tela inicial, este botao virou um segundo caminho para exatamente a
+		// mesma coisa - e dois caminhos para a mesma acao, em telas diferentes,
+		// e confusao, nao conveniencia. O objeto continua existindo de proposito:
+		// AtualizarBotoesModo e DefinirOcupado leem BackColor e Enabled dele, e
+		// remover so a criacao daria acesso a nulo em dois lugares distantes.
+		btnAutomacao->Visible = false;
 		dica->SetToolTip(btnAutomacao,
 			L"AUTOMACAO (via MCP, execucao real)\n"
 			L"Teste de Tela: descreva o teste e a IA executa passo a passo ao vivo.\n"
@@ -3440,13 +3446,16 @@ namespace T2MSecurityManager {
 			else if (modoAtivo == 1)
 				lblChatStatus->Text = L"Modo Scan DOM: sua proxima mensagem escaneia a pagina (URL Alvo) - bom para seguranca e testes simples.";
 			else {
-				// Mensagem depende do tipo de automacao escolhido
+				// Modo MCP: como o botao que o representava saiu da janela, o
+				// status e o UNICO sinal de que a proxima mensagem vai executar
+				// de verdade e custar mais. Ele precisa dizer isso com todas as
+				// letras, e dizer como voltar.
 				if (tipoAutomacao == 0)
-					lblChatStatus->Text = L"Automacao - Teste de Tela: descreva o teste; o MCP executa ao vivo (gasta mais tokens).";
+					lblChatStatus->Text = L"MCP - Teste de Tela (vindo da tela principal): descreva o teste; a IA executa ao vivo. Clique em Chat para so conversar.";
 				else if (tipoAutomacao == 1)
-					lblChatStatus->Text = L"Automacao - Teste de API: adicione sua API aqui no chat (metodo, URL, headers, payload).";
+					lblChatStatus->Text = L"MCP - Teste de API (vindo da tela principal): informe metodo, URL, headers e payload. Clique em Chat para so conversar.";
 				else
-					lblChatStatus->Text = L"Automacao - Banco de Dados: informe tipo de banco e conexao quando solicitado.";
+					lblChatStatus->Text = L"MCP - Banco de Dados (vindo da tela principal): a IA consulta o banco de verdade. Clique em Chat para so conversar.";
 			}
 		}
 	}
@@ -4330,7 +4339,7 @@ namespace T2MSecurityManager {
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
 		rtbChat->SelectionColor = System::Drawing::Color::Black;
 		rtbChat->AppendText(L"Assistente especialista em Automacao, Qualidade (QA) e Seguranca.\n\n");
-		rtbChat->AppendText(L"Escolha um modo no topo (passe o mouse para ver detalhes):\n");
+		rtbChat->AppendText(L"Aqui voce conversa, planeja e gera script (passe o mouse nos botoes):\n");
 
 		rtbChat->SelectionColor = System::Drawing::Color::MediumSeaGreen;
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
@@ -4348,10 +4357,12 @@ namespace T2MSecurityManager {
 
 		rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
-		rtbChat->AppendText(L"   ⚙ Automacao");
+		rtbChat->AppendText(L"\nPara EXECUTAR um teste de verdade");
 		rtbChat->SelectionColor = System::Drawing::Color::Black;
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
-		rtbChat->AppendText(L" - executar ao vivo no navegador via MCP (Teste de Tela).\n\n");
+		rtbChat->AppendText(L" - tela, banco ou API via MCP - use a faixa\n"
+			L"\"Testar com a IA via MCP\" na tela principal. O resultado volta "
+			L"para ca, e daqui\nvoce conversa sobre ele.\n\n");
 
 		rtbChat->SelectionColor = System::Drawing::Color::Indigo;
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
