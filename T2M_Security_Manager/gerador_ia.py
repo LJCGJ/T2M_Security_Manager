@@ -29,6 +29,72 @@ import subprocess
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+# O nome do modelo que respondeu por ultimo. Arquivo minusculo, so para nao
+# repetir as tentativas perdidas a cada mensagem.
+_ARQ_MODELO_OK = "modelo_gemini_ok.txt"
+
+
+def _modelo_que_funcionou():
+    try:
+        caminho = _caminho_dados(_ARQ_MODELO_OK)
+        if os.path.exists(caminho):
+            with open(caminho, "r", encoding="utf-8") as f:
+                nome = f.read().strip()
+            # So aceita nome com cara de modelo: um arquivo corrompido nao pode
+            # fazer a primeira tentativa ser sempre um lixo.
+            if nome and len(nome) < 80 and "/" not in nome and "\\" not in nome:
+                return nome
+    except Exception:
+        pass
+    return ""
+
+
+def _guardar_modelo_que_funcionou(nome):
+    try:
+        anterior = _modelo_que_funcionou()
+        if anterior == nome:
+            return                     # nada mudou, nao mexe no disco
+        with open(_caminho_dados(_ARQ_MODELO_OK), "w", encoding="utf-8") as f:
+            f.write(nome.strip())
+    except Exception:
+        pass                           # lembrar e otimizacao, nao requisito
+
+
+def _ordem_modelos(configurado, ultimo_ok, padrao):
+    """Em que ordem tentar os modelos do Gemini.
+
+    A ordem e uma questao de PRECEDENCIA, e errar nela e sutil:
+
+    1. O escolhido em Configuracoes vem SEMPRE primeiro. E uma decisao explicita
+       do operador; se o aplicativo passar na frente dela, a tela de
+       Configuracoes vira enfeite - a pessoa troca de modelo porque a cota do
+       anterior acabou, salva, e continua caindo no mesmo modelo esgotado sem
+       entender por que.
+    2. Depois, o que respondeu da ultima vez. Isso e memoria, nao escolha:
+       serve para nao repetir tentativas perdidas quando nada foi configurado.
+    3. Por fim a lista padrao, como rede.
+
+    Sem repetidos, preservando a ordem."""
+    ordem = []
+    for nome in [configurado, ultimo_ok] + list(padrao or []):
+        nome = (nome or "").strip()
+        if nome and nome not in ordem:
+            ordem.append(nome)
+    return ordem
+
+
+def _e_erro_de_cota(e):
+    """Distingue "acabou a cota" de "esse modelo nao existe".
+
+    Sao coisas opostas: com cota estourada, tentar o proximo modelo so gasta
+    mais uma tentativa contra o MESMO limite. O irmao deste helper vive no
+    agente_mcp.py (_e_erro_de_modelo), do outro lado da mesma moeda."""
+    nome = type(e).__name__
+    msg = str(e).lower()
+    return ("ResourceExhausted" in nome or "429" in msg
+            or "quota" in msg or "rate limit" in msg or "exhausted" in msg)
+
+
 def _caminho_dados(arquivo):
     """Caminho de um arquivo GRAVAVEL do usuario, espelhando o CaminhoDados()
     do MyForm.h: %APPDATA%/T2M Security Manager/<arquivo>.
@@ -442,7 +508,8 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             "gerar o script. Escolha LIVREMENTE a linguagem mais adequada ao caso; como o "
             "aplicativo executa o script pela tela principal, prefira Python (.py), "
             "JavaScript/Node (.js), PowerShell (.ps1), batch (.bat) ou Robot Framework "
-            "(.robot), e na duvida use Python. O script recebe a URL em argv[1] e o token "
+            "(.robot). NAO pergunte a linguagem ao usuario: escolha voce, use Python "
+            "por padrao, e so mude se ele pedir outra. O script recebe a URL em argv[1] e o token "
             "na variavel de ambiente T2M_AUTH_TOKEN. Sempre que gerar codigo, coloque-o em "
             "blocos ```linguagem ... ``` para o sistema conseguir extrair e salvar.")
 
@@ -494,10 +561,9 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             ]
             # Modelos estaveis primeiro. gemini-flash-latest é um alias que o
             # Google mantem sempre apontando para a versao flash atual (bom fallback).
-            modelos = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest']
-            # O modelo escolhido em Configuracoes entra na frente; o resto vira fallback.
-            if MODELO_GEMINI:
-                modelos = [MODELO_GEMINI] + [m for m in modelos if m != MODELO_GEMINI]
+            modelos = _ordem_modelos(MODELO_GEMINI, _modelo_que_funcionou(),
+                                     ['gemini-2.5-flash', 'gemini-2.0-flash',
+                                      'gemini-flash-latest'])
             sucesso = False
             erros = []
             for nome_modelo in modelos:
@@ -507,11 +573,32 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                     response = model.generate_content(mensagens)
                     resposta_ia = response.text.strip()
                     sucesso = True
+                    _guardar_modelo_que_funcionou(nome_modelo)
                     break
                 except Exception as e:
                     # Guarda o erro de CADA modelo, para diagnostico (nao so o ultimo)
                     erros.append(f"{nome_modelo}: {str(e)[:150]}")
-                    log(f">>> {nome_modelo} indisponivel, tentando o proximo...")
+
+                    # Cota estourada NAO e modelo indisponivel. Antes qualquer
+                    # erro virava "indisponivel, tentando o proximo": com a cota
+                    # cheia, o log dizia que tres modelos estavam fora do ar
+                    # quando o problema era outro - e ainda gastava as tres
+                    # tentativas contra o mesmo limite.
+                    if _e_erro_de_cota(e):
+                        log(f">>> {nome_modelo}: limite de uso atingido.")
+                        responder(
+                            "Limite de uso da IA atingido (cota da sua chave do "
+                            "Gemini).\n\nO que costuma resolver, em ordem de "
+                            "esforco:\n"
+                            "- aguardar 1-2 minutos e tentar de novo;\n"
+                            "- trocar para gemini-2.0-flash em Configuracoes, que "
+                            "tem limite por minuto mais folgado;\n"
+                            "- usar uma chave da Anthropic ou da OpenAI;\n"
+                            "- ativar billing no Google AI Studio.")
+                        return
+
+                    log(f">>> {nome_modelo} indisponivel ({type(e).__name__}), "
+                        f"tentando o proximo...")
                     continue
             if not sucesso:
                 detalhe = " || ".join(erros)

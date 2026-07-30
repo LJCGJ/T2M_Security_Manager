@@ -619,6 +619,81 @@ def teste_laco_do_modelo():
 
 
 # ==================================================================== #
+def teste_modelo_do_chat():
+    """Escolha de modelo no chat (gerador_ia.py).
+
+    Encontrado rodando: o log mostrava tres modelos "indisponivel" antes de um
+    funcionar - e isso acontecia em TODA mensagem, porque nada era lembrado.
+    Pior: qualquer excecao virava "modelo indisponivel", inclusive cota
+    estourada. Com a cota cheia, o aplicativo dizia que tres modelos estavam
+    fora do ar e ainda gastava as tres tentativas contra o mesmo limite."""
+    secao("Escolha de modelo do chat")
+
+    import importlib
+    appdata_antes = os.environ.get("APPDATA")
+    os.environ["APPDATA"] = tempfile.mkdtemp(prefix="t2m_modelo_")
+    try:
+        G = importlib.import_module("gerador_ia")
+        importlib.reload(G)
+
+        checa("sem historico, nao ha modelo preferido",
+              G._modelo_que_funcionou() == "")
+        G._guardar_modelo_que_funcionou("gemini-flash-latest")
+        checa("o modelo que respondeu fica lembrado",
+              G._modelo_que_funcionou() == "gemini-flash-latest")
+
+        # Arquivo corrompido nao pode ditar a primeira tentativa de toda mensagem.
+        with open(G._caminho_dados(G._ARQ_MODELO_OK), "w", encoding="utf-8") as f:
+            f.write("../../etc/passwd")
+        checa("conteudo suspeito no arquivo e ignorado",
+              G._modelo_que_funcionou() == "")
+
+        # PRECEDENCIA. Este e o defeito que a memoria do modelo introduziu: o
+        # lembrado passou na frente do escolhido em Configuracoes. O sintoma e
+        # cruel de diagnosticar - a pessoa troca de modelo porque a cota do
+        # anterior acabou, salva, e continua caindo no modelo esgotado.
+        padrao = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+        ordem = G._ordem_modelos("gemini-2.0-flash", "gemini-flash-latest", padrao)
+        checa("o modelo escolhido em Configuracoes vem SEMPRE primeiro",
+              ordem[0] == "gemini-2.0-flash", ordem)
+        checa("o lembrado vem logo depois do escolhido",
+              ordem[1] == "gemini-flash-latest", ordem)
+        checa("sem escolha explicita, o lembrado assume a frente",
+              G._ordem_modelos("", "gemini-flash-latest", padrao)[0]
+              == "gemini-flash-latest")
+        checa("sem escolha e sem memoria, vale a lista padrao",
+              G._ordem_modelos("", "", padrao) == padrao)
+        checa("escolhido igual ao lembrado nao vira duplicata",
+              G._ordem_modelos("gemini-flash-latest", "gemini-flash-latest",
+                               padrao).count("gemini-flash-latest") == 1)
+        checa("a lista nao perde nenhum modelo pelo caminho",
+              set(G._ordem_modelos("gemini-x", "gemini-y", padrao))
+              == set(padrao) | {"gemini-x", "gemini-y"})
+        checa("espaco em branco na configuracao nao vira modelo",
+              G._ordem_modelos("   ", "", padrao) == padrao)
+
+        # A distincao que estava faltando.
+        class ResourceExhausted(Exception):
+            pass
+        cota = [ResourceExhausted("429 quota exceeded"),
+                Exception("429 Too Many Requests"),
+                Exception("Resource has been exhausted (e.g. check quota)")]
+        for e in cota:
+            checa(f"cota reconhecida: {str(e)[:34]!r}", G._e_erro_de_cota(e))
+
+        nao_cota = [Exception("404 models/gemini-x is not found for API version v1beta"),
+                    Exception("PermissionDenied: model not supported"),
+                    Exception("Connection reset by peer")]
+        for e in nao_cota:
+            checa(f"nao e cota: {str(e)[:34]!r}", not G._e_erro_de_cota(e))
+    finally:
+        if appdata_antes is None:
+            os.environ.pop("APPDATA", None)
+        else:
+            os.environ["APPDATA"] = appdata_antes
+
+
+# ==================================================================== #
 def teste_pausa_adaptativa():
     """A pausa entre passos do Gemini nao pode ser um pedagio fixo.
 
@@ -1519,7 +1594,7 @@ def main():
                   teste_aviso_de_limites_no_prompt,
                   teste_instrucoes_do_operador, teste_historico_de_execucoes,
                   teste_args_do_gemini, teste_falhas_de_ferramenta,
-                  teste_pausa_adaptativa):
+                  teste_pausa_adaptativa, teste_modelo_do_chat):
         try:
             teste()
         except Exception as e:
