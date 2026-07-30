@@ -561,6 +561,12 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             ]
             # Modelos estaveis primeiro. gemini-flash-latest é um alias que o
             # Google mantem sempre apontando para a versao flash atual (bom fallback).
+            # Diz o que o app LEU do arquivo, antes de tentar qualquer coisa.
+            # Sem esta linha, quando a configuracao nao pegava por algum motivo,
+            # o log so mostrava o modelo que acabou sendo usado - e nao dava
+            # para distinguir "a configuracao nao valeu" de "o configurado
+            # falhou e caiu no proximo".
+            log(f">>> Modelo configurado: {MODELO_GEMINI or '(nenhum; usando a lista padrao)'}")
             modelos = _ordem_modelos(MODELO_GEMINI, _modelo_que_funcionou(),
                                      ['gemini-2.5-flash', 'gemini-2.0-flash',
                                       'gemini-flash-latest'])

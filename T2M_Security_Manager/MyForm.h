@@ -3421,7 +3421,16 @@ namespace T2MSecurityManager {
 		cfgInstrucoesExtras = safe_cast<TextBox^>(ctl[11])->Text->Trim();
 
 		SalvarConfiguracoesApp();
-		MessageBox::Show(L"Configuracoes salvas.\n\nOs limites passam a valer nas proximas execucoes.",
+		// Diz QUAL modelo foi salvo e para QUAL provedor. O campo de modelo muda
+		// de dono conforme a chave selecionada, entao salvar com a chave errada
+		// em foco grava o nome no provedor errado - e o efeito e o pior
+		// possivel: a tela mostra o modelo novo, o arquivo guarda o antigo, e
+		// nada denuncia a diferenca.
+		MessageBox::Show(
+			L"Configuracoes salvas.\n\nModelo do provedor " + provModelo
+			+ L": " + modeloEscolhido
+			+ L"\n\nVale a partir da PROXIMA mensagem - nao precisa fechar o "
+			L"Copilot. O log mostra qual modelo foi usado em cada consulta.",
 			L"Configuracoes", MessageBoxButtons::OK, MessageBoxIcon::Information);
 		f->Close();
 	}
