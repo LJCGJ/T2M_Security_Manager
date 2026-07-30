@@ -3208,6 +3208,53 @@ namespace T2MSecurityManager {
 		return v->Substring(0, doisPontos + 1) + L"***" + v->Substring(arroba);
 	}
 
+		   // Mascara segredo em texto CORRIDO - relatorio, log, conversa - onde a
+		   // credencial esta no meio de prosa e pode aparecer varias vezes. A
+		   // funcao acima resolve uma string de conexao inteira e sozinha; esta
+		   // resolve o texto de um relatorio que MENCIONA uma.
+		   //
+		   // Por que isto existe: o relatorio exportado e o arquivo que sai da
+		   // maquina - vai por e-mail, entra em chamado, e anexado em auditoria.
+		   // Ate agora ele saia com o que estivesse na tela, e o que estava na
+		   // tela incluia a string de conexao que o operador colou no objetivo.
+		   // Na tela nao mascaramos de proposito: quem esta ali ja conhece a
+		   // propria senha, e esconder um token que a IA achou no alvo destruiria
+		   // justamente o achado do teste. O arquivo e que precisa sair limpo.
+	private: String^ MascararSegredosEmTexto(String^ texto) {
+		if (String::IsNullOrEmpty(texto)) return texto;
+		String^ saida = texto;
+		// Mesmos formatos que o agente Python cobre, na mesma ordem.
+		cli::array<String^>^ padroes = gcnew cli::array<String^>{
+			// esquema://usuario:senha@host
+			L"(?i)\\b([a-z][a-z0-9+.-]*://[^:/\\s]+):([^@/\\s]+)@",
+			// EZConnect do Oracle: usuario/senha@host:porta/servico
+			L"(?i)(\\b[a-z][\\w$#]{0,29})/([^@\\s/]{1,128})@([\\w\\-]+[:/]|[\\w\\-]+\\.[\\w.\\-]+)",
+			// Password=x / senha: x
+			L"(?i)\\b(password|passwd|pwd|senha)(\\s*[=:]\\s*)([^;,\\s\"']{1,128})",
+			// Authorization: Bearer xxx / x-api-key: xxx
+			L"(?i)\\b(authorization|x-api-key|api[-_]?key|token)(\\s*:\\s*)(bearer\\s+)?([^\\s\"',;]{8,})",
+			L"\\bsk-[A-Za-z0-9_\\-]{16,}",
+			L"\\bAIza[A-Za-z0-9_\\-]{16,}"
+		};
+		cli::array<String^>^ trocas = gcnew cli::array<String^>{
+			L"$1:***@", L"$1/***@$3", L"$1$2***", L"$1$2$3***",
+			L"sk-***", L"AIza***"
+		};
+		try {
+			for (int i = 0; i < padroes->Length; i++)
+				saida = System::Text::RegularExpressions::Regex::Replace(
+					saida, padroes[i], trocas[i]);
+		}
+		catch (...) {
+			// Um relatorio sem mascara e pior que um relatorio sem exportar:
+			// melhor falhar visivelmente do que entregar o segredo em silencio.
+			return L"[T2M] Nao foi possivel verificar este conteudo em busca de "
+				L"credenciais, entao ele nao foi exportado. Copie da tela o que "
+				L"precisa, conferindo se nao ha senha ou token no meio.";
+		}
+		return saida;
+	}
+
 		   // Porta padrao de cada banco. Sem isto, o campo nascia com 5432 e
 		   // continuava 5432 depois de escolher Oracle, e a conexao falhava com
 		   // "nenhum listener na porta" - um erro que nao aponta para a causa.
@@ -3824,6 +3871,10 @@ namespace T2MSecurityManager {
 		dlg->DefaultExt = "html";
 		if (dlg->ShowDialog() != System::Windows::Forms::DialogResult::OK) return;
 		String^ caminho = dlg->FileName;
+
+		// Mascara ANTES de escapar: depois de virar &lt; e &amp; os padroes nao
+		// casariam mais, e o segredo passaria batido.
+		conteudo = MascararSegredosEmTexto(conteudo);
 
 		// Escapa o conteudo para HTML
 		String^ corpo = conteudo

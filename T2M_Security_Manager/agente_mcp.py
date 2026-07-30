@@ -519,8 +519,14 @@ def _relatorio_para_memoria(resultado):
     O relatorio contem texto que veio de paginas e bancos nao confiaveis. Como o
     gerador_ia.py reenvia essa memoria a cada turno, uma injecao capturada aqui
     voltaria a ser lida pelo modelo em toda conversa seguinte - a injecao
-    sobreviveria a sessao. A marcacao diz ao modelo que aquilo e dado observado."""
-    return f"{MARCA_INICIO}\n{resultado}\n{MARCA_FIM}"
+    sobreviveria a sessao. A marcacao diz ao modelo que aquilo e dado observado.
+
+    E mascara segredo antes de gravar. memoria_chat.json e JSON puro no disco do
+    operador, sem cifra, e fica ali por tempo indeterminado: se um token que o
+    modelo leu do alvo entra aqui, ele para de ser um dado de passagem e passa a
+    ser um segredo guardado - o pior dos dois mundos, porque ninguem sabe que
+    esta guardando."""
+    return f"{MARCA_INICIO}\n{_mascarar_credenciais(resultado)}\n{MARCA_FIM}"
 
 
 def _detalhar_excecao(e):
@@ -544,12 +550,47 @@ def _detalhar_excecao(e):
     return " | ".join(reais) if reais else f"{type(e).__name__}: {e}"
 
 
+# Formas em que um segredo aparece num texto que vai ser gravado ou exportado.
+# A lista nasceu de URL de conexao, mas o relatorio de um teste passa por muito
+# mais que isso: o modelo cita o cabecalho que mandou, a linha que leu da tabela
+# de usuarios, a string de conexao que o operador colou no objetivo.
+_PADROES_SEGREDO = (
+    # postgres://joao:s3nh4@host/db  e  mongodb+srv://leo:S3nh4@cluster/...
+    (r"(?i)\b([a-z][a-z0-9+.-]*://[^:/\s]+):([^@/\s]+)@", r"\1:***@"),
+    # EZConnect do Oracle: usuario/senha@host:1521/servico. Nao tem :// nenhum,
+    # entao o padrao de cima passa direto por ele - e e a forma mais comum de
+    # alguem escrever uma conexao Oracle a mao.
+    #
+    # O que vem DEPOIS do @ tem de parecer host - ou seguido de :porta / servico,
+    # ou com ponto de dominio. Sem essa exigencia, "o campo data/hora@ do
+    # formulario" virava "data/***@": um relatorio de teste de tela falando de
+    # campo de data e bem mais frequente que uma conexao Oracle escrita a mao, e
+    # mascarar prosa comum ensina o leitor a ignorar os asteriscos.
+    (r"(?i)(\b[a-z][\w$#]{0,29})/([^@\s/]{1,128})@"
+     r"([\w\-]+[:/]|[\w\-]+\.[\w.\-]+)", r"\1/***@\3"),
+    # Par chave=valor de string de conexao ODBC/JDBC/.NET:
+    # Password=x; senha=x; pwd=x
+    (r"(?i)\b(password|passwd|pwd|senha)(\s*[=:]\s*)([^;,\s\"']{1,128})", r"\1\2***"),
+    # Cabecalho de autorizacao, o caso do modo API.
+    (r"(?i)\b(authorization|x-api-key|api[-_]?key|token)(\s*:\s*)"
+     r"(bearer\s+)?([^\s\"',;]{8,})", r"\1\2\3***"),
+    # Chaves dos proprios provedores de IA, no formato publicado por cada um.
+    (r"\bsk-[A-Za-z0-9_\-]{16,}", "sk-***"),
+    (r"\bAIza[A-Za-z0-9_\-]{16,}", "AIza***"),
+)
+
+
 def _mascarar_credenciais(texto):
-    """Troca a senha de URLs de conexao por *** antes de logar ou exibir.
-    Ex.: postgres://joao:s3nh4@host/db  ->  postgres://joao:***@host/db"""
+    """Troca segredos por *** antes de logar, gravar em disco ou exportar.
+
+    Vale a pena ser agressivo aqui: um falso positivo suja um relatorio, um
+    falso negativo manda a senha de producao do cliente por e-mail."""
     if not texto:
         return texto
-    return re.sub(r"(?i)\b([a-z][a-z0-9+.-]*://[^:/\s]+):([^@/\s]+)@", r"\1:***@", str(texto))
+    saida = str(texto)
+    for padrao, troca in _PADROES_SEGREDO:
+        saida = re.sub(padrao, troca, saida)
+    return saida
 
 
 def tem_lib(modulo):
@@ -1102,7 +1143,8 @@ async def executar(api_key, url_alvo, objetivo):
                     memoria.append({
                         "role": "user",
                         "content": f"[AUTOMACAO MCP AO VIVO] Executei uma automacao real no "
-                                   f"navegador sobre {url_alvo} com o objetivo: {objetivo}"
+                                   f"navegador sobre {_mascarar_credenciais(url_alvo)} com o "
+                                   f"objetivo: {_mascarar_credenciais(objetivo)}"
                     })
                     memoria.append({"role": "assistant",
                                     "content": _relatorio_para_memoria(resultado)})
@@ -1203,7 +1245,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
                     memoria.append({
                         "role": "user",
                         "content": f"[AUTOMACAO BANCO DE DADOS] Executei uma consulta/teste no "
-                                   f"banco com o objetivo: {objetivo}"
+                                   f"banco com o objetivo: {_mascarar_credenciais(objetivo)}"
                     })
                     memoria.append({"role": "assistant",
                                     "content": _relatorio_para_memoria(resultado)})
@@ -1312,7 +1354,9 @@ async def executar_api(api_key, req, objetivo):
                         with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
                             memoria = json.load(f)
                     memoria.append({"role": "user",
-                                    "content": f"[TESTE DE API] {metodo0} {url0} - objetivo: {objetivo}"})
+                                    "content": f"[TESTE DE API] {metodo0} "
+                                    f"{_mascarar_credenciais(url0)} - objetivo: "
+                                    f"{_mascarar_credenciais(objetivo)}"})
                     memoria.append({"role": "assistant",
                                     "content": _relatorio_para_memoria(resultado)})
                     with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
@@ -2299,7 +2343,7 @@ async def executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
                     if os.path.exists(ARQUIVO_MEMORIA):
                         with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
                             memoria = json.load(f)
-                    memoria.append({"role": "user", "content": f"[ORACLE/MCP] {objetivo}"})
+                    memoria.append({"role": "user", "content": f"[ORACLE/MCP] {_mascarar_credenciais(objetivo)}"})
                     memoria.append({"role": "assistant",
                                     "content": _relatorio_para_memoria(resultado)})
                     with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
@@ -2390,7 +2434,7 @@ async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
             if os.path.exists(ARQUIVO_MEMORIA):
                 with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
                     memoria = json.load(f)
-            memoria.append({"role": "user", "content": f"[ORACLE] {objetivo}"})
+            memoria.append({"role": "user", "content": f"[ORACLE] {_mascarar_credenciais(objetivo)}"})
             memoria.append({"role": "assistant",
                             "content": _relatorio_para_memoria(resultado)})
             with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
@@ -2590,7 +2634,7 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
                         with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
                             memoria = json.load(f)
                     memoria.append({"role": "user",
-                                    "content": f"[MONGODB] {objetivo}"})
+                                    "content": f"[MONGODB] {_mascarar_credenciais(objetivo)}"})
                     memoria.append({"role": "assistant",
                                     "content": _relatorio_para_memoria(resultado)})
                     with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:

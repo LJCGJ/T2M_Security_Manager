@@ -345,9 +345,65 @@ def teste_mascaramento():
         r = A._mascarar_credenciais(texto)
         checa(f"esconde a senha em {texto.split('://')[0]}",
               segredo not in r and "***" in r, r[:60])
-    limpo = "mongodb://cluster.local:27017/loja"
-    checa("string sem credencial nao e alterada",
-          A._mascarar_credenciais(limpo) == limpo)
+    # Formas que aparecem num RELATORIO, nao numa string de conexao isolada: o
+    # modelo cita o cabecalho que mandou, a linha que leu, o que o operador
+    # colou no objetivo. O relatorio exportado sai da maquina - vai por e-mail,
+    # entra em chamado, e anexado em auditoria.
+    prosa = [
+        ("conn: sistema/Prod2026@srv-orcl:1521/FREEPDB1", "Prod2026"),
+        ("sistema/Prod2026@meubanco.empresa.com/FREEPDB1", "Prod2026"),
+        ("Server=x;User Id=sa;Password=Senha1;Encrypt=true", "Senha1"),
+        ("senha: MinhaSenha123", "MinhaSenha123"),
+        ("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc.def", "eyJhbGciOiJIUzI1NiJ9"),
+        ("x-api-key: 8f3a9d2c11b4ee", "8f3a9d2c11b4ee"),
+        ("usei a chave sk-ant-api03-AbCdEf0123456789xyz", "AbCdEf0123456789xyz"),
+        ("AIzaSyD-1234567890abcdefghij", "1234567890abcdefghij"),
+    ]
+    for texto, segredo in prosa:
+        r = A._mascarar_credenciais(texto)
+        checa(f"esconde segredo em {texto[:28]!r}",
+              segredo not in r and "***" in r, r[:70])
+
+    # Falso positivo suja o relatorio, e um relatorio cheio de *** onde nao ha
+    # segredo ensina o leitor a ignorar os asteriscos - ai o dia em que houver
+    # senha de verdade ninguem repara.
+    for limpo in ("mongodb://cluster.local:27017/loja",
+                  "o campo data/hora@ do formulario",
+                  "validar entrada/saida@ e o resto",
+                  "e-mail joao@empresa.com no cadastro",
+                  "SELECT NOME, CPF FROM CLIENTES WHERE ID = 10",
+                  "o token do formulario estava ausente"):
+        checa(f"nao mexe no que nao e segredo: {limpo[:34]!r}",
+              A._mascarar_credenciais(limpo) == limpo,
+              A._mascarar_credenciais(limpo))
+
+    # O relatorio gravado na memoria do chat passa pelo mascarador. Sem isso o
+    # segredo para de ser dado de passagem e vira segredo GUARDADO, em JSON puro,
+    # por tempo indeterminado - e ninguem sabe que esta guardando.
+    grav = A._relatorio_para_memoria(
+        "Testei com postgres://admin:Senha123@10.0.0.5:5432/prod e funcionou.")
+    checa("relatorio gravado na memoria sai sem a senha",
+          "Senha123" not in grav and "***" in grav)
+    checa("relatorio gravado na memoria mantem a cerca de dado observado",
+          A.MARCA_INICIO in grav and A.MARCA_FIM in grav)
+
+    # Guarda contra deriva: a mesma lista de formatos existe em C++, para o
+    # relatorio exportado. Duas copias da mesma regra derivam com o tempo, e a
+    # que fica para tras e sempre a que ninguem testa.
+    cpp = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "T2M_Security_Manager", "MyForm.h")
+    if not os.path.exists(cpp):
+        cpp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MyForm.h")
+    if os.path.exists(cpp):
+        fonte = open(cpp, encoding="utf-8", errors="replace").read()
+        checa("o C++ mascara antes de exportar o arquivo",
+              "MascararSegredosEmTexto(conteudo)" in fonte)
+        i = fonte.find("String^ MascararSegredosEmTexto")
+        bloco = fonte[i:i + 4000] if i >= 0 else ""
+        no_cpp = bloco.count('L"(?i)') + bloco.count('L"\\\\b')
+        checa("C++ e Python cobrem a mesma quantidade de formatos",
+              no_cpp == len(A._PADROES_SEGREDO),
+              f"C++={no_cpp} Python={len(A._PADROES_SEGREDO)}")
 
 
 # ==================================================================== #
