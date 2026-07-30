@@ -19,6 +19,7 @@ gancho de commit ou numa esteira de integracao.
 """
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -595,6 +596,142 @@ def teste_laco_do_modelo():
 
 
 # ==================================================================== #
+def teste_historico_de_execucoes():
+    """Trilha de auditoria: uma linha de JSON por execucao.
+
+    O que este teste protege nao e a gravacao em si - e a honestidade do
+    registro. Uma execucao que falhou ao conectar tem de aparecer marcada como
+    tal; se ela entrar com a mesma cara de um teste concluido, o historico
+    passa a mentir por omissao, que e pior que nao existir."""
+    secao("Historico de execucoes")
+
+    import io
+    import contextlib
+
+    original = A.ARQUIVO_HISTORICO
+    pasta = tempfile.mkdtemp(prefix="t2m_hist_")
+    A.ARQUIVO_HISTORICO = os.path.join(pasta, "historico_execucoes.jsonl")
+    try:
+        def rodar(resultado, **kw):
+            """Uma execucao completa, do jeito que os modos fazem."""
+            A._zerar_bloqueios()
+            A.iniciar_execucao(kw.get("modo", "Tela"), kw.get("alvo", "x"),
+                               kw.get("objetivo", "objetivo"),
+                               kw.get("somente_leitura"))
+            for chamada in kw.get("passos", []):
+                A._marcar_passo(*chamada)
+            if kw.get("limite"):
+                A._marcar_limite_atingido()
+            for nome in kw.get("recusas", []):
+                A._registrar_bloqueio(nome)
+            with contextlib.redirect_stdout(io.StringIO()):
+                A.responder(resultado)
+
+        def linhas():
+            if not os.path.exists(A.ARQUIVO_HISTORICO):
+                return []
+            with open(A.ARQUIVO_HISTORICO, encoding="utf-8") as f:
+                return [json.loads(x) for x in f if x.strip()]
+
+        # Uma execucao normal.
+        rodar("Testei o login e encontrei um campo sem validacao.",
+              modo="Tela", alvo="https://exemplo.com",
+              passos=[("Claude", "claude-sonnet-4-6", 1),
+                      ("Claude", "claude-sonnet-4-6", 2),
+                      ("Claude", "claude-sonnet-4-6", 3)])
+        regs = linhas()
+        checa("a execucao virou uma linha no historico", len(regs) == 1)
+        r = regs[0] if regs else {}
+        checa("guarda o modo", r.get("modo") == "Tela")
+        checa("guarda o alvo", r.get("alvo") == "https://exemplo.com")
+        checa("guarda quantos passos foram gastos de verdade",
+              r.get("passos_usados") == 3, r.get("passos_usados"))
+        checa("guarda o teto de passos vigente",
+              r.get("passos_max") == A.MAX_ITERACOES)
+        checa("guarda provedor e modelo",
+              r.get("provedor") == "Claude" and "sonnet" in (r.get("modelo") or ""))
+        checa("guarda o relatorio", "sem validacao" in (r.get("relatorio") or ""))
+        checa("guarda inicio e fim", bool(r.get("inicio")) and bool(r.get("fim")))
+        checa("duracao nao e negativa", r.get("duracao_s", -1) >= 0)
+        checa("execucao normal nao e marcada como erro", r.get("erro") is False)
+
+        # Segredo nao pode ir para um arquivo que fica no disco por tempo
+        # indeterminado - nem pelo alvo, nem pelo objetivo, nem pelo relatorio.
+        rodar("Conectei em postgres://admin:Senha123@10.0.0.5:5432/prod e li 40 linhas.",
+              modo="Banco", alvo="postgres://admin:Senha123@10.0.0.5:5432/prod",
+              objetivo="testar postgres://admin:Senha123@10.0.0.5:5432/prod",
+              somente_leitura=True)
+        bruto = open(A.ARQUIVO_HISTORICO, encoding="utf-8").read()
+        checa("nenhuma senha chega ao arquivo de historico",
+              "Senha123" not in bruto)
+        checa("mesmo mascarado, o alvo continua reconhecivel",
+              "10.0.0.5" in bruto and "***" in bruto)
+        r2 = linhas()[-1]
+        checa("guarda se a conexao era somente leitura",
+              r2.get("somente_leitura") is True)
+
+        # Os tres estados que diferenciam um registro honesto de um enfeite.
+        rodar("Erro: 'npx' (Node.js) nao encontrado. Instale o Node 18+.",
+              modo="MongoDB")
+        checa("execucao que nao rodou e marcada como erro",
+              linhas()[-1].get("erro") is True)
+
+        rodar("Passo 15: achei tres campos.", modo="Tela", limite=True,
+              passos=[("Gemini", "gemini-2.5-flash", 15)])
+        r3 = linhas()[-1]
+        checa("execucao que bateu no teto fica marcada",
+              r3.get("limite_atingido") is True)
+        checa("o provedor certo e registrado em cada execucao",
+              r3.get("provedor") == "Gemini")
+
+        rodar("Relatorio.", modo="Tela",
+              recusas=["browser_evaluate", "browser_evaluate", "skills_sync"])
+        r4 = linhas()[-1]
+        checa("as recusas entram no registro com a contagem",
+              (r4.get("recusas") or {}).get("browser_evaluate") == 2
+              and (r4.get("recusas") or {}).get("skills_sync") == 1)
+
+        checa("cinco execucoes, cinco linhas", len(linhas()) == 5)
+
+        # responder() fora de uma execucao (erro antes de saber o modo, ou um
+        # teste como este) nao pode inventar registro.
+        antes = len(linhas())
+        with contextlib.redirect_stdout(io.StringIO()):
+            A.responder("Erro: nenhuma chave de API foi informada.")
+        checa("responder sem execucao aberta nao grava nada",
+              len(linhas()) == antes)
+
+        # Uma linha corrompida nao pode custar o historico inteiro - e a razao
+        # de o formato ser uma linha por execucao e nao um JSON unico.
+        with open(A.ARQUIVO_HISTORICO, "a", encoding="utf-8") as f:
+            f.write('{"modo": "Tela", "inicio": truncad\n')
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import importlib
+        vh = importlib.import_module("ver_historico")
+        importlib.reload(vh)
+        regs, ruins = vh.carregar()
+        checa("o leitor pula a linha corrompida e mantem o resto",
+              len(regs) == 5 and ruins == 1, f"{len(regs)} ok, {ruins} ruins")
+
+        # Rotacao: o arquivo nao pode crescer para sempre no disco de alguem.
+        A.HISTORICO_MAX_BYTES = 2000
+        A.HISTORICO_MANTER = 3
+        for i in range(12):
+            rodar(f"relatorio numero {i} " + "x" * 300, modo="Tela")
+        depois = linhas()
+        checa("a rotacao limita o tamanho do arquivo",
+              len(depois) <= A.HISTORICO_MANTER + 1, len(depois))
+        checa("a rotacao preserva as execucoes MAIS RECENTES",
+              "relatorio numero 11" in (depois[-1].get("relatorio") or ""))
+    finally:
+        A.ARQUIVO_HISTORICO = original
+        A.HISTORICO_MAX_BYTES = 5 * 1024 * 1024
+        A.HISTORICO_MANTER = 500
+        A._zerar_execucao()
+        A._zerar_bloqueios()
+
+
+# ==================================================================== #
 def teste_instrucoes_do_operador():
     """Instrucoes permanentes escritas em Configuracoes.
 
@@ -862,7 +999,7 @@ def main():
                   teste_respostas_do_sqlcl, teste_laco_do_modelo,
                   teste_relatorio_parcial, teste_resumo_de_bloqueios,
                   teste_aviso_de_limites_no_prompt,
-                  teste_instrucoes_do_operador):
+                  teste_instrucoes_do_operador, teste_historico_de_execucoes):
         try:
             teste()
         except Exception as e:

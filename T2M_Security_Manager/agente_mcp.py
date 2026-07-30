@@ -29,6 +29,7 @@ import sys
 import os
 import json
 import asyncio
+import datetime
 import platform
 import re
 import subprocess
@@ -421,6 +422,7 @@ def _texto_do_modelo(resp):
 def _relatorio_parcial_gemini(chat, ultimo_texto, sufixo=None):
     """Ao esgotar os passos, pede ao modelo um fechamento do que ja apurou, em vez
     de devolver um trecho solto como se fosse o relatorio final."""
+    _marcar_limite_atingido()
     if sufixo is None:
         sufixo = AVISO_LIMITE.strip()
     try:
@@ -490,8 +492,139 @@ def _resumo_bloqueios():
     return "\n".join(linhas)
 
 
+# ------------------------------------------------------------------ #
+# HISTORICO DE EXECUCOES                                             #
+# ------------------------------------------------------------------ #
+# Ate agora, o resultado de um teste so existia se o operador lembrasse de
+# clicar em "Relatorio do Teste". Num produto de QA e seguranca vendido a uma
+# empresa, a trilha de auditoria E parte do entregavel: quando o cliente
+# pergunta "prove que voces testaram isso em marco", tem de haver resposta.
+#
+# Uma linha de JSON por execucao (JSONL). Escolhido por tres motivos praticos:
+# acrescentar e uma escrita no fim do arquivo, entao duas execucoes seguidas nao
+# corrompem nada; um arquivo truncado pela metade perde a ultima linha e nao o
+# historico inteiro, como aconteceria com um JSON unico; e da para inspecionar
+# com qualquer ferramenta, sem precisar do aplicativo.
+ARQUIVO_HISTORICO = _caminho_dados("historico_execucoes.jsonl")
+HISTORICO_MAX_BYTES = 5 * 1024 * 1024
+HISTORICO_MANTER = 500          # execucoes preservadas ao rotacionar
+
+_EXECUCAO = None                # dict enquanto uma execucao esta em curso
+_PASSOS_USADOS = 0
+_PROVEDOR_USADO = ""
+_MODELO_USADO = ""
+_LIMITE_ATINGIDO = False
+
+
+def iniciar_execucao(modo, alvo, objetivo, somente_leitura=None):
+    """Abre o registro. Chamado por cada modo, antes de subir servidor nenhum -
+    assim uma execucao que falha ao conectar tambem entra no historico, que e
+    justamente o caso que alguem vai querer conferir depois."""
+    global _EXECUCAO, _PASSOS_USADOS, _PROVEDOR_USADO, _MODELO_USADO
+    global _LIMITE_ATINGIDO
+    _PASSOS_USADOS = 0
+    _PROVEDOR_USADO = ""
+    _MODELO_USADO = ""
+    _LIMITE_ATINGIDO = False
+    _EXECUCAO = {
+        "inicio": datetime.datetime.now().isoformat(timespec="seconds"),
+        "modo": modo,
+        # Mascarado ja na entrada: o alvo costuma ser uma string de conexao, e
+        # este arquivo fica no disco por tempo indeterminado.
+        "alvo": _mascarar_credenciais(alvo or "")[:400],
+        "objetivo": _mascarar_credenciais(objetivo or "")[:2000],
+        "passos_max": MAX_ITERACOES,
+        "somente_leitura": somente_leitura,
+        "instrucoes_operador": bool(INSTRUCOES_OPERADOR),
+    }
+
+
+def _zerar_execucao():
+    global _EXECUCAO
+    _EXECUCAO = None
+
+
+def _marcar_passo(provedor, modelo, numero):
+    """Chamado a cada volta dos lacos. Guarda quantos passos foram REALMENTE
+    gastos - o numero que explica a conta no fim do mes, e que 'passos maximos'
+    sozinho nao informa."""
+    global _PASSOS_USADOS, _PROVEDOR_USADO, _MODELO_USADO
+    _PROVEDOR_USADO = provedor
+    _MODELO_USADO = modelo or ""
+    _PASSOS_USADOS = numero
+
+
+def _marcar_limite_atingido():
+    global _LIMITE_ATINGIDO
+    _LIMITE_ATINGIDO = True
+
+
+def _rotacionar_historico():
+    """Mantem as ultimas HISTORICO_MANTER execucoes quando o arquivo passa do
+    teto. Reescreve num temporario e troca: se faltar energia no meio, o
+    original continua inteiro."""
+    try:
+        if os.path.getsize(ARQUIVO_HISTORICO) <= HISTORICO_MAX_BYTES:
+            return
+        with open(ARQUIVO_HISTORICO, "r", encoding="utf-8") as f:
+            linhas = f.readlines()
+        if len(linhas) <= HISTORICO_MANTER:
+            return
+        temp = ARQUIVO_HISTORICO + ".novo"
+        with open(temp, "w", encoding="utf-8") as f:
+            f.writelines(linhas[-HISTORICO_MANTER:])
+        os.replace(temp, ARQUIVO_HISTORICO)
+        log(f">>> Historico rotacionado: mantidas as ultimas "
+            f"{HISTORICO_MANTER} execucoes.")
+    except Exception as e:
+        log(f">>> Aviso: nao foi possivel rotacionar o historico: {e}")
+
+
+def _parece_erro_do_app(texto):
+    """Distingue 'o teste rodou e achou algo' de 'o teste nao rodou'. Sem essa
+    marca, uma falha de conexao fica no historico com a mesma cara de um teste
+    concluido, e a trilha de auditoria passa a mentir por omissao."""
+    inicio = (texto or "").strip()[:80].lower()
+    return any(inicio.startswith(p) for p in
+               ("erro", "erro:", "biblioteca ausente", "arquivo ausente",
+                "tempo esgotado", "nao foi possivel", "falha"))
+
+
+def _gravar_historico(resultado):
+    """Fecha o registro da execucao em curso. Silencioso quando nenhuma foi
+    aberta - e o caso das mensagens de erro que saem antes de saber o modo, e
+    tambem dos testes que chamam responder() direto."""
+    if not _EXECUCAO:
+        return
+    try:
+        fim = datetime.datetime.now()
+        inicio = datetime.datetime.fromisoformat(_EXECUCAO["inicio"])
+        registro = dict(_EXECUCAO)
+        registro.update({
+            "fim": fim.isoformat(timespec="seconds"),
+            "duracao_s": max(0, int((fim - inicio).total_seconds())),
+            "provedor": _PROVEDOR_USADO,
+            "modelo": _MODELO_USADO,
+            "passos_usados": _PASSOS_USADOS,
+            "limite_atingido": _LIMITE_ATINGIDO,
+            "recusas": dict(_BLOQUEIOS),
+            "erro": _parece_erro_do_app(resultado),
+            "relatorio": _mascarar_credenciais(resultado or "")[:40000],
+        })
+        with open(ARQUIVO_HISTORICO, "a", encoding="utf-8") as f:
+            f.write(json.dumps(registro, ensure_ascii=False) + "\n")
+        _rotacionar_historico()
+    except Exception as e:
+        # Nunca derrubar o teste por causa do registro: o relatorio do operador
+        # vale mais que a linha do historico.
+        log(f">>> Aviso: nao foi possivel gravar no historico: {e}")
+    finally:
+        _zerar_execucao()
+
+
 def responder(texto):
     """Formato que a interface C++ espera no stdout."""
+    _gravar_historico(texto)
     print("CHAT_MSG_INICIO")
     print(texto + _resumo_bloqueios())
     print("CHAT_MSG_FIM")
@@ -759,6 +892,7 @@ async def loop_anthropic(session, api_key, objetivo, mcp_tools):
     ultimo_texto = ""
 
     for passo in range(MAX_ITERACOES):
+        _marcar_passo("Claude", MODELO_CLAUDE, passo + 1)
         resp = client.messages.create(
             model=MODELO_CLAUDE,
             max_tokens=MAX_TOKENS,
@@ -798,6 +932,7 @@ async def loop_anthropic(session, api_key, objetivo, mcp_tools):
             texto = "".join(b.text for b in resp.content if b.type == "text").strip()
             return (texto + "\n\n" + AVISO_NAVEGADOR) if texto else AVISO_NAVEGADOR
 
+    _marcar_limite_atingido()
     return (ultimo_texto + AVISO_LIMITE) if ultimo_texto else (
         "O teste nao produziu nenhum relatorio antes de atingir o limite "
         "de passos." + AVISO_LIMITE)
@@ -829,6 +964,7 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
     ultimo_texto = ""
 
     for passo in range(MAX_ITERACOES):
+        _marcar_passo("OpenAI", MODELO_OPENAI, passo + 1)
         resp = client.chat.completions.create(
             model=MODELO_OPENAI,
             tools=ferramentas,
@@ -864,6 +1000,7 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
             texto = (msg.content or "").strip()
             return (texto + "\n\n" + AVISO_NAVEGADOR) if texto else AVISO_NAVEGADOR
 
+    _marcar_limite_atingido()
     return (ultimo_texto + AVISO_LIMITE) if ultimo_texto else (
         "O teste nao produziu nenhum relatorio antes de atingir o limite "
         "de passos." + AVISO_LIMITE)
@@ -924,6 +1061,7 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     navegador_morto = False
 
     for passo in range(MAX_ITERACOES):
+        _marcar_passo("Gemini", modelos_tentar[idx_modelo], passo + 1)
         # Pausa entre passos para respeitar o limite por minuto do tier gratuito
         # (evita ResourceExhausted no meio da automacao). Nao pausa no 1o passo.
         if passo > 0:
@@ -1048,6 +1186,7 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
 # ORQUESTRACAO: sobe o Playwright MCP e roteia pelo provedor         #
 # ================================================================== #
 async def executar(api_key, url_alvo, objetivo):
+    iniciar_execucao("Tela", url_alvo, objetivo)
     if not tem_lib("mcp"):
         responder("Biblioteca ausente: mcp. Rode: pip install mcp")
         return
@@ -1170,6 +1309,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
     """Sobe o servidor MCP de banco (DBHub) e deixa a IA executar o objetivo via SQL.
     dsn: string de conexao, ex.: postgres://user:senha@host:5432/db
     somente_leitura: se True, o DBHub e configurado para so aceitar leitura."""
+    iniciar_execucao("Banco", dsn, objetivo, somente_leitura)
     if not tem_lib("mcp"):
         responder("Biblioteca ausente: mcp. Rode: pip install mcp")
         return
@@ -1283,6 +1423,9 @@ async def executar_api(api_key, req, objetivo):
     servidor MCP como os demais e reaproveita os mesmos lacos - um formato so
     para os cinco modos.
     """
+    iniciar_execucao("API",
+                     f"{req.get('metodo') or 'GET'} {req.get('url') or ''}".strip(),
+                     objetivo)
     if not tem_lib("mcp"):
         responder("Biblioteca ausente: mcp. Rode: pip install mcp")
         return
@@ -2368,6 +2511,7 @@ async def executar_oracle(api_key, info, somente_leitura, objetivo):
     que vale muito em auditoria corporativa. Mas ele exige Java 17+ e SQLcl
     instalados; onde nao houver, o driver nativo (thin mode) resolve sem
     dependencia nenhuma. O usuario nao fica sem o modo Oracle em cenario algum."""
+    iniciar_execucao("Oracle", _oracle_rotulo(info), objetivo, somente_leitura)
     if ORACLE_VIA_MCP != "0":
         try:
             if await executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
@@ -2460,7 +2604,8 @@ async def _loop_ferramentas_anthropic(api_key, instrucao, ferramentas, despachar
     from anthropic import Anthropic
     client = Anthropic(api_key=api_key)
     mensagens = [{"role": "user", "content": instrucao}]
-    for _ in range(MAX_ITERACOES):
+    for passo in range(MAX_ITERACOES):
+        _marcar_passo("Claude", MODELO_CLAUDE, passo + 1)
         resp = client.messages.create(model=MODELO_CLAUDE,
                                       max_tokens=MAX_TOKENS, tools=ferramentas, messages=mensagens)
         mensagens.append({"role": "assistant", "content": resp.content})
@@ -2483,7 +2628,8 @@ async def _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar):
         "name": f["name"], "description": f["description"], "parameters": f["input_schema"]}}
         for f in ferramentas]
     mensagens = [{"role": "user", "content": instrucao}]
-    for _ in range(MAX_ITERACOES):
+    for passo in range(MAX_ITERACOES):
+        _marcar_passo("OpenAI", MODELO_OPENAI, passo + 1)
         resp = client.chat.completions.create(model=MODELO_OPENAI, tools=tools,
                                               messages=mensagens, max_tokens=MAX_TOKENS)
         msg = resp.choices[0].message
@@ -2520,6 +2666,7 @@ async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
     proxima = instrucao
     ultimo = ""
     for passo in range(MAX_ITERACOES):
+        _marcar_passo("Gemini", getattr(model, "model_name", ""), passo + 1)
         if passo > 0:
             time.sleep(4)
         try:
@@ -2564,6 +2711,7 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
     (criar usuarios, alterar lista de IPs, gerenciar clusters). Como nao passamos
     credenciais da API do Atlas, essas ferramentas nao tem como agir - o acesso
     fica restrito ao banco informado."""
+    iniciar_execucao("MongoDB", conn_string, objetivo, somente_leitura)
     if not tem_lib("mcp"):
         responder("Biblioteca ausente: mcp. Rode: pip install mcp")
         return
