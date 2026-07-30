@@ -705,6 +705,30 @@ def teste_leitura_da_pagina():
     checa("e explica por que isso importa",
           "numa tela " in fonte and "voce nao tera memoria nenhuma" in fonte)
 
+    # NOVO, achado num teste lado a lado: a MESMA pergunta feita no modo Chat
+    # veio respondida com "segundo a leitura fornecida da pagina" e a contagem
+    # exata de campos. Nada foi lido naquela execucao - a estrutura estava no
+    # historico, de uma varredura anterior. O modelo nao mentiu sobre os dados,
+    # mentiu sobre QUANDO os obteve, que num relatorio de QA e igualmente
+    # grave: a pagina pode ter mudado no intervalo.
+    checa("existe a marca de 'esta execucao leu a pagina?'",
+          "houve_leitura = False" in fonte)
+    checa("a varredura so conta como leitura se trouxe conteudo",
+          "houve_leitura = bool(contexto)" in fonte)
+    checa("sem leitura, o modelo e avisado disso",
+          "NESTA MENSAGEM NENHUMA PAGINA FOI LIDA" in fonte)
+    checa("e proibido de dizer que leu agora",
+          "segundo a leitura fornecida" in fonte
+          and "segundo a leitura recebida" in fonte)
+    checa("o dado antigo pode ser usado, desde que datado",
+          "varredura feita antes nesta conversa" in fonte)
+    checa("e o caminho para o estado atual e indicado",
+          "precisa usar o modo Scan DOM" in fonte)
+    checa("o aviso vai no prompt de sistema, fora da memoria gravada",
+          "sistema += (" in fonte)
+    checa("o terminal tambem registra que nada foi lido",
+          "Modo Chat: nenhuma pagina foi lida" in fonte)
+
 
 # ==================================================================== #
 def teste_regra_de_qualidade_do_script():
@@ -1796,6 +1820,31 @@ def teste_modelo_na_conversa():
     blocoP = fonte[k:k + 700] if k >= 0 else ""
     for campo in ("cfgModeloClaude", "cfgModeloOpenAI", "cfgModeloGemini"):
         checa(f"o anuncio cobre {campo}", campo in blocoP)
+
+    # --- MODO usado em cada mensagem ---
+    # Encontrado usando: rodando a mesma pergunta em Chat e em Scan DOM, as
+    # duas respostas ficaram indistinguiveis na conversa. O Chat era o unico
+    # modo que nao escrevia nada antes de responder - justamente o modo em que
+    # a resposta NAO vem de leitura nenhuma.
+    checa("existe o anunciador de modo", "void AnunciarModoNoChat(" in fonte)
+    checa("a linha de modo tem formato proprio", 'L">>> Modo "' in fonte)
+    for modo in ("Chat", "Scan DOM", "Automacao (MCP - tela)",
+                 "Automacao (MCP - API)", "Automacao (MCP - banco)"):
+        checa(f"o modo {modo} se identifica na conversa",
+              f'L"{modo}"' in fonte)
+    checa("os tres modos de automacao dizem que usam MCP",
+          fonte.count("Automacao (MCP -") == 3)
+    checa("o modo Chat avisa que nao le a pagina",
+          "nada e lido da pagina nesta resposta" in fonte)
+    # Todo caminho de envio tem de anunciar: um caminho mudo reintroduz
+    # exatamente a duvida que gerou esta mudanca.
+    checa("todos os cinco caminhos de envio anunciam o modo",
+          fonte.count("AnunciarModoNoChat(") == 6,
+          f"encontrados {fonte.count('AnunciarModoNoChat(')} (5 chamadas + 1 definicao)")
+    m = fonte.find("void AnunciarModoNoChat")
+    blocoM = fonte[m:m + 1200] if m >= 0 else ""
+    checa("o anuncio de modo nao escreve em chat destruido",
+          "rtbChat->IsDisposed" in blocoM)
 
 
 # ==================================================================== #

@@ -472,6 +472,14 @@ def main():
         # --INICIAR_NOVO_CHAT-- : primeira mensagem (apresentacao). MCP_OFF = sem scanner.
         # --SCAN_DOM--          : o usuario esta no modo Scan DOM; escaneia a pagina e
         #                         responde a pergunta que vem depois do prefixo.
+        # Esta execucao leu a pagina de verdade? A resposta muda o que o modelo
+        # pode afirmar. No modo Chat nada e lido - mas a estrutura lida numa
+        # varredura ANTERIOR continua no historico, e o modelo a reapresenta
+        # como se fosse leitura de agora ("segundo a leitura fornecida da
+        # pagina"). Num produto de QA isso e grave: a pagina pode ter mudado
+        # entre uma coisa e outra, e o relatorio afirma ter visto o que nao viu.
+        houve_leitura = False
+
         if prompt_usuario.startswith("--SCAN_DOM--"):
             pergunta = prompt_usuario.replace("--SCAN_DOM--", "", 1).strip()
             if os.path.exists(arquivo_memoria):
@@ -491,6 +499,7 @@ def main():
                             "pagina dele e o que veio da sua memoria, porque numa tela "
                             "interna voce nao tera memoria nenhuma:\n"
                             + extrair_contexto_dom(url_alvo))
+                houve_leitura = bool(contexto)
             entrada = (contexto + "\n\n" if contexto else "") + \
                       ("Com base na estrutura acima, ajude o usuario. " if contexto else "") + \
                       "Pergunta do usuario: " + (pergunta or "Analise a pagina e me diga o que da para automatizar.")
@@ -503,6 +512,7 @@ def main():
                 mapa = ("CONTEXTO INTERNO (nao mencione que isso veio de um scanner; apenas "
                         "use estas informacoes se forem uteis para responder):\n"
                         + extrair_contexto_dom(url_alvo))
+                houve_leitura = True
             else:
                 mapa = ""
 
@@ -583,6 +593,28 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             "O script recebe a URL em argv[1] e o token "
             "na variavel de ambiente T2M_AUTH_TOKEN. Sempre que gerar codigo, coloque-o em "
             "blocos ```linguagem ... ``` para o sistema conseguir extrair e salvar.")
+
+        # Modo Chat: nenhuma pagina foi aberta nesta execucao. Sem dizer isso, o
+        # modelo pega a estrutura que uma varredura anterior deixou no historico
+        # e responde "segundo a leitura fornecida da pagina" - uma afirmacao
+        # falsa sobre QUANDO o dado foi obtido. Quem le o relatorio depois nao
+        # tem como perceber, e e justamente o tipo de engano que a ferramenta
+        # existe para evitar. A regra vai no prompt de sistema (que nao e
+        # gravado na memoria), entao vale so para esta resposta.
+        if not houve_leitura:
+            log(">>> Modo Chat: nenhuma pagina foi lida nesta resposta.")
+            sistema += (
+                "\n\nATENCAO - NESTA MENSAGEM NENHUMA PAGINA FOI LIDA. O usuario "
+                "esta no modo Chat, que nao abre nem acessa a pagina: voce nao "
+                "recebeu leitura nenhuma agora. Se houver estrutura de pagina no "
+                "historico, ela veio de uma varredura ANTERIOR desta conversa e "
+                "pode estar desatualizada. Ao usa-la, diga isso com todas as "
+                "letras (por exemplo: "
+                "\"segundo a varredura feita antes nesta conversa\") "
+                "e NUNCA escreva \"segundo a leitura recebida\", "
+                "\"segundo a leitura fornecida\" ou equivalente, que dariam a "
+                "entender que a pagina foi lida agora. Se o usuario quer o estado "
+                "atual da pagina, diga que ele precisa usar o modo Scan DOM.")
 
         # Roteador por provedor. Ordem importa: prefixos mais especificos primeiro.
         # Gemini fica como padrao porque o Google mudou o formato da chave em 2026

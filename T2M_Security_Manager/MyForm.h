@@ -4853,32 +4853,58 @@ namespace T2MSecurityManager {
 		// Decide a acao conforme o modo ativo
 		if (modoAtivo == 2 && tipoAutomacao == 1) {
 			// TESTE DE API: monta o JSON e envia via ferramenta HTTP do agente
-			rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
-			rtbChat->AppendText(L">>> Testando a API (" + apiMetodo + L" " + apiUrl + L"). Aguarde...\n\n");
+			AnunciarModoNoChat(L"Automacao (MCP - API)",
+				L"testando " + apiMetodo + L" " + apiUrl + L". Aguarde...");
 			RodarWorkerApi(prompt);
 		}
 		else if (modoAtivo == 2 && tipoAutomacao == 2) {
 			// AUTOMACAO DE BANCO: monta o DSN e envia via MCP (DBHub)
-			rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
-			rtbChat->AppendText(L">>> Consultando o banco (" + dbTipo + L") via MCP. Aguarde...\n\n");
+			AnunciarModoNoChat(L"Automacao (MCP - banco)",
+				L"consultando o banco " + dbTipo + L". Aguarde...");
 			RodarWorkerBanco(prompt);
 		}
 		else if (modoAtivo == 2) {
 			// AUTOMACAO DE TELA: o texto do usuario e o objetivo do teste
-			rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
-			rtbChat->AppendText(L">>> Iniciando automacao ao vivo. Uma janela do navegador vai abrir. Aguarde...\n\n");
+			AnunciarModoNoChat(L"Automacao (MCP - tela)",
+				L"execucao ao vivo; uma janela do navegador vai abrir. Aguarde...");
 			RodarWorker(2, prompt, L"Automacao ao vivo em andamento (navegador aberto)...");
 		}
 		else if (modoAtivo == 1) {
 			// Scan DOM
-			rtbChat->SelectionColor = System::Drawing::Color::DimGray;
-			rtbChat->AppendText(L">>> Escaneando a estrutura de " + txtUrl->Text + L"...\n\n");
+			AnunciarModoNoChat(L"Scan DOM",
+				L"lendo a estrutura de " + txtUrl->Text + L"...");
 			RodarWorker(1, L"--SCAN_DOM--\n" + prompt, L"Escaneando a pagina (DOM)...");
 		}
 		else {
-			// Chat normal (so conversa)
+			// Chat normal (so conversa). Este era o UNICO modo que nao escrevia
+			// nada antes da resposta - e por isso o unico impossivel de
+			// identificar relendo a conversa depois.
+			AnunciarModoNoChat(L"Chat",
+				L"so conversa; nada e lido da pagina nesta resposta.");
 			RodarWorker(0, prompt, L"O agente esta pensando...");
 		}
+	}
+
+		   // Escreve na conversa em QUE MODO esta mensagem foi executada.
+		   // Sai em toda execucao, de proposito: o modo muda o que a resposta
+		   // significa (Scan DOM leu a pagina agora; Chat responde de memoria),
+		   // e sem essa linha duas respostas parecidas ficam indistinguiveis ao
+		   // reler - inclusive no relatorio exportado, que e o que vai para o
+		   // chamado ou para a auditoria.
+	private: void AnunciarModoNoChat(String^ modo, String^ detalhe) {
+		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
+		rtbChat->SelectionColor = (modoAtivo == 2)
+			? System::Drawing::Color::DarkSlateBlue
+			: (modoAtivo == 1 ? System::Drawing::Color::SteelBlue
+				: System::Drawing::Color::MediumSeaGreen);
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+		rtbChat->AppendText(L">>> Modo " + modo);
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Regular);
+		rtbChat->AppendText(String::IsNullOrWhiteSpace(detalhe)
+			? L"\n\n" : (L": " + detalhe + L"\n\n"));
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+		rtbChat->SelectionColor = System::Drawing::Color::Black;
+		rtbChat->ScrollToCaret();
 	}
 
 		   // Dispara o worker para o modo BANCO: passa o DSN via URL com marcador --DB--.
