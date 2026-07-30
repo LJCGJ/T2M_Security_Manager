@@ -42,8 +42,8 @@ namespace T2MSecurityManager {
 			this->btnGerarIA = (gcnew System::Windows::Forms::Button());
 			this->btnGerarIA->Name = L"btnGerarIA";
 			this->btnGerarIA->Text = L"✨ T2M Copilot (IA)";
-			this->btnGerarIA->Location = System::Drawing::Point(20, 660);
-			this->btnGerarIA->Size = System::Drawing::Size(200, 35);
+			this->btnGerarIA->Location = System::Drawing::Point(20, 648);
+			this->btnGerarIA->Size = System::Drawing::Size(230, 40);
 			this->btnGerarIA->BackColor = System::Drawing::Color::Indigo;
 			this->btnGerarIA->ForeColor = System::Drawing::Color::White;
 			this->btnGerarIA->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
@@ -54,8 +54,8 @@ namespace T2MSecurityManager {
 			this->btnAnalisarSaida = (gcnew System::Windows::Forms::Button());
 			this->btnAnalisarSaida->Name = L"btnAnalisarSaida";
 			this->btnAnalisarSaida->Text = L"🔎 Analisar saida com a IA";
-			this->btnAnalisarSaida->Location = System::Drawing::Point(230, 660);
-			this->btnAnalisarSaida->Size = System::Drawing::Size(220, 35);
+			this->btnAnalisarSaida->Location = System::Drawing::Point(596, 570);
+			this->btnAnalisarSaida->Size = System::Drawing::Size(170, 42);
 			this->btnAnalisarSaida->BackColor = System::Drawing::Color::MediumPurple;
 			this->btnAnalisarSaida->ForeColor = System::Drawing::Color::White;
 			this->btnAnalisarSaida->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
@@ -66,8 +66,8 @@ namespace T2MSecurityManager {
 			// --- BOTAO DE TEMA (canto superior direito da tela principal) ---
 			this->btnTemaChat = (gcnew System::Windows::Forms::Button());
 			this->btnTemaChat->Name = L"btnTemaChat";
-			this->btnTemaChat->Location = System::Drawing::Point(760, 30);
-			this->btnTemaChat->Size = System::Drawing::Size(140, 28);
+			this->btnTemaChat->Location = System::Drawing::Point(786, 18);
+			this->btnTemaChat->Size = System::Drawing::Size(118, 30);
 			this->btnTemaChat->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
 			this->btnTemaChat->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
 			this->btnTemaChat->FlatAppearance->BorderSize = 1;
@@ -82,8 +82,8 @@ namespace T2MSecurityManager {
 			this->btnHistorico = (gcnew System::Windows::Forms::Button());
 			this->btnHistorico->Name = L"btnHistorico";
 			this->btnHistorico->Text = L"🕓  Historico";
-			this->btnHistorico->Location = System::Drawing::Point(460, 30);
-			this->btnHistorico->Size = System::Drawing::Size(140, 28);
+			this->btnHistorico->Location = System::Drawing::Point(508, 18);
+			this->btnHistorico->Size = System::Drawing::Size(126, 30);
 			this->btnHistorico->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
 			this->btnHistorico->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
 			this->btnHistorico->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
@@ -94,8 +94,8 @@ namespace T2MSecurityManager {
 			this->btnConfiguracoes = (gcnew System::Windows::Forms::Button());
 			this->btnConfiguracoes->Name = L"btnConfiguracoes";
 			this->btnConfiguracoes->Text = L"⚙  Configuracoes";
-			this->btnConfiguracoes->Location = System::Drawing::Point(610, 30);
-			this->btnConfiguracoes->Size = System::Drawing::Size(140, 28);
+			this->btnConfiguracoes->Location = System::Drawing::Point(642, 18);
+			this->btnConfiguracoes->Size = System::Drawing::Size(136, 30);
 			this->btnConfiguracoes->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
 			this->btnConfiguracoes->FlatAppearance->BorderColor = System::Drawing::Color::FromArgb(190, 195, 205);
 			this->btnConfiguracoes->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
@@ -109,6 +109,19 @@ namespace T2MSecurityManager {
 			dicaMain->SetToolTip(this->btnAbrirPasta,
 				L"Abre a pasta onde os scripts de teste sao salvos.\n"
 				L"(a pasta pode ser alterada em Configuracoes)");
+			dicaMain->SetToolTip(this->btnModoTela,
+				L"MODO TELA (via MCP)\n"
+				L"A IA abre um navegador de verdade e age nele: navega, clica, "
+				L"preenche e le a pagina.\nUsa a URL Alvo preenchida abaixo.");
+			dicaMain->SetToolTip(this->btnModoBanco,
+				L"MODO BANCO (via MCP)\n"
+				L"A IA conecta no banco e executa consultas de verdade.\n"
+				L"PostgreSQL, MySQL, MariaDB, SQLite, SQL Server, Oracle e MongoDB.\n"
+				L"O modo somente-leitura fica ligado por padrao.");
+			dicaMain->SetToolTip(this->btnModoApi,
+				L"MODO API (via MCP)\n"
+				L"A IA monta e dispara requisicoes HTTP de verdade e analisa "
+				L"status, cabecalhos e corpo da resposta.");
 			dicaMain->SetToolTip(this->btnAnalisarSaida,
 				L"Leva a saida do ultimo teste para o Copilot explicar o que falhou "
 				L"(senhas e tokens sao mascarados antes).");
@@ -133,6 +146,20 @@ namespace T2MSecurityManager {
 			CarregarConfiguracao();
 			CarregarConfiguracoesApp();
 			CarregarScriptsIA();
+
+			// Molduras para TRAS de tudo. Tem de ser aqui, no fim do construtor,
+			// e nao dentro do InitializeComponent: em WinForms o indice 0 da
+			// colecao e a FRENTE, e Add() acrescenta no fim. Como Historico,
+			// Configuracoes, Tema, Copilot e Analisar sao criados depois do
+			// InitializeComponent, empurrar os paineis la atras deixaria esses
+			// cinco botoes ainda mais atras - escondidos pela propria moldura
+			// que deveria emoldura-los. Aqui, com todo mundo ja na colecao, o
+			// empurrao vale para valer.
+			pnlTopo->SendToBack();
+			pnlModos->SendToBack();
+			pnlScripts->SendToBack();
+			pnlAlvo->SendToBack();
+			pnlSaida->SendToBack();
 
 			// Aplica o tema salvo tambem na janela principal
 			temaEscuro = CarregarPreferenciaTema();
@@ -163,6 +190,17 @@ namespace T2MSecurityManager {
 		Button^ btnConfiguracoes;   // abre a tela de configuracoes
 		Button^ btnHistorico;       // abre a trilha de execucoes ja feitas
 		Button^ btnAnalisarSaida;   // manda o log do teste para o Copilot
+		// Faixa de modos e molduras da tela inicial
+		Button^ btnModoTela; Button^ btnModoBanco; Button^ btnModoApi;
+		System::Windows::Forms::ContextMenuStrip^ menuBancosPrincipal;
+		System::Windows::Forms::Panel^ pnlTopo;
+		System::Windows::Forms::Panel^ pnlModos;
+		System::Windows::Forms::Panel^ pnlScripts;
+		System::Windows::Forms::Panel^ pnlAlvo;
+		System::Windows::Forms::Panel^ pnlSaida;
+		Label^ lblTituloApp; Label^ lblSubtituloApp;
+		Label^ lblModos; Label^ lblModosDica;
+		Label^ lblScripts; Label^ lblAlvo; Label^ lblSaida; Label^ lblCopilotDica;
 		// Preferencias do app (persistidas em configuracoes.txt, lidas tambem pelo Python)
 		String^ cfgPastaRelatorios;
 		String^ cfgPastaSessoes;
@@ -435,25 +473,25 @@ namespace T2MSecurityManager {
 			   this->SuspendLayout();
 
 			   this->picLogo->BackColor = System::Drawing::Color::Transparent;
-			   this->picLogo->Location = System::Drawing::Point(20, 15);
+			   this->picLogo->Location = System::Drawing::Point(20, 9);
 			   this->picLogo->Name = L"picLogo";
-			   this->picLogo->Size = System::Drawing::Size(200, 60);
+			   this->picLogo->Size = System::Drawing::Size(150, 46);
 			   this->picLogo->SizeMode = System::Windows::Forms::PictureBoxSizeMode::Zoom;
 			   this->picLogo->TabIndex = 0;
 			   this->picLogo->TabStop = false;
 
 			   this->lstScripts->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
 			   this->lstScripts->ItemHeight = 17;
-			   this->lstScripts->Location = System::Drawing::Point(20, 140);
+			   this->lstScripts->Location = System::Drawing::Point(29, 212);
 			   this->lstScripts->Name = L"lstScripts";
-			   this->lstScripts->Size = System::Drawing::Size(200, 514);
+			   this->lstScripts->Size = System::Drawing::Size(202, 348);
 			   this->lstScripts->TabIndex = 1;
 
 			   this->btnAdd->BackColor = System::Drawing::Color::LightGreen;
 			   this->btnAdd->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnAdd->Location = System::Drawing::Point(20, 90);
+			   this->btnAdd->Location = System::Drawing::Point(29, 576);
 			   this->btnAdd->Name = L"btnAdd";
-			   this->btnAdd->Size = System::Drawing::Size(80, 35);
+			   this->btnAdd->Size = System::Drawing::Size(74, 26);
 			   this->btnAdd->TabIndex = 2;
 			   this->btnAdd->Text = L"➕ Add";
 			   this->btnAdd->UseVisualStyleBackColor = false;
@@ -461,9 +499,9 @@ namespace T2MSecurityManager {
 
 			   this->btnRemove->BackColor = System::Drawing::Color::LightCoral;
 			   this->btnRemove->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnRemove->Location = System::Drawing::Point(105, 90);
+			   this->btnRemove->Location = System::Drawing::Point(109, 576);
 			   this->btnRemove->Name = L"btnRemove";
-			   this->btnRemove->Size = System::Drawing::Size(75, 35);
+			   this->btnRemove->Size = System::Drawing::Size(78, 26);
 			   this->btnRemove->TabIndex = 3;
 			   this->btnRemove->Text = L"🗑 Remover";
 			   this->btnRemove->UseVisualStyleBackColor = false;
@@ -471,9 +509,9 @@ namespace T2MSecurityManager {
 
 			   this->btnAbrirPasta->BackColor = System::Drawing::Color::LightSkyBlue;
 			   this->btnAbrirPasta->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnAbrirPasta->Location = System::Drawing::Point(185, 90);
+			   this->btnAbrirPasta->Location = System::Drawing::Point(193, 576);
 			   this->btnAbrirPasta->Name = L"btnAbrirPasta";
-			   this->btnAbrirPasta->Size = System::Drawing::Size(35, 35);
+			   this->btnAbrirPasta->Size = System::Drawing::Size(38, 26);
 			   this->btnAbrirPasta->TabIndex = 4;
 			   this->btnAbrirPasta->Text = L"📂";
 			   this->btnAbrirPasta->UseVisualStyleBackColor = false;
@@ -483,39 +521,39 @@ namespace T2MSecurityManager {
 				   static_cast<System::Int32>(static_cast<System::Byte>(30)));
 			   this->txtOutput->Font = (gcnew System::Drawing::Font(L"Consolas", 10));
 			   this->txtOutput->ForeColor = System::Drawing::Color::LimeGreen;
-			   this->txtOutput->Location = System::Drawing::Point(240, 90);
+			   this->txtOutput->Location = System::Drawing::Point(266, 346);
 			   this->txtOutput->Name = L"txtOutput";
 			   this->txtOutput->ReadOnly = true;
-			   this->txtOutput->Size = System::Drawing::Size(660, 360);
+			   this->txtOutput->Size = System::Drawing::Size(628, 178);
 			   this->txtOutput->TabIndex = 5;
 			   this->txtOutput->Text = L"";
 
 			   this->lblUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
 			   this->lblUrl->ForeColor = System::Drawing::Color::DarkRed;
-			   this->lblUrl->Location = System::Drawing::Point(240, 460);
+			   this->lblUrl->Location = System::Drawing::Point(268, 216);
 			   this->lblUrl->Name = L"lblUrl";
-			   this->lblUrl->Size = System::Drawing::Size(100, 20);
+			   this->lblUrl->Size = System::Drawing::Size(78, 20);
 			   this->lblUrl->TabIndex = 6;
 			   this->lblUrl->Text = L"URL Alvo:";
 
 			   this->txtUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			   this->txtUrl->Location = System::Drawing::Point(240, 480);
+			   this->txtUrl->Location = System::Drawing::Point(350, 212);
 			   this->txtUrl->Name = L"txtUrl";
-			   this->txtUrl->Size = System::Drawing::Size(660, 25);
+			   this->txtUrl->Size = System::Drawing::Size(542, 25);
 			   this->txtUrl->TabIndex = 7;
 
 			   this->lblToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
 			   this->lblToken->ForeColor = System::Drawing::Color::DarkBlue;
-			   this->lblToken->Location = System::Drawing::Point(240, 515);
+			   this->lblToken->Location = System::Drawing::Point(268, 250);
 			   this->lblToken->Name = L"lblToken";
-			   this->lblToken->Size = System::Drawing::Size(100, 20);
+			   this->lblToken->Size = System::Drawing::Size(78, 20);
 			   this->lblToken->TabIndex = 8;
 			   this->lblToken->Text = L"Token JWT:";
 
 			   this->txtToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			   this->txtToken->Location = System::Drawing::Point(240, 535);
+			   this->txtToken->Location = System::Drawing::Point(350, 246);
 			   this->txtToken->Name = L"txtToken";
-			   this->txtToken->Size = System::Drawing::Size(660, 25);
+			   this->txtToken->Size = System::Drawing::Size(352, 25);
 			   this->txtToken->UseSystemPasswordChar = true; // nao expoe o JWT na tela
 			   this->txtToken->TabIndex = 11;
 
@@ -523,18 +561,18 @@ namespace T2MSecurityManager {
 			   this->btnLoginAuto->Enabled = false;
 			   this->btnLoginAuto->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
 			   this->btnLoginAuto->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
-			   this->btnLoginAuto->Location = System::Drawing::Point(740, 510);
+			   this->btnLoginAuto->Location = System::Drawing::Point(772, 246);
 			   this->btnLoginAuto->Name = L"btnLoginAuto";
-			   this->btnLoginAuto->Size = System::Drawing::Size(160, 25);
+			   this->btnLoginAuto->Size = System::Drawing::Size(120, 25);
 			   this->btnLoginAuto->TabIndex = 10;
 			   this->btnLoginAuto->Text = L"🔑 Login Automatico";
 			   this->btnLoginAuto->UseVisualStyleBackColor = false;
 			   this->btnLoginAuto->Click += gcnew System::EventHandler(this, &MyForm::btnLoginAuto_Click);
 
 			   this->chkHabilitarLogin->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
-			   this->chkHabilitarLogin->Location = System::Drawing::Point(660, 513);
+			   this->chkHabilitarLogin->Location = System::Drawing::Point(712, 249);
 			   this->chkHabilitarLogin->Name = L"chkHabilitarLogin";
-			   this->chkHabilitarLogin->Size = System::Drawing::Size(80, 20);
+			   this->chkHabilitarLogin->Size = System::Drawing::Size(58, 20);
 			   this->chkHabilitarLogin->TabIndex = 9;
 			   this->chkHabilitarLogin->Text = L"Ativar";
 			   this->chkHabilitarLogin->CheckedChanged += gcnew System::EventHandler(this, &MyForm::chkHabilitarLogin_CheckedChanged);
@@ -542,17 +580,17 @@ namespace T2MSecurityManager {
 			   this->chkSalvar->Checked = true;
 			   this->chkSalvar->CheckState = System::Windows::Forms::CheckState::Checked;
 			   this->chkSalvar->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9));
-			   this->chkSalvar->Location = System::Drawing::Point(240, 570);
+			   this->chkSalvar->Location = System::Drawing::Point(270, 655);
 			   this->chkSalvar->Name = L"chkSalvar";
-			   this->chkSalvar->Size = System::Drawing::Size(300, 25);
+			   this->chkSalvar->Size = System::Drawing::Size(280, 25);
 			   this->chkSalvar->TabIndex = 12;
 			   this->chkSalvar->Text = L"Salvar configuracoes ao sair";
 
 			   this->btnStart->BackColor = System::Drawing::Color::YellowGreen;
 			   this->btnStart->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnStart->Location = System::Drawing::Point(240, 600);
+			   this->btnStart->Location = System::Drawing::Point(256, 570);
 			   this->btnStart->Name = L"btnStart";
-			   this->btnStart->Size = System::Drawing::Size(180, 45);
+			   this->btnStart->Size = System::Drawing::Size(210, 42);
 			   this->btnStart->TabIndex = 13;
 			   this->btnStart->Text = L"▶ INICIAR TESTE";
 			   this->btnStart->UseVisualStyleBackColor = false;
@@ -561,9 +599,9 @@ namespace T2MSecurityManager {
 			   this->btnStop->BackColor = System::Drawing::Color::IndianRed;
 			   this->btnStop->Enabled = false;
 			   this->btnStop->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnStop->Location = System::Drawing::Point(480, 600);
+			   this->btnStop->Location = System::Drawing::Point(476, 570);
 			   this->btnStop->Name = L"btnStop";
-			   this->btnStop->Size = System::Drawing::Size(180, 45);
+			   this->btnStop->Size = System::Drawing::Size(110, 42);
 			   this->btnStop->TabIndex = 14;
 			   this->btnStop->Text = L"⏹ PARAR";
 			   this->btnStop->UseVisualStyleBackColor = false;
@@ -571,13 +609,178 @@ namespace T2MSecurityManager {
 
 			   this->btnExport->BackColor = System::Drawing::Color::SteelBlue;
 			   this->btnExport->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnExport->Location = System::Drawing::Point(720, 600);
+			   this->btnExport->Location = System::Drawing::Point(776, 570);
 			   this->btnExport->Name = L"btnExport";
-			   this->btnExport->Size = System::Drawing::Size(180, 45);
+			   this->btnExport->Size = System::Drawing::Size(128, 42);
 			   this->btnExport->TabIndex = 15;
 			   this->btnExport->Text = L"💾 Exportar Log Tecnico";
 			   this->btnExport->UseVisualStyleBackColor = false;
 			   this->btnExport->Click += gcnew System::EventHandler(this, &MyForm::btnExport_Click);
+
+			   // ==========================================================
+			   // AREAS DA TELA INICIAL
+			   // Antes eram 8 botoes espalhados por 4 cantos, sem titulo em area
+			   // nenhuma: a lista da esquerda e o painel escuro da direita nao
+			   // diziam o que eram. Os paineis abaixo sao so moldura - agrupam
+			   // por finalidade e dao nome a cada parte. Todos levam SendToBack()
+			   // logo apos entrarem: sem isso ficariam NA FRENTE dos controles
+			   // que emolduram e esconderiam a tela inteira.
+			   // ==========================================================
+			   this->pnlTopo = (gcnew System::Windows::Forms::Panel());
+			   this->pnlTopo->Location = System::Drawing::Point(0, 0);
+			   this->pnlTopo->Size = System::Drawing::Size(924, 74);
+			   this->pnlTopo->BackColor = System::Drawing::Color::White;
+			   this->Controls->Add(this->pnlTopo);
+
+			   this->lblTituloApp = (gcnew System::Windows::Forms::Label());
+			   this->lblTituloApp->Text = L"Security Manager";
+			   this->lblTituloApp->Location = System::Drawing::Point(180, 14);
+			   this->lblTituloApp->AutoSize = true;
+			   this->lblTituloApp->Font = (gcnew System::Drawing::Font(L"Segoe UI", 12, System::Drawing::FontStyle::Bold));
+			   this->lblTituloApp->ForeColor = System::Drawing::Color::FromArgb(44, 62, 107);
+			   this->Controls->Add(this->lblTituloApp);
+
+			   this->lblSubtituloApp = (gcnew System::Windows::Forms::Label());
+			   this->lblSubtituloApp->Text = L"Automacao de testes de qualidade e seguranca";
+			   this->lblSubtituloApp->Location = System::Drawing::Point(182, 40);
+			   this->lblSubtituloApp->AutoSize = true;
+			   this->lblSubtituloApp->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
+			   this->lblSubtituloApp->ForeColor = System::Drawing::Color::Gray;
+			   this->Controls->Add(this->lblSubtituloApp);
+
+			   // --- Faixa dos modos: o que estava escondido dentro do Copilot ---
+			   this->pnlModos = (gcnew System::Windows::Forms::Panel());
+			   this->pnlModos->Location = System::Drawing::Point(20, 88);
+			   this->pnlModos->Size = System::Drawing::Size(884, 78);
+			   this->pnlModos->BackColor = System::Drawing::Color::White;
+			   this->pnlModos->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
+			   this->Controls->Add(this->pnlModos);
+
+			   this->lblModos = (gcnew System::Windows::Forms::Label());
+			   this->lblModos->Text = L"TESTAR COM A IA VIA MCP  -  ESCOLHA O ALVO";
+			   this->lblModos->Location = System::Drawing::Point(32, 96);
+			   this->lblModos->AutoSize = true;
+			   this->lblModos->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			   this->lblModos->ForeColor = System::Drawing::Color::FromArgb(44, 62, 107);
+			   this->Controls->Add(this->lblModos);
+
+			   this->btnModoTela = (gcnew System::Windows::Forms::Button());
+			   this->btnModoTela->Text = L"🖥  Tela / navegador";
+			   this->btnModoTela->Location = System::Drawing::Point(32, 120);
+			   this->btnModoTela->Size = System::Drawing::Size(200, 34);
+			   this->btnModoTela->BackColor = System::Drawing::Color::Indigo;
+			   this->btnModoTela->ForeColor = System::Drawing::Color::White;
+			   this->btnModoTela->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnModoTela->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			   this->btnModoTela->Cursor = Cursors::Hand;
+			   this->btnModoTela->Click += gcnew System::EventHandler(this, &MyForm::modoTelaPrincipal_Click);
+			   this->Controls->Add(this->btnModoTela);
+
+			   this->btnModoBanco = (gcnew System::Windows::Forms::Button());
+			   this->btnModoBanco->Text = L"🗄  Banco de dados   ▾";
+			   this->btnModoBanco->Location = System::Drawing::Point(242, 120);
+			   this->btnModoBanco->Size = System::Drawing::Size(200, 34);
+			   this->btnModoBanco->BackColor = System::Drawing::Color::Indigo;
+			   this->btnModoBanco->ForeColor = System::Drawing::Color::White;
+			   this->btnModoBanco->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnModoBanco->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			   this->btnModoBanco->Cursor = Cursors::Hand;
+			   this->btnModoBanco->Click += gcnew System::EventHandler(this, &MyForm::modoBancoPrincipal_Click);
+			   this->Controls->Add(this->btnModoBanco);
+
+			   // Menu suspenso em vez de um botao por banco: sao sete tipos, e
+			   // uma fileira de sete botoes voltaria a ser o "monte de botao"
+			   // que esta reforma existe para resolver. Mesmo padrao do botao
+			   // Automacao que ja existe dentro do Copilot.
+			   this->menuBancosPrincipal = (gcnew System::Windows::Forms::ContextMenuStrip());
+			   cli::array<String^>^ tiposBanco = gcnew cli::array<String^>{
+				   L"PostgreSQL", L"MySQL", L"MariaDB", L"SQLite",
+				   L"SQL Server", L"Oracle", L"MongoDB" };
+			   for each (String ^ tb in tiposBanco) {
+				   System::Windows::Forms::ToolStripMenuItem^ it =
+					   (gcnew System::Windows::Forms::ToolStripMenuItem(tb));
+				   it->Click += gcnew System::EventHandler(this, &MyForm::modoBancoTipo_Click);
+				   this->menuBancosPrincipal->Items->Add(it);
+			   }
+
+			   this->btnModoApi = (gcnew System::Windows::Forms::Button());
+			   this->btnModoApi->Text = L"🔌  API / HTTP";
+			   this->btnModoApi->Location = System::Drawing::Point(452, 120);
+			   this->btnModoApi->Size = System::Drawing::Size(200, 34);
+			   this->btnModoApi->BackColor = System::Drawing::Color::Indigo;
+			   this->btnModoApi->ForeColor = System::Drawing::Color::White;
+			   this->btnModoApi->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			   this->btnModoApi->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			   this->btnModoApi->Cursor = Cursors::Hand;
+			   this->btnModoApi->Click += gcnew System::EventHandler(this, &MyForm::modoApiPrincipal_Click);
+			   this->Controls->Add(this->btnModoApi);
+
+			   this->lblModosDica = (gcnew System::Windows::Forms::Label());
+			   this->lblModosDica->Text =
+				   L"Por MCP a IA opera a ferramenta de verdade - navegador, banco\n"
+				   L"ou requisicao HTTP - em vez de so escrever sobre ela.";
+			   this->lblModosDica->Location = System::Drawing::Point(668, 122);
+			   this->lblModosDica->Size = System::Drawing::Size(230, 32);
+			   this->lblModosDica->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
+			   this->lblModosDica->ForeColor = System::Drawing::Color::Gray;
+			   this->Controls->Add(this->lblModosDica);
+
+			   // --- Molduras das tres areas de trabalho ---
+			   this->pnlScripts = (gcnew System::Windows::Forms::Panel());
+			   this->pnlScripts->Location = System::Drawing::Point(20, 182);
+			   this->pnlScripts->Size = System::Drawing::Size(220, 428);
+			   this->pnlScripts->BackColor = System::Drawing::Color::White;
+			   this->pnlScripts->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
+			   this->Controls->Add(this->pnlScripts);
+
+			   this->lblScripts = (gcnew System::Windows::Forms::Label());
+			   this->lblScripts->Text = L"SCRIPTS DE TESTE";
+			   this->lblScripts->Location = System::Drawing::Point(30, 190);
+			   this->lblScripts->AutoSize = true;
+			   this->lblScripts->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			   this->lblScripts->ForeColor = System::Drawing::Color::FromArgb(44, 62, 107);
+			   this->Controls->Add(this->lblScripts);
+
+			   this->pnlAlvo = (gcnew System::Windows::Forms::Panel());
+			   this->pnlAlvo->Location = System::Drawing::Point(256, 182);
+			   this->pnlAlvo->Size = System::Drawing::Size(648, 118);
+			   this->pnlAlvo->BackColor = System::Drawing::Color::White;
+			   this->pnlAlvo->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
+			   this->Controls->Add(this->pnlAlvo);
+
+			   this->lblAlvo = (gcnew System::Windows::Forms::Label());
+			   this->lblAlvo->Text = L"ALVO DO TESTE";
+			   this->lblAlvo->Location = System::Drawing::Point(266, 190);
+			   this->lblAlvo->AutoSize = true;
+			   this->lblAlvo->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			   this->lblAlvo->ForeColor = System::Drawing::Color::FromArgb(44, 62, 107);
+			   this->Controls->Add(this->lblAlvo);
+
+			   this->pnlSaida = (gcnew System::Windows::Forms::Panel());
+			   this->pnlSaida->Location = System::Drawing::Point(256, 314);
+			   this->pnlSaida->Size = System::Drawing::Size(648, 222);
+			   this->pnlSaida->BackColor = System::Drawing::Color::White;
+			   this->pnlSaida->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
+			   this->Controls->Add(this->pnlSaida);
+
+			   this->lblSaida = (gcnew System::Windows::Forms::Label());
+			   this->lblSaida->Text = L"SAIDA DO SCRIPT  /  PROGRESSO DA IA";
+			   this->lblSaida->Location = System::Drawing::Point(266, 322);
+			   this->lblSaida->AutoSize = true;
+			   this->lblSaida->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
+			   this->lblSaida->ForeColor = System::Drawing::Color::FromArgb(44, 62, 107);
+			   this->Controls->Add(this->lblSaida);
+
+			   this->lblCopilotDica = (gcnew System::Windows::Forms::Label());
+			   this->lblCopilotDica->Text =
+				   L"A faixa de cima abre o Copilot ja no modo escolhido.\n"
+				   L"O botao roxo abre a conversa livre.";
+			   this->lblCopilotDica->Location = System::Drawing::Point(600, 652);
+			   this->lblCopilotDica->Size = System::Drawing::Size(304, 32);
+			   this->lblCopilotDica->TextAlign = System::Drawing::ContentAlignment::TopRight;
+			   this->lblCopilotDica->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
+			   this->lblCopilotDica->ForeColor = System::Drawing::Color::Gray;
+			   this->Controls->Add(this->lblCopilotDica);
 
 			   this->BackColor = System::Drawing::Color::WhiteSmoke;
 			   this->ClientSize = System::Drawing::Size(924, 711);
@@ -1102,6 +1305,15 @@ namespace T2MSecurityManager {
 		// Filtra so as linhas de progresso (">>>"), ignorando avisos tecnicos.
 		String^ linha = e->Data->Trim();
 		if (!linha->StartsWith(">>>")) return;
+		// Dois destinos, de proposito. No chat, o progresso acompanha a conversa;
+		// no console da tela principal, ele fica visivel MESMO com a janela do
+		// Copilot atras ou fechada - e agora que a janela nao e mais modal, e
+		// comum a pessoa deixar o Copilot trabalhando e voltar para a tela
+		// principal. Sem isto, uma automacao de varios minutos parece travada.
+		if (!this->IsDisposed && this->IsHandleCreated) {
+			try { this->BeginInvoke(gcnew Action<String^>(this, &MyForm::AppendLog), linha); }
+			catch (...) {}
+		}
 		if (formIA == nullptr || formIA->IsDisposed || !formIA->IsHandleCreated) return;
 		try { formIA->BeginInvoke(gcnew Action<String^>(this, &MyForm::MostrarProgressoChat), linha); }
 		catch (...) {}
@@ -1377,6 +1589,58 @@ namespace T2MSecurityManager {
 	}
 
 	private: System::Void btnGerarIA_Click(System::Object^ sender, System::EventArgs^ e) {
+		AbrirCopilot(true);
+	}
+
+		   // Modos da faixa da tela inicial. Eles nao duplicam nada: reaproveitam
+		   // os mesmos handlers que ja existiam dentro do Copilot. A diferenca e
+		   // que agora estao a vista - antes um cliente podia usar o aplicativo
+		   // por semanas sem descobrir que ele testa banco de dados.
+	private: bool CopilotPronto(bool exigeUrl) {
+		AbrirCopilot(exigeUrl);
+		// workerChat nasce junto com a janela do Copilot. Se a abertura foi
+		// recusada (falta a URL no modo tela), ele continua nulo e chamar o
+		// handler do modo estouraria em vez de avisar.
+		return (formIA != nullptr && !formIA->IsDisposed && workerChat != nullptr);
+	}
+
+	private: System::Void modoTelaPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (txtUrl->Text->Trim() == "") {
+			MessageBox::Show(
+				L"Preencha a URL Alvo antes: e ela que a IA vai abrir no navegador.",
+				L"Falta a URL", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			txtUrl->Focus();
+			return;
+		}
+		if (!CopilotPronto(true)) return;
+		menuTela_Click(sender, e);
+	}
+
+	private: System::Void modoApiPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {
+		// API e banco nao precisam da URL da tela principal: o alvo deles e
+		// informado na propria janela do modo.
+		if (!CopilotPronto(false)) return;
+		menuApi_Click(sender, e);
+	}
+
+	private: System::Void modoBancoPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {
+		menuBancosPrincipal->Show(btnModoBanco,
+			System::Drawing::Point(0, btnModoBanco->Height));
+	}
+
+	private: System::Void modoBancoTipo_Click(System::Object^ sender, System::EventArgs^ e) {
+		System::Windows::Forms::ToolStripItem^ item =
+			dynamic_cast<System::Windows::Forms::ToolStripItem^>(sender);
+		if (item == nullptr) return;
+		// Escolher "Oracle" no menu ja deixa Oracle marcado na tela de conexao:
+		// clicar duas vezes na mesma informacao e o tipo de atrito que faz a
+		// pessoa achar que o caminho e mais longo do que e.
+		dbTipo = item->Text;
+		if (!CopilotPronto(false)) return;
+		AbrirFormularioConexaoBanco();
+	}
+
+	private: void AbrirCopilot(bool exigeUrl) {
 		// Ja aberta: traz para a frente em vez de criar uma segunda janela. Sem
 		// isto, sair do modal significaria duas conversas disputando o mesmo
 		// worker e o mesmo arquivo de memoria.
@@ -1386,7 +1650,7 @@ namespace T2MSecurityManager {
 			formIA->Activate();
 			return;
 		}
-		if (txtUrl->Text->Trim() == "") {
+		if (exigeUrl && txtUrl->Text->Trim() == "") {
 			MessageBox::Show(L"Preencha a URL Alvo primeiro para a IA poder analisar o projeto!", L"Aviso");
 			return;
 		}
@@ -1659,7 +1923,7 @@ namespace T2MSecurityManager {
 				MessageBox::Show(L"Preencha a URL Alvo primeiro.", L"Aviso");
 				return;
 			}
-			btnGerarIA_Click(sender, e);
+			AbrirCopilot(true);
 		}
 		if (formIA == nullptr || txtChatInput == nullptr) return;
 
@@ -3954,8 +4218,21 @@ namespace T2MSecurityManager {
 		btnSaveScript->Enabled = !ocupado;
 		btnExportarRelatorio->Enabled = !ocupado;
 		txtChatInput->Enabled = !ocupado;
-		if (ocupado)
+		if (ocupado) {
 			lblChatStatus->Text = msgStatus;
+			// Marca o inicio no console da tela principal, para o progresso que
+			// vem a seguir nao se misturar com a saida do script anterior.
+			if (txtOutput != nullptr && !txtOutput->IsDisposed) {
+				txtOutput->AppendText(Environment::NewLine
+					+ L">>> [IA via MCP] " + msgStatus + Environment::NewLine);
+				txtOutput->ScrollToCaret();
+			}
+		}
+		else if (txtOutput != nullptr && !txtOutput->IsDisposed) {
+			txtOutput->AppendText(L">>> [IA via MCP] Execucao encerrada."
+				+ Environment::NewLine);
+			txtOutput->ScrollToCaret();
+		}
 		// quando desocupa, o status e restaurado por AtualizarBotoesModo (chamado no Completed)
 		formIA->Cursor = ocupado ? Cursors::WaitCursor : Cursors::Default;
 	}
