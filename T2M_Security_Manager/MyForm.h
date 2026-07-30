@@ -1222,6 +1222,37 @@ namespace T2MSecurityManager {
 		   // DESABILITADO - a pessoa via os passos sendo gastos no console e nao
 		   // tinha como interromper sem fechar a janela do Copilot. Isso so ficou
 		   // visivel depois que a tela principal deixou de ser bloqueada.
+		   // Encerra o processo E TUDO que ele abriu. Sem isto, matar o agente
+		   // deixava o navegador do Playwright aberto na tela, orfao: o python e
+		   // pai do npx, que e pai do node, que e pai do chromium, e o Kill() do
+		   // .NET Framework 4.7.2 nao tem a opcao de arvore que veio no .NET Core.
+		   // taskkill /T /F resolve pelo lado do Windows.
+	private: void MatarArvore(Process^ p) {
+		if (p == nullptr) return;
+		int pid = 0;
+		try {
+			if (p->HasExited) return;
+			pid = p->Id;
+		}
+		catch (...) { return; }
+
+		try {
+			ProcessStartInfo^ psi = gcnew ProcessStartInfo("taskkill",
+				"/PID " + pid.ToString() + " /T /F");
+			psi->UseShellExecute = false;
+			psi->CreateNoWindow = true;
+			Process^ tk = Process::Start(psi);
+			if (tk != nullptr) { tk->WaitForExit(5000); delete tk; }
+		}
+		catch (...) {}
+
+		// Rede de seguranca: se o taskkill nao existir ou falhar, ao menos o
+		// processo direto morre - melhor um navegador orfao que um agente vivo
+		// consumindo credito.
+		try { if (!p->HasExited) { p->Kill(); p->WaitForExit(3000); } }
+		catch (...) {}
+	}
+
 	private: bool ScriptRodando() {
 		try { return pythonProcess != nullptr && !pythonProcess->HasExited; }
 		catch (...) { return false; }
@@ -1244,8 +1275,8 @@ namespace T2MSecurityManager {
 		bool parouAlgo = false;
 
 		if (ScriptRodando()) {
-			try { pythonProcess->Kill(); parouAlgo = true; }
-			catch (...) {}
+			MatarArvore(pythonProcess);
+			parouAlgo = true;
 		}
 
 		if (IaRodando()) {
@@ -1261,8 +1292,7 @@ namespace T2MSecurityManager {
 					// Copia local: o worker pode zerar o campo a qualquer momento.
 					Process^ p = procChatAtual;
 					if (p != nullptr && !p->HasExited) {
-						p->Kill();
-						p->WaitForExit(3000);
+						MatarArvore(p);
 						parouAlgo = true;
 					}
 				}
@@ -1418,8 +1448,7 @@ namespace T2MSecurityManager {
 			// entao mudar a configuracao nao tinha efeito nenhum aqui).
 			int limite = (cfgTimeout > 0 ? cfgTimeout : 120);
 			if (!p->WaitForExit(limite * 1000)) {
-				try { p->Kill(); p->WaitForExit(3000); }
-				catch (...) {}
+				MatarArvore(p);   // arvore inteira: o agente pode ter aberto navegador
 				return L"Tempo esgotado (" + limite.ToString() + L"s) aguardando a IA.\n\n"
 					L"Possiveis causas: chave de API invalida ou revogada, sem conexao, "
 					L"ou a tarefa e longa demais.\n"
@@ -1488,9 +1517,8 @@ namespace T2MSecurityManager {
 			int limiteAuto = (cfgTimeout > 0 ? cfgTimeout * 3 : 300);
 			if (limiteAuto < 300) limiteAuto = 300;
 			if (!p->WaitForExit(limiteAuto * 1000)) {
-				try { p->Kill(); p->WaitForExit(3000); }
-				catch (...) {}
-				return L"Tempo esgotado (" + (limiteAuto / 60) + L" min) na automacao.\n\n"
+				MatarArvore(p);   // arvore inteira: aqui o navegador esta aberto
+				return L"Tempo esgotado (" + (limiteAuto / 60).ToString() + L" min) na automacao.\n\n"
 					L"A tarefa pode ser complexa demais para o limite atual. Tente dividir "
 					L"em passos menores, ou aumente o tempo em Configuracoes.";
 			}
@@ -4351,7 +4379,16 @@ namespace T2MSecurityManager {
 		// controles e no Cursor do formulario, que podem ja ter sido descartados.
 		if (formIA == nullptr || formIA->IsDisposed) return;
 
-		btnSendChat->Enabled = !ocupado;
+		// O ENVIAR vira PARAR durante a execucao. Antes ele so ficava cinza, e
+		// o unico botao de parar estava na tela principal, ATRAS desta janela -
+		// quem estava acompanhando aqui nao tinha como interromper e acabava
+		// matando o processo pelo Gerenciador de Tarefas. O botao de parar tem
+		// de estar onde a execucao aparece.
+		btnSendChat->Enabled = true;
+		btnSendChat->Text = ocupado ? L"⏹ Parar" : L"➤ Enviar";
+		btnSendChat->BackColor = ocupado
+			? System::Drawing::Color::IndianRed
+			: System::Drawing::Color::MediumSeaGreen;
 		btnAutomacao->Enabled = !ocupado;
 		btnChatDom->Enabled = !ocupado;
 		btnChatConversa->Enabled = !ocupado;
@@ -4419,10 +4456,7 @@ namespace T2MSecurityManager {
 
 		try {
 			Process^ p = procChatAtual;   // copia local: o worker pode zera-lo a qualquer momento
-			if (p != nullptr && !p->HasExited) {
-				p->Kill();
-				p->WaitForExit(3000);
-			}
+			if (p != nullptr && !p->HasExited) MatarArvore(p);
 		}
 		catch (...) {}
 	}
@@ -4625,6 +4659,11 @@ namespace T2MSecurityManager {
 	}
 
 	private: System::Void btnSendChat_Click(System::Object^ sender, System::EventArgs^ e) {
+		// Com uma execucao em andamento, este botao E o de parar.
+		if (workerChat != nullptr && workerChat->IsBusy) {
+			btnStop_Click(sender, e);
+			return;
+		}
 		String^ prompt = txtChatInput->Text->Trim();
 		if (prompt == "") return;
 		String^ apiKey = ObterChaveReal();

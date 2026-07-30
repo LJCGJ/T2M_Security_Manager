@@ -1369,6 +1369,12 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     proxima_mensagem = objetivo
     ultimo_texto = ""          # guarda o ultimo texto util, para devolver algo se travar
     navegador_morto = False
+    # Contado pela EXECUCAO INTEIRA, e nao por passo. Zerando a cada passo, uma
+    # chave de plano gratuito rendia 60s de espera parada em CADA passo, sem
+    # fim - o operador ficava olhando para uma janela que nao respondia, e a
+    # unica saida era matar o processo na mao. Se a cota nao voltou depois de
+    # tres esperas, ela nao vai voltar nos proximos 30 segundos.
+    esperas_cota = 0
 
     for passo in range(MAX_ITERACOES):
         _marcar_passo("Gemini", modelos_tentar[idx_modelo], passo + 1)
@@ -1382,7 +1388,6 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
         # era dividido entre eles, entao um par de erros de cota consumia as
         # chances de recuperar uma chamada malformada (e vice-versa).
         resp = None
-        tentativas_cota = 0
         tentativas_malformada = 0
         tentativas_totais = 0
         while resp is None and tentativas_totais < 8:   # teto de seguranca
@@ -1396,19 +1401,29 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
                 # 1) Cota por minuto estourada: espera e refaz.
                 if ("ResourceExhausted" in nome_erro or "429" in msg
                         or "quota" in msg.lower() or "exhausted" in msg.lower()):
-                    if tentativas_cota < 2:
-                        tentativas_cota += 1
-                        log(f">>> Limite por minuto atingido. Aguardando 30s para retomar "
-                            f"(tentativa {tentativas_cota})...")
-                        time.sleep(30)
+                    if esperas_cota < 3:
+                        esperas_cota += 1
+                        log(f">>> Limite por minuto atingido. Aguardando 30s "
+                            f"(espera {esperas_cota} de 3 nesta execucao). "
+                            f"Use PARAR se preferir nao esperar.")
+                        # Dorme em pedacos: assim o log volta a respirar e o
+                        # operador ve que o teste esta vivo, so aguardando.
+                        for _ in range(6):
+                            time.sleep(5)
                         continue
                     if ultimo_texto:
                         return (ultimo_texto + "\n\n[Automacao interrompida: limite de uso "
                                 "da IA (cota gratuita por minuto) atingido. Aguarde 1 minuto "
                                 "e tente de novo, ou ative billing para limites maiores.]")
-                    return ("Limite de uso da IA atingido (cota gratuita: poucas requisicoes "
-                            "por minuto). Aguarde 1-2 minutos e tente de novo, ou ative billing "
-                            "no Google AI Studio para limites maiores.")
+                    return ("Limite de uso da IA atingido (cota gratuita do Gemini: "
+                            "poucas requisicoes por minuto).\n\n"
+                            "O que costuma resolver, em ordem de esforco:\n"
+                            "- aguardar 1-2 minutos e rodar de novo;\n"
+                            "- trocar para gemini-2.0-flash em Configuracoes, que tem "
+                            "limite por minuto mais folgado;\n"
+                            "- usar uma chave da Anthropic ou da OpenAI para os testes "
+                            "que importam;\n"
+                            "- ativar billing no Google AI Studio.")
 
                 # 2) Modelo inexistente/aposentado/sem acesso: cai para o proximo.
                 #    So no primeiro passo - depois ja existe historico de conversa,
