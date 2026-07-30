@@ -242,6 +242,14 @@ namespace T2MSecurityManager {
 		// ou repete a mesma linha a cada mensagem e vira ruido.
 		String^ modeloAnunciadoNoChat;
 
+		// Modo e modelo da execucao que esta rodando agora. Ficam gravados no
+		// cabecalho da resposta ("T2M Copilot (Scan DOM | gemini-3.6-flash):"),
+		// porque a linha ">>> Modo ..." fica antes da pergunta e some de vista
+		// numa conversa longa - e no relatorio exportado a duvida "isso foi
+		// Chat ou Scan DOM?" volta inteira.
+		String^ rotuloModoExecucao;
+		String^ rotuloModeloExecucao;
+
 		// Modo ativo do chat: 0 = Chat (so conversa), 1 = DOM, 2 = Automacao (dropdown).
 		// So um modo fica ligado por vez; o controle ligado fica em destaque.
 		int modoAtivo;
@@ -748,6 +756,8 @@ namespace T2MSecurityManager {
 			   this->passoTour = 0;
 			   this->passoTourChat = 0;
 		   this->modeloAnunciadoNoChat = nullptr;
+		   this->rotuloModoExecucao = L"";
+		   this->rotuloModeloExecucao = L"";
 
 			   this->BackColor = System::Drawing::Color::WhiteSmoke;
 			   this->ClientSize = System::Drawing::Size(924, 711);
@@ -1646,6 +1656,18 @@ namespace T2MSecurityManager {
 		else modelo = cfgModeloGemini;
 		if (String::IsNullOrWhiteSpace(modelo)) return ia;
 		return ia + L"  |  " + modelo;
+	}
+
+		   // So o nome do modelo ("gemini-3.6-flash"), para caber no cabecalho
+		   // da resposta. Sem modelo definido, devolve o provedor.
+	private: String^ ModeloAtualCurto() {
+		String^ ia = DetectarIA(ObterChaveReal());
+		if (String::IsNullOrWhiteSpace(ia)) return L"";
+		String^ modelo;
+		if (ia == L"Claude") modelo = cfgModeloClaude;
+		else if (ia == L"OpenAI") modelo = cfgModeloOpenAI;
+		else modelo = cfgModeloGemini;
+		return String::IsNullOrWhiteSpace(modelo) ? ia : modelo;
 	}
 
 		   // Escreve na conversa qual modelo esta valendo. Chamada na abertura da
@@ -4638,7 +4660,19 @@ namespace T2MSecurityManager {
 		rtbChat->SelectionColor = (modoWorker == 2)
 			? System::Drawing::Color::DarkSlateBlue
 			: System::Drawing::Color::DarkGreen;
-		String^ prefixo = (modoWorker == 2) ? L"T2M Copilot (automacao ao vivo):\n" : L"T2M Copilot:\n";
+		// Cabecalho carimbado: modo e modelo desta resposta. A linha ">>> Modo"
+		// fica la em cima, antes da pergunta; aqui a informacao anda GRUDADA na
+		// resposta - inclusive quando alguem copia so este trecho para um
+		// chamado, ou compara duas respostas lado a lado semanas depois.
+		String^ carimbo = L"";
+		if (!String::IsNullOrWhiteSpace(rotuloModoExecucao)) {
+			carimbo = rotuloModoExecucao;
+			if (!String::IsNullOrWhiteSpace(rotuloModeloExecucao))
+				carimbo += L" | " + rotuloModeloExecucao;
+		}
+		String^ prefixo = String::IsNullOrWhiteSpace(carimbo)
+			? L"T2M Copilot:\n"
+			: (L"T2M Copilot (" + carimbo + L"):\n");
 		rtbChat->AppendText(L"\n" + prefixo + resposta + L"\n\n");
 		rtbChat->ScrollToCaret();
 
@@ -4853,19 +4887,19 @@ namespace T2MSecurityManager {
 		// Decide a acao conforme o modo ativo
 		if (modoAtivo == 2 && tipoAutomacao == 1) {
 			// TESTE DE API: monta o JSON e envia via ferramenta HTTP do agente
-			AnunciarModoNoChat(L"Automacao (MCP - API)",
+			AnunciarModoNoChat(L"Automacao MCP - API",
 				L"testando " + apiMetodo + L" " + apiUrl + L". Aguarde...");
 			RodarWorkerApi(prompt);
 		}
 		else if (modoAtivo == 2 && tipoAutomacao == 2) {
 			// AUTOMACAO DE BANCO: monta o DSN e envia via MCP (DBHub)
-			AnunciarModoNoChat(L"Automacao (MCP - banco)",
+			AnunciarModoNoChat(L"Automacao MCP - banco",
 				L"consultando o banco " + dbTipo + L". Aguarde...");
 			RodarWorkerBanco(prompt);
 		}
 		else if (modoAtivo == 2) {
 			// AUTOMACAO DE TELA: o texto do usuario e o objetivo do teste
-			AnunciarModoNoChat(L"Automacao (MCP - tela)",
+			AnunciarModoNoChat(L"Automacao MCP - tela",
 				L"execucao ao vivo; uma janela do navegador vai abrir. Aguarde...");
 			RodarWorker(2, prompt, L"Automacao ao vivo em andamento (navegador aberto)...");
 		}
@@ -4892,6 +4926,11 @@ namespace T2MSecurityManager {
 		   // reler - inclusive no relatorio exportado, que e o que vai para o
 		   // chamado ou para a auditoria.
 	private: void AnunciarModoNoChat(String^ modo, String^ detalhe) {
+		// Guarda modo e modelo DESTA execucao para carimbar a resposta quando
+		// ela voltar: entre o envio e a resposta o usuario pode trocar de modo
+		// ou de modelo, e o cabecalho tem de dizer o que valeu na hora.
+		rotuloModoExecucao = modo;
+		rotuloModeloExecucao = ModeloAtualCurto();
 		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
 		rtbChat->SelectionColor = (modoAtivo == 2)
 			? System::Drawing::Color::DarkSlateBlue

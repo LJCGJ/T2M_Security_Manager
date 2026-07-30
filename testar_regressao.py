@@ -1828,12 +1828,12 @@ def teste_modelo_na_conversa():
     # a resposta NAO vem de leitura nenhuma.
     checa("existe o anunciador de modo", "void AnunciarModoNoChat(" in fonte)
     checa("a linha de modo tem formato proprio", 'L">>> Modo "' in fonte)
-    for modo in ("Chat", "Scan DOM", "Automacao (MCP - tela)",
-                 "Automacao (MCP - API)", "Automacao (MCP - banco)"):
+    for modo in ("Chat", "Scan DOM", "Automacao MCP - tela",
+                 "Automacao MCP - API", "Automacao MCP - banco"):
         checa(f"o modo {modo} se identifica na conversa",
               f'L"{modo}"' in fonte)
     checa("os tres modos de automacao dizem que usam MCP",
-          fonte.count("Automacao (MCP -") == 3)
+          fonte.count("Automacao MCP -") == 3)
     checa("o modo Chat avisa que nao le a pagina",
           "nada e lido da pagina nesta resposta" in fonte)
     # Todo caminho de envio tem de anunciar: um caminho mudo reintroduz
@@ -1845,6 +1845,25 @@ def teste_modelo_na_conversa():
     blocoM = fonte[m:m + 1200] if m >= 0 else ""
     checa("o anuncio de modo nao escreve em chat destruido",
           "rtbChat->IsDisposed" in blocoM)
+
+    # --- CARIMBO NA PROPRIA RESPOSTA ---
+    # A linha ">>> Modo" fica antes da pergunta e sai de vista numa conversa
+    # longa; copiada isolada para um chamado, a resposta voltava anonima. O
+    # cabecalho resolve porque anda grudado no texto.
+    checa("modo e modelo da execucao ficam guardados",
+          "String^ rotuloModoExecucao;" in fonte
+          and "String^ rotuloModeloExecucao;" in fonte)
+    checa("sao capturados no momento do envio, nao no da resposta",
+          "rotuloModoExecucao = modo;" in blocoM
+          and "rotuloModeloExecucao = ModeloAtualCurto();" in blocoM)
+    checa("existe o nome curto do modelo para o cabecalho",
+          "String^ ModeloAtualCurto()" in fonte)
+    checa("o cabecalho da resposta leva modo e modelo",
+          'L"T2M Copilot (" + carimbo + L"):' in fonte)
+    checa("sem carimbo, o cabecalho antigo continua valendo",
+          'L"T2M Copilot:' in fonte)
+    checa("o carimbo nao produz parenteses dentro de parenteses",
+          "(MCP -" not in fonte)
 
 
 # ==================================================================== #
