@@ -1779,7 +1779,8 @@ namespace T2MSecurityManager {
 	private: System::Void btnRemoverChave_Click(System::Object^ sender, System::EventArgs^ e) {
 		int idx = comboModeloChat->SelectedIndex;
 		if (idx >= 0 && comboModeloChat->SelectedItem->ToString() != L"+ Adicionar Nova API Key..." && comboModeloChat->SelectedItem->ToString() != "-------------------------" && comboModeloChat->SelectedItem->ToString() != L" Nenhuma chave ") {
-			if (MessageBox::Show(L"Tem certeza que deseja excluir esta chave?", L"Confirmar Exclusao", MessageBoxButtons::YesNo, MessageBoxIcon::Warning) == System::Windows::Forms::DialogResult::Yes) {
+			if (MessageBox::Show(L"Tem certeza que deseja excluir esta chave?", L"Confirmar Exclusao", MessageBoxButtons::YesNo, MessageBoxIcon::Warning,
+				MessageBoxDefaultButton::Button2) == System::Windows::Forms::DialogResult::Yes) {
 				if (File::Exists(CaminhoDados("api_keys_ia.txt"))) {
 					array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
 					List<String^>^ novasLinhas = gcnew List<String^>();
@@ -2179,7 +2180,13 @@ namespace T2MSecurityManager {
 				L"Isto apaga a conversa atual e o contexto que a IA usa.\n\n"
 				L"Se quiser guardar esta conversa, cancele e use 'Salvar Sessao' antes.\n\n"
 				L"Comecar do zero?",
-				L"Nova conversa", MessageBoxButtons::YesNo, MessageBoxIcon::Question);
+				L"Nova conversa", MessageBoxButtons::YesNo, MessageBoxIcon::Question,
+				// O padrao e NAO: apagar a conversa e irreversivel, e o botao
+				// fica exatamente sob o cursor de quem clicou em "Nova
+				// conversa" - um Enter por reflexo, ou um clique duplo que
+				// escapou, e o trabalho da sessao inteira se vai. Mesmo criterio
+				// ja usado em Limpar historico e em Interromper a IA.
+				MessageBoxDefaultButton::Button2);
 			if (r == System::Windows::Forms::DialogResult::No) return;
 		}
 
@@ -2249,7 +2256,8 @@ namespace T2MSecurityManager {
 			System::Windows::Forms::DialogResult r = MessageBox::Show(
 				L"A conversa atual sera substituida pela sessao escolhida.\n\n"
 				L"Deseja continuar? (salve a atual antes, se quiser mante-la)",
-				L"Substituir conversa", MessageBoxButtons::YesNo, MessageBoxIcon::Question);
+				L"Substituir conversa", MessageBoxButtons::YesNo, MessageBoxIcon::Question,
+				MessageBoxDefaultButton::Button2);   // o padrao e NAO
 			if (r == System::Windows::Forms::DialogResult::No) return;
 		}
 
@@ -4653,7 +4661,8 @@ namespace T2MSecurityManager {
 			L"Ha uma execucao em andamento.\n\n"
 			L"Fechar agora encerra o processo Python e o navegador que ele abriu, "
 			L"e o resultado sera perdido.\n\nDeseja fechar mesmo assim?",
-			L"Execucao em andamento", MessageBoxButtons::YesNo, MessageBoxIcon::Warning);
+			L"Execucao em andamento", MessageBoxButtons::YesNo, MessageBoxIcon::Warning,
+			MessageBoxDefaultButton::Button2);   // o padrao e NAO fechar
 		if (r != System::Windows::Forms::DialogResult::Yes) {
 			e->Cancel = true;   // deixa a execucao continuar
 			return;

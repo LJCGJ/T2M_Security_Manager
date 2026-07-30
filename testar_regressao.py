@@ -1919,6 +1919,21 @@ def teste_modelo_na_conversa():
           "MODELO_USADO:" not in A._sem_marcadores(
               "texto da pagina com MODELO_USADO:falso dentro"))
 
+    # --- CONFIRMACOES DESTRUTIVAS ---
+    # Visto numa captura de tela do teste de "Nova conversa": o botao em foco
+    # era o SIM. O dialogo nasce sob o cursor de quem acabou de clicar em Nova
+    # conversa; um Enter por reflexo, ou um clique duplo que escapou, apagava a
+    # sessao inteira sem volta. Cinco perguntas destrutivas, uma regra so.
+    for perg in ("Interromper a IA", "Nova conversa", "Substituir conversa",
+                 "Confirmar Exclusao", "Execucao em andamento",
+                 "Limpar historico"):
+        i = fonte.find(f'L"{perg}", MessageBoxButtons::YesNo')
+        # Janela larga de proposito: entre a pergunta e o botao padrao pode
+        # haver o comentario que explica por que o padrao e NAO.
+        trecho = fonte[i:i + 900] if i >= 0 else ""
+        checa(f"'{perg}' tem NAO como botao padrao",
+              "MessageBoxDefaultButton::Button2" in trecho, trecho[:90])
+
 
 # ==================================================================== #
 def main():
