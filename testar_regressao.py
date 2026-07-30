@@ -903,6 +903,31 @@ def teste_historico_de_execucoes():
               "mais texto depois" in (linhas()[-1].get("relatorio") or "")
               and "HIST_FIM" not in (linhas()[-1].get("relatorio") or ""))
 
+        # Limpeza do historico pela tela. Num produto de auditoria, poder
+        # esvaziar a trilha sem deixar marca a inutiliza como evidencia:
+        # qualquer um apagaria o teste que deu errado e diria que nunca existiu.
+        antes_limpar = len(linhas())
+        checa("ha o que limpar antes do teste", antes_limpar > 0)
+        buf_c = io.StringIO()
+        argv_c = sys.argv
+        sys.argv = ["agente_mcp.py", "--historico-limpar"]
+        try:
+            with contextlib.redirect_stdout(buf_c):
+                A.main()
+        finally:
+            sys.argv = argv_c
+        checa("a limpeza responde entre os marcadores",
+              "HIST_INICIO" in buf_c.getvalue() and "HIST_FIM" in buf_c.getvalue())
+        checa("a limpeza informa quantas foram apagadas",
+              str(antes_limpar) in buf_c.getvalue(), buf_c.getvalue()[:80])
+        restante = linhas()
+        checa("o historico fica so com o registro da propria limpeza",
+              len(restante) == 1, len(restante))
+        checa("o registro da limpeza diz quantas sumiram e quando",
+              str(antes_limpar) in (restante[0].get("relatorio") or "")
+              and restante[0].get("modo") == "Sistema",
+              restante[0].get("relatorio", "")[:70])
+
         # Rotacao: o arquivo nao pode crescer para sempre no disco de alguem.
         A.HISTORICO_MAX_BYTES = 2000
         A.HISTORICO_MANTER = 3

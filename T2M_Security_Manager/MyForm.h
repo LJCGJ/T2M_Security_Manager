@@ -51,6 +51,18 @@ namespace T2MSecurityManager {
 			this->btnGerarIA->Click += gcnew System::EventHandler(this, &MyForm::btnGerarIA_Click);
 			this->Controls->Add(this->btnGerarIA);
 
+			this->btnAnalisarSaida = (gcnew System::Windows::Forms::Button());
+			this->btnAnalisarSaida->Name = L"btnAnalisarSaida";
+			this->btnAnalisarSaida->Text = L"🔎 Analisar saida com a IA";
+			this->btnAnalisarSaida->Location = System::Drawing::Point(230, 660);
+			this->btnAnalisarSaida->Size = System::Drawing::Size(220, 35);
+			this->btnAnalisarSaida->BackColor = System::Drawing::Color::MediumPurple;
+			this->btnAnalisarSaida->ForeColor = System::Drawing::Color::White;
+			this->btnAnalisarSaida->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->btnAnalisarSaida->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+			this->btnAnalisarSaida->Click += gcnew System::EventHandler(this, &MyForm::btnAnalisarSaida_Click);
+			this->Controls->Add(this->btnAnalisarSaida);
+
 			// --- BOTAO DE TEMA (canto superior direito da tela principal) ---
 			this->btnTemaChat = (gcnew System::Windows::Forms::Button());
 			this->btnTemaChat->Name = L"btnTemaChat";
@@ -97,6 +109,9 @@ namespace T2MSecurityManager {
 			dicaMain->SetToolTip(this->btnAbrirPasta,
 				L"Abre a pasta onde os scripts de teste sao salvos.\n"
 				L"(a pasta pode ser alterada em Configuracoes)");
+			dicaMain->SetToolTip(this->btnAnalisarSaida,
+				L"Leva a saida do ultimo teste para o Copilot explicar o que falhou "
+				L"(senhas e tokens sao mascarados antes).");
 			dicaMain->SetToolTip(this->btnHistorico,
 				L"Trilha de auditoria: toda execucao ja feita, com passos gastos, "
 				L"recusas e resultado.");
@@ -147,6 +162,7 @@ namespace T2MSecurityManager {
 
 		Button^ btnConfiguracoes;   // abre a tela de configuracoes
 		Button^ btnHistorico;       // abre a trilha de execucoes ja feitas
+		Button^ btnAnalisarSaida;   // manda o log do teste para o Copilot
 		// Preferencias do app (persistidas em configuracoes.txt, lidas tambem pelo Python)
 		String^ cfgPastaRelatorios;
 		String^ cfgPastaSessoes;
@@ -1361,6 +1377,15 @@ namespace T2MSecurityManager {
 	}
 
 	private: System::Void btnGerarIA_Click(System::Object^ sender, System::EventArgs^ e) {
+		// Ja aberta: traz para a frente em vez de criar uma segunda janela. Sem
+		// isto, sair do modal significaria duas conversas disputando o mesmo
+		// worker e o mesmo arquivo de memoria.
+		if (formIA != nullptr && !formIA->IsDisposed) {
+			if (formIA->WindowState == FormWindowState::Minimized)
+				formIA->WindowState = FormWindowState::Normal;
+			formIA->Activate();
+			return;
+		}
 		if (txtUrl->Text->Trim() == "") {
 			MessageBox::Show(L"Preencha a URL Alvo primeiro para a IA poder analisar o projeto!", L"Aviso");
 			return;
@@ -1599,7 +1624,71 @@ namespace T2MSecurityManager {
 
 		formIA->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(
 			this, &MyForm::formIA_FormClosing);
-		formIA->ShowDialog();
+		formIA->FormClosed += gcnew System::Windows::Forms::FormClosedEventHandler(
+			this, &MyForm::formIA_FormClosed);
+
+		// Show() e nao ShowDialog(): com o dialogo modal, a tela principal ficava
+		// bloqueada enquanto o Copilot estivesse aberto - nao dava para rodar um
+		// script e conversar sobre ele ao mesmo tempo, que e o uso natural.
+		// Owner = this mantem a janela acima da principal e faz as duas fecharem
+		// juntas, entao nao sobra janela orfa se o usuario fechar a de tras.
+		formIA->Owner = this;
+		formIA->Show();
+	}
+
+		   // Solta a referencia quando a janela do Copilot fecha. Sem isto, o
+		   // proximo clique no botao encontraria um objeto ja descartado e
+		   // tentaria ativar uma janela que nao existe mais.
+	private: System::Void formIA_FormClosed(System::Object^ sender,
+		System::Windows::Forms::FormClosedEventArgs^ e) {
+		formIA = nullptr;
+	}
+
+		   // Manda o log do teste para o Copilot analisar. Fecha o circuito entre
+		   // as duas metades do aplicativo: antes, quem via um script falhar tinha
+		   // de copiar a saida a mao para perguntar a IA o que aconteceu.
+	private: System::Void btnAnalisarSaida_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ log = txtOutput->Text;
+		if (String::IsNullOrWhiteSpace(log)) {
+			MessageBox::Show(L"Nao ha saida de teste para analisar. Rode um script primeiro.",
+				L"Nada para analisar");
+			return;
+		}
+		if (formIA == nullptr || formIA->IsDisposed) {
+			if (txtUrl->Text->Trim() == "") {
+				MessageBox::Show(L"Preencha a URL Alvo primeiro.", L"Aviso");
+				return;
+			}
+			btnGerarIA_Click(sender, e);
+		}
+		if (formIA == nullptr || txtChatInput == nullptr) return;
+
+		// A saida vai MASCARADA: ela costuma trazer o token de autenticacao que o
+		// proprio script imprimiu, e daqui o texto sai da maquina rumo ao
+		// provedor de IA. E as ultimas linhas, nao as primeiras - o erro fica no
+		// fim, e o comeco e cabecalho repetido.
+		String^ limpo = MascararSegredosEmTexto(log);
+		if (limpo->Length > 6000) limpo = L"[...inicio omitido...]\r\n"
+			+ limpo->Substring(limpo->Length - 6000);
+
+		txtChatInput->Text =
+			L"Analise a saida deste teste automatizado e me diga, em portugues: o que "
+			L"falhou, qual a causa provavel e o que eu deveria conferir primeiro. "
+			L"Se der para corrigir o script, mostre so o trecho que muda.\r\n\r\n"
+			L"URL alvo: " + txtUrl->Text->Trim() + L"\r\n"
+			L"Script: " + (lstScripts->SelectedItem != nullptr
+				? lstScripts->SelectedItem->ToString() : L"(nenhum selecionado)")
+			+ L"\r\n\r\nSaida do teste:\r\n" + limpo;
+
+		formIA->Activate();
+		txtChatInput->Focus();
+		// NAO envia sozinho. Quem paga o token decide a hora - e assim da para
+		// completar a pergunta antes, que costuma render uma resposta melhor.
+		MessageBox::Show(
+			L"A saida do teste foi colocada na caixa de mensagem do Copilot, ja com "
+			L"senhas e tokens mascarados.\n\nRevise ou complete a pergunta e clique "
+			L"em Enviar quando quiser.",
+			L"Pronto para perguntar", MessageBoxButtons::OK, MessageBoxIcon::Information);
 	}
 
 		   // ==========================================================================
@@ -2643,6 +2732,19 @@ namespace T2MSecurityManager {
 			this, &MyForm::historicoAbrirPasta_Handler);
 		d->Controls->Add(pasta);
 
+		Button^ limpar = gcnew Button();
+		limpar->Text = L"Limpar historico";
+		limpar->Location = System::Drawing::Point(506, 578);
+		limpar->Size = System::Drawing::Size(150, 30);
+		limpar->FlatStyle = FlatStyle::Flat;
+		limpar->ForeColor = System::Drawing::Color::Firebrick;
+		limpar->Anchor = static_cast<AnchorStyles>(
+			AnchorStyles::Bottom | AnchorStyles::Left);
+		limpar->Tag = lv;
+		limpar->Click += gcnew System::EventHandler(
+			this, &MyForm::historicoLimpar_Handler);
+		d->Controls->Add(limpar);
+
 		Button^ fechar = gcnew Button();
 		fechar->Text = L"Fechar";
 		fechar->Location = System::Drawing::Point(862, 578);
@@ -2674,6 +2776,42 @@ namespace T2MSecurityManager {
 			: (L"Nao foi possivel ler esta execucao:\r\n\r\n" + erro);
 		detalhe->Select(0, 0);
 		detalhe->ScrollToCaret();
+	}
+
+	private: System::Void historicoLimpar_Handler(System::Object^ sender, System::EventArgs^ e) {
+		ListView^ lv = dynamic_cast<ListView^>(safe_cast<Button^>(sender)->Tag);
+		if (lv == nullptr) return;
+		int quantas = lv->Items->Count;
+		if (quantas == 0) {
+			MessageBox::Show(L"O historico ja esta vazio.", L"Nada a limpar");
+			return;
+		}
+		// O aviso diz o numero e diz o que se perde. "Tem certeza?" sozinho nao
+		// informa nada: a pessoa clica em Sim por reflexo.
+		System::Windows::Forms::DialogResult r = MessageBox::Show(
+			String::Format(
+				L"Apagar as {0} execucao(oes) do historico?\n\n"
+				L"E a trilha de auditoria dos testes: data, alvo, passos gastos, "
+				L"recusas e o relatorio de cada um. Nao da para desfazer.\n\n"
+				L"Se algum desses registros ainda for necessario, cancele e use "
+				L"'Exportar esta execucao' antes.", quantas),
+			L"Limpar historico", MessageBoxButtons::YesNo, MessageBoxIcon::Warning,
+			MessageBoxDefaultButton::Button2);   // o padrao e NAO
+		if (r != System::Windows::Forms::DialogResult::Yes) return;
+
+		String^ erro = L"";
+		String^ resposta = ConsultarHistorico(L"--historico-limpar", erro);
+		TextBox^ detalhe = dynamic_cast<TextBox^>(lv->Tag);
+		if (!String::IsNullOrWhiteSpace(erro)) {
+			MessageBox::Show(L"Nao foi possivel limpar o historico:\n\n" + erro, L"Erro");
+			return;
+		}
+		if (detalhe != nullptr) CarregarHistoricoNaLista(lv, detalhe);
+		MessageBox::Show(
+			resposta->Trim() + L"\n\nFicou registrada uma unica linha dizendo quem "
+			L"limpou e quando. Num produto de auditoria, um historico que pode ser "
+			L"esvaziado sem deixar marca nao serve como evidencia.",
+			L"Historico limpo", MessageBoxButtons::OK, MessageBoxIcon::Information);
 	}
 
 	private: System::Void historicoAtualizar_Handler(System::Object^ sender, System::EventArgs^ e) {

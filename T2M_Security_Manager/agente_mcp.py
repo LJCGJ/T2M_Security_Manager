@@ -3006,6 +3006,44 @@ def _saida_historico():
                 f"puladas.")
         return True
 
+    if "--historico-limpar" in args:
+        registros, _ = ler_historico()
+        quantas = len(registros)
+        print("HIST_INICIO")
+        try:
+            if os.path.exists(ARQUIVO_HISTORICO):
+                os.unlink(ARQUIVO_HISTORICO)
+            # A trilha registra a propria limpeza. Num produto de auditoria, um
+            # historico que pode ser esvaziado sem deixar marca nao serve como
+            # evidencia: qualquer um poderia apagar o teste que deu errado e
+            # dizer que ele nunca existiu. Este registro nao impede a limpeza -
+            # so garante que ela seja visivel.
+            marca = {
+                "id": uuid.uuid4().hex[:12],
+                "inicio": datetime.datetime.now().isoformat(timespec="seconds"),
+                "fim": datetime.datetime.now().isoformat(timespec="seconds"),
+                "duracao_s": 0,
+                "modo": "Sistema",
+                "alvo": "(historico de execucoes)",
+                "objetivo": "O operador apagou o historico pela tela do aplicativo.",
+                "provedor": "", "modelo": "",
+                "passos_usados": 0, "passos_max": 0,
+                "limite_atingido": False, "recusas": {}, "erro": False,
+                "somente_leitura": None, "instrucoes_operador": False,
+                "relatorio": (f"{quantas} execucao(oes) foram apagadas do "
+                              f"historico por "
+                              f"{os.environ.get('USERNAME') or 'usuario desconhecido'} "
+                              f"em "
+                              f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}."),
+            }
+            with open(ARQUIVO_HISTORICO, "w", encoding="utf-8") as f:
+                f.write(json.dumps(marca, ensure_ascii=False) + "\n")
+            print(f"{quantas} execucao(oes) apagadas.")
+        except Exception as e:
+            print(f"Nao foi possivel apagar o historico: {type(e).__name__}: {e}")
+        print("HIST_FIM")
+        return True
+
     if "--historico-detalhe" in args:
         i = args.index("--historico-detalhe")
         chave = args[i + 1] if i + 1 < len(args) else ""
