@@ -109,19 +109,6 @@ namespace T2MSecurityManager {
 			dicaMain->SetToolTip(this->btnAbrirPasta,
 				L"Abre a pasta onde os scripts de teste sao salvos.\n"
 				L"(a pasta pode ser alterada em Configuracoes)");
-			dicaMain->SetToolTip(this->btnModoTela,
-				L"MODO TELA (via MCP)\n"
-				L"A IA abre um navegador de verdade e age nele: navega, clica, "
-				L"preenche e le a pagina.\nUsa a URL Alvo preenchida abaixo.");
-			dicaMain->SetToolTip(this->btnModoBanco,
-				L"MODO BANCO (via MCP)\n"
-				L"A IA conecta no banco e executa consultas de verdade.\n"
-				L"PostgreSQL, MySQL, MariaDB, SQLite, SQL Server, Oracle e MongoDB.\n"
-				L"O modo somente-leitura fica ligado por padrao.");
-			dicaMain->SetToolTip(this->btnModoApi,
-				L"MODO API (via MCP)\n"
-				L"A IA monta e dispara requisicoes HTTP de verdade e analisa "
-				L"status, cabecalhos e corpo da resposta.");
 			dicaMain->SetToolTip(this->btnAnalisarSaida,
 				L"Leva a saida do ultimo teste para o Copilot explicar o que falhou "
 				L"(senhas e tokens sao mascarados antes).");
@@ -156,7 +143,6 @@ namespace T2MSecurityManager {
 			// que deveria emoldura-los. Aqui, com todo mundo ja na colecao, o
 			// empurrao vale para valer.
 			pnlTopo->SendToBack();
-			pnlModos->SendToBack();
 			pnlScripts->SendToBack();
 			pnlAlvo->SendToBack();
 			pnlSaida->SendToBack();
@@ -190,16 +176,12 @@ namespace T2MSecurityManager {
 		Button^ btnConfiguracoes;   // abre a tela de configuracoes
 		Button^ btnHistorico;       // abre a trilha de execucoes ja feitas
 		Button^ btnAnalisarSaida;   // manda o log do teste para o Copilot
-		// Faixa de modos e molduras da tela inicial
-		Button^ btnModoTela; Button^ btnModoBanco; Button^ btnModoApi;
-		System::Windows::Forms::ContextMenuStrip^ menuBancosPrincipal;
+		// Molduras da tela inicial
 		System::Windows::Forms::Panel^ pnlTopo;
-		System::Windows::Forms::Panel^ pnlModos;
 		System::Windows::Forms::Panel^ pnlScripts;
 		System::Windows::Forms::Panel^ pnlAlvo;
 		System::Windows::Forms::Panel^ pnlSaida;
 		Label^ lblTituloApp; Label^ lblSubtituloApp;
-		Label^ lblModos; Label^ lblModosDica;
 		Label^ lblScripts; Label^ lblAlvo; Label^ lblSaida; Label^ lblCopilotDica;
 		// Preferencias do app (persistidas em configuracoes.txt, lidas tambem pelo Python)
 		String^ cfgPastaRelatorios;
@@ -487,9 +469,9 @@ namespace T2MSecurityManager {
 
 			   this->lstScripts->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
 			   this->lstScripts->ItemHeight = 17;
-			   this->lstScripts->Location = System::Drawing::Point(29, 212);
+			   this->lstScripts->Location = System::Drawing::Point(29, 118);
 			   this->lstScripts->Name = L"lstScripts";
-			   this->lstScripts->Size = System::Drawing::Size(202, 348);
+			   this->lstScripts->Size = System::Drawing::Size(202, 442);
 			   this->lstScripts->TabIndex = 1;
 
 			   this->btnAdd->BackColor = System::Drawing::Color::LightGreen;
@@ -526,37 +508,37 @@ namespace T2MSecurityManager {
 				   static_cast<System::Int32>(static_cast<System::Byte>(30)));
 			   this->txtOutput->Font = (gcnew System::Drawing::Font(L"Consolas", 10));
 			   this->txtOutput->ForeColor = System::Drawing::Color::LimeGreen;
-			   this->txtOutput->Location = System::Drawing::Point(266, 346);
+			   this->txtOutput->Location = System::Drawing::Point(266, 248);
 			   this->txtOutput->Name = L"txtOutput";
 			   this->txtOutput->ReadOnly = true;
-			   this->txtOutput->Size = System::Drawing::Size(628, 178);
+			   this->txtOutput->Size = System::Drawing::Size(628, 276);
 			   this->txtOutput->TabIndex = 5;
 			   this->txtOutput->Text = L"";
 
 			   this->lblUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
 			   this->lblUrl->ForeColor = System::Drawing::Color::DarkRed;
-			   this->lblUrl->Location = System::Drawing::Point(268, 216);
+			   this->lblUrl->Location = System::Drawing::Point(268, 126);
 			   this->lblUrl->Name = L"lblUrl";
 			   this->lblUrl->Size = System::Drawing::Size(78, 20);
 			   this->lblUrl->TabIndex = 6;
 			   this->lblUrl->Text = L"URL Alvo:";
 
 			   this->txtUrl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			   this->txtUrl->Location = System::Drawing::Point(350, 212);
+			   this->txtUrl->Location = System::Drawing::Point(350, 122);
 			   this->txtUrl->Name = L"txtUrl";
 			   this->txtUrl->Size = System::Drawing::Size(542, 25);
 			   this->txtUrl->TabIndex = 7;
 
 			   this->lblToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
 			   this->lblToken->ForeColor = System::Drawing::Color::DarkBlue;
-			   this->lblToken->Location = System::Drawing::Point(268, 250);
+			   this->lblToken->Location = System::Drawing::Point(268, 160);
 			   this->lblToken->Name = L"lblToken";
 			   this->lblToken->Size = System::Drawing::Size(78, 20);
 			   this->lblToken->TabIndex = 8;
 			   this->lblToken->Text = L"Token JWT:";
 
 			   this->txtToken->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10));
-			   this->txtToken->Location = System::Drawing::Point(350, 246);
+			   this->txtToken->Location = System::Drawing::Point(350, 156);
 			   this->txtToken->Name = L"txtToken";
 			   this->txtToken->Size = System::Drawing::Size(352, 25);
 			   this->txtToken->UseSystemPasswordChar = true; // nao expoe o JWT na tela
@@ -566,7 +548,7 @@ namespace T2MSecurityManager {
 			   this->btnLoginAuto->Enabled = false;
 			   this->btnLoginAuto->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
 			   this->btnLoginAuto->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
-			   this->btnLoginAuto->Location = System::Drawing::Point(772, 246);
+			   this->btnLoginAuto->Location = System::Drawing::Point(772, 156);
 			   this->btnLoginAuto->Name = L"btnLoginAuto";
 			   this->btnLoginAuto->Size = System::Drawing::Size(120, 25);
 			   this->btnLoginAuto->TabIndex = 10;
@@ -575,7 +557,7 @@ namespace T2MSecurityManager {
 			   this->btnLoginAuto->Click += gcnew System::EventHandler(this, &MyForm::btnLoginAuto_Click);
 
 			   this->chkHabilitarLogin->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
-			   this->chkHabilitarLogin->Location = System::Drawing::Point(712, 249);
+			   this->chkHabilitarLogin->Location = System::Drawing::Point(712, 159);
 			   this->chkHabilitarLogin->Name = L"chkHabilitarLogin";
 			   this->chkHabilitarLogin->Size = System::Drawing::Size(58, 20);
 			   this->chkHabilitarLogin->TabIndex = 9;
@@ -653,106 +635,31 @@ namespace T2MSecurityManager {
 			   this->lblSubtituloApp->ForeColor = System::Drawing::Color::Gray;
 			   this->Controls->Add(this->lblSubtituloApp);
 
-			   // --- Faixa dos modos: o que estava escondido dentro do Copilot ---
-			   this->pnlModos = (gcnew System::Windows::Forms::Panel());
-			   this->pnlModos->Location = System::Drawing::Point(20, 88);
-			   this->pnlModos->Size = System::Drawing::Size(884, 78);
-			   this->pnlModos->BackColor = System::Drawing::Color::White;
-			   this->pnlModos->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
-			   this->Controls->Add(this->pnlModos);
-
-			   this->lblModos = (gcnew System::Windows::Forms::Label());
-			   this->lblModos->Text = L"TESTAR COM A IA VIA MCP  -  ESCOLHA O ALVO";
-			   this->lblModos->Location = System::Drawing::Point(32, 96);
-			   this->lblModos->AutoSize = true;
-			   this->lblModos->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
-			   this->lblModos->ForeColor = System::Drawing::Color::FromArgb(44, 62, 107);
-			   this->Controls->Add(this->lblModos);
-
-			   this->btnModoTela = (gcnew System::Windows::Forms::Button());
-			   this->btnModoTela->Text = L"🖥  Tela / navegador";
-			   this->btnModoTela->Location = System::Drawing::Point(32, 120);
-			   this->btnModoTela->Size = System::Drawing::Size(200, 34);
-			   this->btnModoTela->BackColor = System::Drawing::Color::Indigo;
-			   this->btnModoTela->ForeColor = System::Drawing::Color::White;
-			   this->btnModoTela->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnModoTela->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
-			   this->btnModoTela->Cursor = Cursors::Hand;
-			   this->btnModoTela->Click += gcnew System::EventHandler(this, &MyForm::modoTelaPrincipal_Click);
-			   this->Controls->Add(this->btnModoTela);
-
-			   this->btnModoBanco = (gcnew System::Windows::Forms::Button());
-			   this->btnModoBanco->Text = L"🗄  Banco de dados   ▾";
-			   this->btnModoBanco->Location = System::Drawing::Point(242, 120);
-			   this->btnModoBanco->Size = System::Drawing::Size(200, 34);
-			   this->btnModoBanco->BackColor = System::Drawing::Color::Indigo;
-			   this->btnModoBanco->ForeColor = System::Drawing::Color::White;
-			   this->btnModoBanco->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnModoBanco->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
-			   this->btnModoBanco->Cursor = Cursors::Hand;
-			   this->btnModoBanco->Click += gcnew System::EventHandler(this, &MyForm::modoBancoPrincipal_Click);
-			   this->Controls->Add(this->btnModoBanco);
-
-			   // Menu suspenso em vez de um botao por banco: sao sete tipos, e
-			   // uma fileira de sete botoes voltaria a ser o "monte de botao"
-			   // que esta reforma existe para resolver. Mesmo padrao do botao
-			   // Automacao que ja existe dentro do Copilot.
-			   this->menuBancosPrincipal = (gcnew System::Windows::Forms::ContextMenuStrip());
-			   cli::array<String^>^ tiposBanco = gcnew cli::array<String^>{
-				   L"PostgreSQL", L"MySQL", L"MariaDB", L"SQLite",
-				   L"SQL Server", L"Oracle", L"MongoDB" };
-			   for each (String ^ tb in tiposBanco) {
-				   System::Windows::Forms::ToolStripMenuItem^ it =
-					   (gcnew System::Windows::Forms::ToolStripMenuItem(tb));
-				   it->Click += gcnew System::EventHandler(this, &MyForm::modoBancoTipo_Click);
-				   this->menuBancosPrincipal->Items->Add(it);
-			   }
-
-			   this->btnModoApi = (gcnew System::Windows::Forms::Button());
-			   this->btnModoApi->Text = L"🔌  API / HTTP";
-			   this->btnModoApi->Location = System::Drawing::Point(452, 120);
-			   this->btnModoApi->Size = System::Drawing::Size(200, 34);
-			   this->btnModoApi->BackColor = System::Drawing::Color::Indigo;
-			   this->btnModoApi->ForeColor = System::Drawing::Color::White;
-			   this->btnModoApi->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
-			   this->btnModoApi->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
-			   this->btnModoApi->Cursor = Cursors::Hand;
-			   this->btnModoApi->Click += gcnew System::EventHandler(this, &MyForm::modoApiPrincipal_Click);
-			   this->Controls->Add(this->btnModoApi);
-
-			   this->lblModosDica = (gcnew System::Windows::Forms::Label());
-			   this->lblModosDica->Text =
-				   L"Por MCP a IA opera a ferramenta de verdade - navegador, banco\n"
-				   L"ou requisicao HTTP - em vez de so escrever sobre ela.";
-			   this->lblModosDica->Location = System::Drawing::Point(668, 122);
-			   this->lblModosDica->Size = System::Drawing::Size(230, 32);
-			   this->lblModosDica->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8));
-			   this->lblModosDica->ForeColor = System::Drawing::Color::Gray;
-			   // NAO entra na tela: virou o passo 1 do tour em balao. Texto de
-			   // aprendizado colado no botao ensina uma vez e depois ocupa espaco
-			   // para sempre - e este espaco e o mesmo que faz a tela parecer
-			   // cheia. O objeto fica vivo so para nao quebrar o tema, que
-			   // percorre a colecao de controles.
-			   this->lblModosDica->Visible = false;
+			   // A faixa de modos VOLTOU para dentro do Copilot. Ter o mesmo
+			   // caminho nas duas telas confundia mais do que ajudava, e o meio
+			   // termo era o pior dos mundos: a entrada aqui, o objetivo la.
+			   // O que ficou desta experiencia e o console: o raciocinio da IA
+			   // aparece aqui em tempo real, e com a faixa fora sobra espaco
+			   // para ele respirar.
 
 			   // --- Molduras das tres areas de trabalho ---
 			   this->pnlScripts = (gcnew System::Windows::Forms::Panel());
-			   this->pnlScripts->Location = System::Drawing::Point(20, 182);
-			   this->pnlScripts->Size = System::Drawing::Size(220, 428);
+			   this->pnlScripts->Location = System::Drawing::Point(20, 88);
+			   this->pnlScripts->Size = System::Drawing::Size(220, 520);
 			   this->pnlScripts->BackColor = System::Drawing::Color::White;
 			   this->pnlScripts->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
 			   this->Controls->Add(this->pnlScripts);
 
 			   this->lblScripts = (gcnew System::Windows::Forms::Label());
 			   this->lblScripts->Text = L"SCRIPTS DE TESTE";
-			   this->lblScripts->Location = System::Drawing::Point(30, 190);
+			   this->lblScripts->Location = System::Drawing::Point(30, 96);
 			   this->lblScripts->AutoSize = true;
 			   this->lblScripts->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
 			   this->lblScripts->ForeColor = System::Drawing::Color::FromArgb(44, 62, 107);
 			   this->Controls->Add(this->lblScripts);
 
 			   this->pnlAlvo = (gcnew System::Windows::Forms::Panel());
-			   this->pnlAlvo->Location = System::Drawing::Point(256, 182);
+			   this->pnlAlvo->Location = System::Drawing::Point(256, 88);
 			   this->pnlAlvo->Size = System::Drawing::Size(648, 118);
 			   this->pnlAlvo->BackColor = System::Drawing::Color::White;
 			   this->pnlAlvo->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
@@ -760,22 +667,22 @@ namespace T2MSecurityManager {
 
 			   this->lblAlvo = (gcnew System::Windows::Forms::Label());
 			   this->lblAlvo->Text = L"ALVO DO TESTE";
-			   this->lblAlvo->Location = System::Drawing::Point(266, 190);
+			   this->lblAlvo->Location = System::Drawing::Point(266, 96);
 			   this->lblAlvo->AutoSize = true;
 			   this->lblAlvo->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
 			   this->lblAlvo->ForeColor = System::Drawing::Color::FromArgb(44, 62, 107);
 			   this->Controls->Add(this->lblAlvo);
 
 			   this->pnlSaida = (gcnew System::Windows::Forms::Panel());
-			   this->pnlSaida->Location = System::Drawing::Point(256, 314);
-			   this->pnlSaida->Size = System::Drawing::Size(648, 222);
+			   this->pnlSaida->Location = System::Drawing::Point(256, 216);
+			   this->pnlSaida->Size = System::Drawing::Size(648, 320);
 			   this->pnlSaida->BackColor = System::Drawing::Color::White;
 			   this->pnlSaida->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
 			   this->Controls->Add(this->pnlSaida);
 
 			   this->lblSaida = (gcnew System::Windows::Forms::Label());
-			   this->lblSaida->Text = L"SAIDA DO SCRIPT  /  PROGRESSO DA IA";
-			   this->lblSaida->Location = System::Drawing::Point(266, 322);
+			   this->lblSaida->Text = L"TERMINAL  -  SAIDA DOS SCRIPTS E RACIOCINIO DA IA";
+			   this->lblSaida->Location = System::Drawing::Point(266, 224);
 			   this->lblSaida->AutoSize = true;
 			   this->lblSaida->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Bold));
 			   this->lblSaida->ForeColor = System::Drawing::Color::FromArgb(44, 62, 107);
@@ -1246,7 +1153,7 @@ namespace T2MSecurityManager {
 
 		try {
 			pythonProcess->Start(); pythonProcess->BeginOutputReadLine(); pythonProcess->BeginErrorReadLine();
-			btnStart->Enabled = false; btnStop->Enabled = true;
+			btnStart->Enabled = false; AtualizarBotaoParar();
 		}
 		catch (System::ComponentModel::Win32Exception^) {
 			MessageBox::Show(
@@ -1268,17 +1175,108 @@ namespace T2MSecurityManager {
 		catch (System::ObjectDisposedException^) {}
 		catch (System::InvalidOperationException^) {}
 	}
-	private: void AppendLog(String^ text) { txtOutput->AppendText(text + Environment::NewLine); txtOutput->ScrollToCaret(); }
+		   // Teto do terminal. Ate agora so as linhas ">>>" chegavam aqui - um
+		   // punhado por execucao. Desde que o console passou a receber TODO o
+		   // stderr, entra tambem o que os servidores MCP escrevem, e o
+		   // Playwright em particular e falante. Duas coisas quebram sem este
+		   // limite: a caixa de texto vai ficando lenta conforme cresce (cada
+		   // AppendText reprocessa o conteudo) e uma execucao longa acaba comendo
+		   // memoria a toa.
+		   //
+		   // Corta pela METADE quando estoura, e nao uma linha por vez: aparar de
+		   // pouco em pouco faria o corte acontecer a cada nova linha, que e
+		   // exatamente a operacao cara que se quer evitar.
+	private: literal int TETO_TERMINAL = 200000;
+
+	private: void AppendLog(String^ text) {
+		if (txtOutput == nullptr || txtOutput->IsDisposed) return;
+
+		if (txtOutput->TextLength > TETO_TERMINAL) {
+			String^ atual = txtOutput->Text;
+			int corte = atual->Length - (TETO_TERMINAL / 2);
+			// Comeca numa quebra de linha, para nao deixar meia linha no topo.
+			int quebra = atual->IndexOf(Environment::NewLine, corte);
+			if (quebra >= 0) corte = quebra + Environment::NewLine->Length;
+			txtOutput->Text = L"[... o inicio do log foi descartado para o terminal "
+				L"nao ficar lento; o log completo de cada execucao fica no Historico ...]"
+				+ Environment::NewLine + atual->Substring(corte);
+			txtOutput->SelectionStart = txtOutput->TextLength;
+		}
+
+		txtOutput->AppendText(text + Environment::NewLine);
+		txtOutput->ScrollToCaret();
+	}
 	private: void OnProcessExited(System::Object^ sender, EventArgs^ e) {
 		if (this->IsDisposed || !this->IsHandleCreated) return;
 		try { this->BeginInvoke(gcnew Action(this, &MyForm::ResetButtons)); }
 		catch (...) {}
 	}
 	private: void ResetButtons() {
-		btnStart->Enabled = true; btnStop->Enabled = false; txtOutput->AppendText("\n>>> FIM.");
+		btnStart->Enabled = true; txtOutput->AppendText("\n>>> FIM.");
 		if (pythonProcess != nullptr) { try { pythonProcess->Close(); } catch (...) {} pythonProcess = nullptr; }
+		AtualizarBotaoParar();   // so desarma se a IA tambem nao estiver rodando
 	}
-	private: System::Void btnStop_Click(System::Object^ sender, System::EventArgs^ e) { if (pythonProcess != nullptr && !pythonProcess->HasExited) { try { pythonProcess->Kill(); } catch (...) {} } }
+		   // Ha DOIS processos que o PARAR precisa alcancar: o script da lista
+		   // (pythonProcess) e o agente da IA (procChatAtual). Ate agora ele so
+		   // matava o primeiro, e enquanto a IA rodava o botao ficava ate
+		   // DESABILITADO - a pessoa via os passos sendo gastos no console e nao
+		   // tinha como interromper sem fechar a janela do Copilot. Isso so ficou
+		   // visivel depois que a tela principal deixou de ser bloqueada.
+	private: bool ScriptRodando() {
+		try { return pythonProcess != nullptr && !pythonProcess->HasExited; }
+		catch (...) { return false; }
+	}
+
+	private: bool IaRodando() {
+		try { return workerChat != nullptr && workerChat->IsBusy; }
+		catch (...) { return false; }
+	}
+
+		   // Um lugar so decide o estado do botao. Antes, o fim do script e o fim
+		   // da IA desligavam o PARAR cada um por conta propria - com os dois
+		   // rodando junto, o que terminasse primeiro desarmava o botao do outro.
+	private: void AtualizarBotaoParar() {
+		if (btnStop == nullptr || btnStop->IsDisposed) return;
+		btnStop->Enabled = ScriptRodando() || IaRodando();
+	}
+
+	private: System::Void btnStop_Click(System::Object^ sender, System::EventArgs^ e) {
+		bool parouAlgo = false;
+
+		if (ScriptRodando()) {
+			try { pythonProcess->Kill(); parouAlgo = true; }
+			catch (...) {}
+		}
+
+		if (IaRodando()) {
+			System::Windows::Forms::DialogResult r = MessageBox::Show(
+				L"Interromper a execucao da IA agora?\n\n"
+				L"O processo e o navegador que ele abriu sao encerrados, e o "
+				L"relatorio daquilo que ja foi apurado se perde. Os passos ja "
+				L"gastos nao voltam.",
+				L"Interromper a IA", MessageBoxButtons::YesNo,
+				MessageBoxIcon::Warning, MessageBoxDefaultButton::Button2);
+			if (r == System::Windows::Forms::DialogResult::Yes) {
+				try {
+					// Copia local: o worker pode zerar o campo a qualquer momento.
+					Process^ p = procChatAtual;
+					if (p != nullptr && !p->HasExited) {
+						p->Kill();
+						p->WaitForExit(3000);
+						parouAlgo = true;
+					}
+				}
+				catch (...) {}
+				txtOutput->AppendText(L">>> [IA] Interrompido pelo operador."
+					+ Environment::NewLine);
+				txtOutput->ScrollToCaret();
+			}
+		}
+
+		if (!parouAlgo)
+			MessageBox::Show(L"Nao ha nada em execucao no momento.", L"Nada a parar");
+		AtualizarBotaoParar();
+	}
 	private: System::Void btnExport_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (String::IsNullOrWhiteSpace(txtOutput->Text)) {
 			MessageBox::Show(L"O log tecnico esta vazio. Execute alguma operacao primeiro.", L"Aviso");
@@ -1347,18 +1345,23 @@ namespace T2MSecurityManager {
 
 		// Mostra o progresso NA HORA. O agente escreve cada passo aqui; sem isso,
 		// uma automacao de varios minutos parece travada ate terminar.
-		// Filtra so as linhas de progresso (">>>"), ignorando avisos tecnicos.
 		String^ linha = e->Data->Trim();
-		if (!linha->StartsWith(">>>")) return;
-		// Dois destinos, de proposito. No chat, o progresso acompanha a conversa;
-		// no console da tela principal, ele fica visivel MESMO com a janela do
-		// Copilot atras ou fechada - e agora que a janela nao e mais modal, e
-		// comum a pessoa deixar o Copilot trabalhando e voltar para a tela
-		// principal. Sem isto, uma automacao de varios minutos parece travada.
+		if (String::IsNullOrEmpty(linha)) return;
+		// Dois destinos, com FILTROS diferentes - e a diferenca e o ponto.
+		//
+		// Console da tela principal: TUDO. E o terminal tecnico, e quem esta
+		// olhando para ele quer ver o raciocinio inteiro da IA: qual ferramenta
+		// chamou, o que leu, o que foi recusado, ate o aviso feio de biblioteca.
+		// Esconder linha nenhuma ali seria tirar justamente o que ele serve para
+		// mostrar.
+		//
+		// Chat: so as linhas de progresso (">>>"). La o que importa e a conversa,
+		// e despejar stderr cru no meio dela transformaria o dialogo em log.
 		if (!this->IsDisposed && this->IsHandleCreated) {
 			try { this->BeginInvoke(gcnew Action<String^>(this, &MyForm::AppendLog), linha); }
 			catch (...) {}
 		}
+		if (!linha->StartsWith(">>>")) return;
 		if (formIA == nullptr || formIA->IsDisposed || !formIA->IsHandleCreated) return;
 		try { formIA->BeginInvoke(gcnew Action<String^>(this, &MyForm::MostrarProgressoChat), linha); }
 		catch (...) {}
@@ -1637,54 +1640,6 @@ namespace T2MSecurityManager {
 		AbrirCopilot(true);
 	}
 
-		   // Modos da faixa da tela inicial. Eles nao duplicam nada: reaproveitam
-		   // os mesmos handlers que ja existiam dentro do Copilot. A diferenca e
-		   // que agora estao a vista - antes um cliente podia usar o aplicativo
-		   // por semanas sem descobrir que ele testa banco de dados.
-	private: bool CopilotPronto(bool exigeUrl) {
-		AbrirCopilot(exigeUrl);
-		// workerChat nasce junto com a janela do Copilot. Se a abertura foi
-		// recusada (falta a URL no modo tela), ele continua nulo e chamar o
-		// handler do modo estouraria em vez de avisar.
-		return (formIA != nullptr && !formIA->IsDisposed && workerChat != nullptr);
-	}
-
-	private: System::Void modoTelaPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {
-		if (txtUrl->Text->Trim() == "") {
-			MessageBox::Show(
-				L"Preencha a URL Alvo antes: e ela que a IA vai abrir no navegador.",
-				L"Falta a URL", MessageBoxButtons::OK, MessageBoxIcon::Information);
-			txtUrl->Focus();
-			return;
-		}
-		if (!CopilotPronto(true)) return;
-		menuTela_Click(sender, e);
-	}
-
-	private: System::Void modoApiPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {
-		// API e banco nao precisam da URL da tela principal: o alvo deles e
-		// informado na propria janela do modo.
-		if (!CopilotPronto(false)) return;
-		menuApi_Click(sender, e);
-	}
-
-	private: System::Void modoBancoPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {
-		menuBancosPrincipal->Show(btnModoBanco,
-			System::Drawing::Point(0, btnModoBanco->Height));
-	}
-
-	private: System::Void modoBancoTipo_Click(System::Object^ sender, System::EventArgs^ e) {
-		System::Windows::Forms::ToolStripItem^ item =
-			dynamic_cast<System::Windows::Forms::ToolStripItem^>(sender);
-		if (item == nullptr) return;
-		// Escolher "Oracle" no menu ja deixa Oracle marcado na tela de conexao:
-		// clicar duas vezes na mesma informacao e o tipo de atrito que faz a
-		// pessoa achar que o caminho e mais longo do que e.
-		dbTipo = item->Text;
-		if (!CopilotPronto(false)) return;
-		AbrirFormularioConexaoBanco();
-	}
-
 	private: void AbrirCopilot(bool exigeUrl) {
 		// Ja aberta: traz para a frente em vez de criar uma segunda janela. Sem
 		// isto, sair do modal significaria duas conversas disputando o mesmo
@@ -1749,11 +1704,22 @@ namespace T2MSecurityManager {
 		btnRemoverChave->Click += gcnew System::EventHandler(this, &MyForm::btnRemoverChave_Click);
 		formIA->Controls->Add(btnRemoverChave);
 
+		// Risco vertical separando os dois grupos da fileira: a esquerda sao os
+		// MODOS (o que a IA vai fazer com a proxima mensagem), a direita sao as
+		// SESSOES (o que fazer com a conversa). Sao coisas de natureza diferente
+		// coladas na mesma linha, e sem uma pausa visual o olho le tudo como uma
+		// fileira so de seis botoes iguais.
+		Panel^ sepBarraChat = gcnew Panel();
+		sepBarraChat->Location = System::Drawing::Point(391, 50);
+		sepBarraChat->Size = System::Drawing::Size(1, 24);
+		sepBarraChat->BackColor = System::Drawing::Color::FromArgb(205, 210, 220);
+		formIA->Controls->Add(sepBarraChat);
+
 		// --- NOVA CONVERSA (limpa a tela e o historico enviado a IA) ---
 		Button^ btnNovaConversa = gcnew Button();
 		btnNovaConversa->Text = L"✚ Nova conversa";
-		btnNovaConversa->Location = System::Drawing::Point(356, 48);
-		btnNovaConversa->Size = System::Drawing::Size(124, 28);
+		btnNovaConversa->Location = System::Drawing::Point(412, 48);
+		btnNovaConversa->Size = System::Drawing::Size(116, 28);
 		btnNovaConversa->FlatStyle = FlatStyle::Flat;
 		btnNovaConversa->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		btnNovaConversa->Cursor = Cursors::Hand;
@@ -1766,9 +1732,9 @@ namespace T2MSecurityManager {
 
 		// --- HISTORICO DE SESSOES (salvar / abrir conversas) ---
 		Button^ btnSalvarSessao = gcnew Button();
-		btnSalvarSessao->Text = L"💾 Salvar Sessao";
-		btnSalvarSessao->Location = System::Drawing::Point(486, 48);
-		btnSalvarSessao->Size = System::Drawing::Size(110, 28);
+		btnSalvarSessao->Text = L"💾 Salvar";
+		btnSalvarSessao->Location = System::Drawing::Point(532, 48);
+		btnSalvarSessao->Size = System::Drawing::Size(88, 28);
 		btnSalvarSessao->FlatStyle = FlatStyle::Flat;
 		btnSalvarSessao->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		btnSalvarSessao->Cursor = Cursors::Hand;
@@ -1778,9 +1744,9 @@ namespace T2MSecurityManager {
 			L"Salva esta conversa para retomar depois (mantem cores e formatacao).");
 
 		Button^ btnAbrirSessao = gcnew Button();
-		btnAbrirSessao->Text = L"📂 Abrir Sessao";
-		btnAbrirSessao->Location = System::Drawing::Point(602, 48);
-		btnAbrirSessao->Size = System::Drawing::Size(112, 28);
+		btnAbrirSessao->Text = L"📂 Abrir";
+		btnAbrirSessao->Location = System::Drawing::Point(624, 48);
+		btnAbrirSessao->Size = System::Drawing::Size(90, 28);
 		btnAbrirSessao->FlatStyle = FlatStyle::Flat;
 		btnAbrirSessao->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		btnAbrirSessao->Cursor = Cursors::Hand;
@@ -1863,18 +1829,12 @@ namespace T2MSecurityManager {
 		btnAutomacao = gcnew Button();
 		btnAutomacao->Text = L"⚙ Automacao";
 		btnAutomacao->TextAlign = System::Drawing::ContentAlignment::MiddleCenter;
-		btnAutomacao->Location = System::Drawing::Point(600, 38);
-		btnAutomacao->Size = System::Drawing::Size(115, 29);
+		btnAutomacao->Location = System::Drawing::Point(252, 48);
+		btnAutomacao->Size = System::Drawing::Size(118, 28);
 		btnAutomacao->FlatStyle = FlatStyle::Flat;
 		btnAutomacao->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
 		btnAutomacao->Click += gcnew System::EventHandler(this, &MyForm::btnAutomacao_Click);
-		// NAO entra na janela. Depois que os modos MCP passaram a viver na faixa
-		// da tela inicial, este botao virou um segundo caminho para exatamente a
-		// mesma coisa - e dois caminhos para a mesma acao, em telas diferentes,
-		// e confusao, nao conveniencia. O objeto continua existindo de proposito:
-		// AtualizarBotoesModo e DefinirOcupado leem BackColor e Enabled dele, e
-		// remover so a criacao daria acesso a nulo em dois lugares distantes.
-		btnAutomacao->Visible = false;
+		formIA->Controls->Add(btnAutomacao);
 		dica->SetToolTip(btnAutomacao,
 			L"AUTOMACAO (via MCP, execucao real)\n"
 			L"Teste de Tela: descreva o teste e a IA executa passo a passo ao vivo.\n"
@@ -1943,8 +1903,8 @@ namespace T2MSecurityManager {
 		// paragrafos antes de usar a ferramenta.
 		btnAjudaChat = gcnew Button();
 		btnAjudaChat->Text = L"?";
-		btnAjudaChat->Location = System::Drawing::Point(688, 13);
-		btnAjudaChat->Size = System::Drawing::Size(26, 26);
+		btnAjudaChat->Location = System::Drawing::Point(686, 12);
+		btnAjudaChat->Size = System::Drawing::Size(28, 28);
 		btnAjudaChat->BackColor = System::Drawing::Color::FromArgb(44, 62, 107);
 		btnAjudaChat->ForeColor = System::Drawing::Color::White;
 		btnAjudaChat->FlatStyle = FlatStyle::Flat;
@@ -1957,6 +1917,9 @@ namespace T2MSecurityManager {
 		{
 			System::Drawing::Drawing2D::GraphicsPath^ redondo =
 				gcnew System::Drawing::Drawing2D::GraphicsPath();
+			// O recorte tem de usar o tamanho REAL do botao. Se ele mudar de
+			// tamanho e a elipse ficar com o valor antigo, sobra um pedaco de
+			// quadrado aparecendo fora do circulo.
 			redondo->AddEllipse(0, 0, btnAjudaChat->Width, btnAjudaChat->Height);
 			btnAjudaChat->Region = gcnew System::Drawing::Region(redondo);
 		}
@@ -3002,86 +2965,77 @@ namespace T2MSecurityManager {
 	}
 
 	private: System::Void btnAjudaPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {
-		// Esconde o anterior antes de mostrar o proximo: sem isto, dois baloes
-		// abertos ao mesmo tempo em controles proximos ficam um por cima do outro.
+		// Esconde o anterior antes de mostrar o proximo: dois baloes abertos em
+		// controles vizinhos ficam um por cima do outro.
 		if (balaoTour != nullptr) {
 			balaoTour->Hide(this);
-			balaoTour->Hide(btnModoTela);
-			balaoTour->Hide(btnModoBanco);
-			balaoTour->Hide(lstScripts);
+			balaoTour->Hide(btnGerarIA);
 			balaoTour->Hide(txtUrl);
-			balaoTour->Hide(txtOutput);
+			balaoTour->Hide(lstScripts);
 			balaoTour->Hide(btnStart);
+			balaoTour->Hide(txtOutput);
 			balaoTour->Hide(btnAnalisarSaida);
 			balaoTour->Hide(btnHistorico);
 			balaoTour->Hide(btnConfiguracoes);
-			balaoTour->Hide(btnGerarIA);
 		}
 
 		passoTour++;
 		switch (passoTour) {
 		case 1:
-			MostrarBalao(btnModoTela, L"1 de 9  -  Testar com a IA via MCP",
-				L"Aqui a IA nao escreve SOBRE o teste: ela executa o teste.\n\n"
-				L"Neste modo ela abre um navegador de verdade na URL Alvo, clica, "
-				L"preenche e relata o que encontrou.\n\n"
+			MostrarBalao(btnGerarIA, L"1 de 8  -  O Copilot",
+				L"Aqui dentro a IA planeja, gera script e - pelo botao Automacao - "
+				L"EXECUTA testes de verdade via MCP: tela, banco de dados "
+				L"(sete tipos) ou API.\n\n"
 				L"Clique no \"?\" de novo para o proximo passo.");
 			break;
 		case 2:
-			MostrarBalao(btnModoBanco, L"2 de 9  -  Banco de dados",
-				L"O mesmo, contra banco. O botao abre um menu com os sete tipos "
-				L"suportados: PostgreSQL, MySQL, MariaDB, SQLite, SQL Server, "
-				L"Oracle e MongoDB.\n\n"
-				L"O modo somente-leitura vem ligado: consulta passa, alteracao e "
-				L"recusada.");
+			MostrarBalao(txtUrl, L"2 de 8  -  URL Alvo",
+				L"O endereco do sistema em teste.\n\n"
+				L"Serve para a IA no modo Tela e tambem para os scripts da lista: "
+				L"o aplicativo entrega essa URL ao script quando o executa.");
 			break;
 		case 3:
-			MostrarBalao(txtUrl, L"3 de 9  -  URL Alvo",
-				L"O endereco do sistema em teste.\n\n"
-				L"Serve para o modo Tela e tambem para os scripts da lista: o "
-				L"aplicativo entrega essa URL ao script quando o executa.");
-			break;
-		case 4:
-			MostrarBalao(lstScripts, L"4 de 9  -  Scripts de teste",
+			MostrarBalao(lstScripts, L"3 de 8  -  Scripts de teste",
 				L"Os scripts que voce ja tem, ou que a IA gerou para voce.\n\n"
 				L"Rodar um script daqui NAO consome credito de IA. E o objetivo "
 				L"final: a IA descobre o teste uma vez, o script repete quantas "
 				L"vezes voce quiser.");
 			break;
-		case 5:
-			MostrarBalao(btnStart, L"5 de 9  -  Iniciar teste",
+		case 4:
+			MostrarBalao(btnStart, L"4 de 8  -  Iniciar teste",
 				L"Executa o script selecionado contra a URL Alvo.\n\n"
 				L"O token de autenticacao vai por variavel de ambiente, nunca na "
 				L"linha de comando - assim ele nao aparece na lista de processos "
 				L"da maquina.");
 			break;
-		case 6:
-			MostrarBalao(txtOutput, L"6 de 9  -  Saida e progresso",
-				L"Aqui sai tudo: a saida do script e, quando a IA esta "
-				L"trabalhando, cada passo dela em tempo real.\n\n"
-				L"Como a janela do Copilot nao bloqueia mais esta tela, da para "
-				L"deixar a IA trabalhando e acompanhar por aqui.");
+		case 5:
+			MostrarBalao(txtOutput, L"5 de 8  -  O terminal",
+				L"Aqui sai TUDO: a saida dos scripts e, enquanto a IA trabalha, o "
+				L"raciocinio dela passo a passo, em tempo real - qual ferramenta "
+				L"chamou, o que leu, o que foi recusado.\n\n"
+				L"Quando ela termina, a resposta final vai para o chat do Copilot "
+				L"e aparece um aviso aqui dizendo isso.");
 			break;
-		case 7:
-			MostrarBalao(btnAnalisarSaida, L"7 de 9  -  Analisar com a IA",
+		case 6:
+			MostrarBalao(btnAnalisarSaida, L"6 de 8  -  Analisar com a IA",
 				L"Leva a saida acima para o Copilot explicar o que falhou e por que.\n\n"
 				L"Senhas e tokens sao mascarados antes de sair da maquina. O envio "
 				L"nao e automatico: voce revisa a pergunta e decide a hora.");
 			break;
-		case 8:
-			MostrarBalao(btnHistorico, L"8 de 9  -  Historico",
+		case 7:
+			MostrarBalao(btnHistorico, L"7 de 8  -  Historico",
 				L"Toda execucao fica registrada: data, alvo, quantos passos a IA "
 				L"gastou, o que foi recusado e o relatorio completo.\n\n"
 				L"E a trilha de auditoria para quando perguntarem o que foi "
 				L"testado, e quando.");
 			break;
-		case 9:
-			MostrarBalao(btnConfiguracoes, L"9 de 9  -  Configuracoes",
+		case 8:
+			MostrarBalao(btnConfiguracoes, L"8 de 8  -  Configuracoes",
 				L"Onde ficam os limites que controlam o custo (passos da IA por "
 				L"tarefa), as protecoes de seguranca e as instrucoes permanentes "
 				L"que valem para todo teste.\n\n"
 				L"Fim do tour. Clique no \"?\" para recomecar, ou no \"?\" dentro "
-				L"do Copilot para o manual completo.");
+				L"do Copilot para conhecer aquela janela.");
 			break;
 		default:
 			passoTour = 0;   // recomeca no proximo clique
@@ -4373,7 +4327,6 @@ namespace T2MSecurityManager {
 			? ProtegerTexto(txtWalletSenha->Text) : L"";
 		dbSomenteLeitura = chkRO->Checked;
 		dbConfigurado = true;
-
 		// Ativa o modo automacao/banco e informa no chat
 		modoAtivo = 2; tipoAutomacao = 2;
 		AtualizarBotoesModo();
@@ -4411,17 +4364,18 @@ namespace T2MSecurityManager {
 			// vem a seguir nao se misturar com a saida do script anterior.
 			if (txtOutput != nullptr && !txtOutput->IsDisposed) {
 				txtOutput->AppendText(Environment::NewLine
-					+ L">>> [IA via MCP] " + msgStatus + Environment::NewLine);
+					+ L">>> [IA] " + msgStatus + Environment::NewLine);
 				txtOutput->ScrollToCaret();
 			}
 		}
-		else if (txtOutput != nullptr && !txtOutput->IsDisposed) {
-			txtOutput->AppendText(L">>> [IA via MCP] Execucao encerrada."
-				+ Environment::NewLine);
-			txtOutput->ScrollToCaret();
-		}
+		// Nada a escrever ao desocupar: quem anuncia o fim e o
+		// workerChat_Completed, que sabe o TAMANHO da resposta e para onde ela
+		// foi. Duas linhas de encerramento seguidas so poluiriam o terminal.
 		// quando desocupa, o status e restaurado por AtualizarBotoesModo (chamado no Completed)
 		formIA->Cursor = ocupado ? Cursors::WaitCursor : Cursors::Default;
+		// O PARAR da tela principal alcanca a IA tambem, entao ele acompanha o
+		// estado dela - e nao so o do script.
+		AtualizarBotaoParar();
 	}
 
 		   // Campos capturados na thread da UI antes de rodar o worker (evita acesso cross-thread)
@@ -4504,6 +4458,16 @@ namespace T2MSecurityManager {
 		rtbChat->AppendText(L"\n" + prefixo + resposta + L"\n\n");
 		rtbChat->ScrollToCaret();
 
+		// Fecha o circuito no terminal: quem acompanhou o raciocinio aqui precisa
+		// saber ONDE foi parar a conclusao. Sem esta linha, o console simplesmente
+		// para de escrever e parece que a execucao morreu no meio.
+		if (txtOutput != nullptr && !txtOutput->IsDisposed) {
+			txtOutput->AppendText(String::Format(
+				L">>> [IA] Resposta pronta ({0} caracteres) - enviada para o chat "
+				L"do Copilot.{1}", resposta->Length, Environment::NewLine));
+			txtOutput->ScrollToCaret();
+		}
+
 		DefinirOcupado(false, L"");
 		AtualizarBotoesModo();  // restaura o destaque e o texto de status do modo ativo
 	}
@@ -4522,6 +4486,7 @@ namespace T2MSecurityManager {
 		balaoTour->Hide(comboModeloChat);
 		balaoTour->Hide(btnChatConversa);
 		balaoTour->Hide(btnChatDom);
+		balaoTour->Hide(btnAutomacao);
 		balaoTour->Hide(rtbChat);
 		balaoTour->Hide(lblChatStatus);
 		balaoTour->Hide(txtChatInput);
@@ -4535,7 +4500,7 @@ namespace T2MSecurityManager {
 		passoTourChat++;
 		switch (passoTourChat) {
 		case 1:
-			MostrarBalao(comboModeloChat, L"1 de 8  -  A chave da IA",
+			MostrarBalao(comboModeloChat, L"1 de 9  -  A chave da IA",
 				L"O provedor e detectado pelo inicio da chave: sk-ant e Claude, "
 				L"sk- e OpenAI, AIza ou AQ. e Gemini.\n\n"
 				L"A chave fica cifrada no seu perfil do Windows e nunca vai por "
@@ -4543,50 +4508,58 @@ namespace T2MSecurityManager {
 				L"Clique no \"?\" de novo para o proximo passo.");
 			break;
 		case 2:
-			MostrarBalao(btnChatConversa, L"2 de 8  -  Modo Chat",
+			MostrarBalao(btnChatConversa, L"2 de 9  -  Modo Chat",
 				L"Conversa comum: planejar o teste, entender um resultado, "
 				L"discutir o que testar antes de gastar.\n\n"
 				L"E o modo barato - uma ida ao modelo por mensagem, sem abrir "
 				L"navegador nem banco.");
 			break;
 		case 3:
-			MostrarBalao(btnChatDom, L"3 de 8  -  Scan DOM",
+			MostrarBalao(btnChatDom, L"3 de 9  -  Scan DOM",
 				L"Le a estrutura da pagina da URL Alvo - campos, botoes, "
 				L"formularios - direto do HTML.\n\n"
 				L"Rapido e barato: nao abre navegador nem executa acao nenhuma. "
 				L"Bom para dar contexto inicial antes de um teste de verdade.");
 			break;
 		case 4:
-			MostrarBalao(lblChatStatus, L"4 de 8  -  A linha mais importante",
+			MostrarBalao(btnAutomacao, L"4 de 9  -  Automacao (o MCP)",
+				L"Aqui a IA para de escrever SOBRE o teste e passa a executa-lo.\n\n"
+				L"O menu tem os tres alvos: Tela (abre um navegador de verdade), "
+				L"Banco de Dados (sete tipos, com somente-leitura ligado por "
+				L"padrao) e API (dispara a requisicao).\n\n"
+				L"Escolhido o alvo, descreva o teste na caixa de baixo e envie.");
+			break;
+		case 5:
+			MostrarBalao(lblChatStatus, L"5 de 9  -  A linha mais importante",
 				L"Esta linha diz o que a sua PROXIMA mensagem vai fazer.\n\n"
 				L"Se ela disser MCP, a mensagem vai EXECUTAR de verdade e custar "
 				L"mais. Se disser Chat, e so conversa. Vale conferir antes de "
 				L"enviar.");
 			break;
-		case 5:
-			MostrarBalao(txtChatInput, L"5 de 8  -  Descreva o teste",
+		case 6:
+			MostrarBalao(txtChatInput, L"6 de 9  -  Descreva o teste",
 				L"Escreva como explicaria para um colega: o que testar e o que "
 				L"considerar um problema.\n\n"
 				L"Objetivo claro rende relatorio melhor e gasta menos passos - "
 				L"a IA nao precisa adivinhar o que voce quis dizer.");
 			break;
-		case 6:
-			MostrarBalao(rtbChat, L"6 de 8  -  Onde o resultado aparece",
-				L"Os relatorios dos testes disparados pela faixa da tela "
-				L"principal voltam para ca, e a conversa continua a partir deles.\n\n"
+		case 7:
+			MostrarBalao(rtbChat, L"7 de 9  -  Onde a resposta aparece",
+				L"O raciocinio passo a passo sai no terminal da tela principal, em "
+				L"tempo real. A RESPOSTA final chega aqui.\n\n"
 				L"Se algo foi bloqueado durante o teste, o relatorio termina "
 				L"dizendo o que foi recusado e onde fica a opcao que libera.");
 			break;
-		case 7:
-			MostrarBalao(btnSaveScript, L"7 de 8  -  Extrair e salvar codigo",
+		case 8:
+			MostrarBalao(btnSaveScript, L"8 de 9  -  Extrair e salvar codigo",
 				L"Pega o ultimo bloco de codigo da conversa e salva como script "
 				L"(.py, .robot, .sql, .js, .ps1).\n\n"
 				L"Dali em diante ele roda pela tela principal quantas vezes voce "
 				L"quiser, SEM consumir credito de IA. E aqui que o teste deixa de "
 				L"custar por execucao.");
 			break;
-		case 8:
-			MostrarBalao(btnExportarRelatorio, L"8 de 8  -  Relatorio do teste",
+		case 9:
+			MostrarBalao(btnExportarRelatorio, L"9 de 9  -  Relatorio do teste",
 				L"Exporta a conversa como um HTML formatado, para anexar em "
 				L"chamado ou auditoria.\n\n"
 				L"Senhas e tokens sao mascarados antes de sair da maquina.\n\n"
@@ -4625,12 +4598,14 @@ namespace T2MSecurityManager {
 
 		rtbChat->SelectionColor = System::Drawing::Color::DarkSlateBlue;
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
-		rtbChat->AppendText(L"\nPara EXECUTAR um teste de verdade");
+		rtbChat->AppendText(L"   \u2699 Automacao");
 		rtbChat->SelectionColor = System::Drawing::Color::Black;
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
-		rtbChat->AppendText(L" - tela, banco ou API via MCP - use a faixa\n"
-			L"\"Testar com a IA via MCP\" na tela principal. O resultado volta "
-			L"para ca, e daqui\nvoce conversa sobre ele.\n\n");
+		rtbChat->AppendText(L" - executar de verdade via MCP: tela, banco ou API.\n\n");
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Italic);
+		rtbChat->SelectionColor = System::Drawing::Color::Gray;
+		rtbChat->AppendText(L"O raciocinio da IA aparece em tempo real no painel da "
+			L"tela principal, e a\nresposta final volta para ca.\n\n");
 
 		rtbChat->SelectionColor = System::Drawing::Color::Indigo;
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
