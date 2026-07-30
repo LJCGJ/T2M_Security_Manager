@@ -1058,6 +1058,67 @@ def _navegador_fechado(msg):
     return any(f in m for f in frases)
 
 
+# Schemas das ferramentas desta execucao, para conferir os argumentos ANTES de
+# gastar a chamada. Preenchido pelos lacos, que ja recebem a lista do servidor.
+_ESQUEMAS_FERRAMENTAS = {}
+
+
+def _registrar_esquemas(pares):
+    _ESQUEMAS_FERRAMENTAS.clear()
+    for nome, esquema in pares:
+        if isinstance(esquema, dict):
+            _ESQUEMAS_FERRAMENTAS[nome] = esquema
+
+
+def _descrever_parametros(esquema):
+    props = (esquema or {}).get("properties") or {}
+    obrig = set((esquema or {}).get("required") or [])
+    return ", ".join(f"{n} (obrigatorio)" if n in obrig else n
+                     for n in props) or "(nenhum)"
+
+
+def _conferir_args(nome, args):
+    """Confere os argumentos contra o schema da ferramenta. Devolve o motivo da
+    recusa, ou "" quando esta tudo certo.
+
+    Isto existe por causa de um teste real, e de um jeito que so ficou visivel
+    rodando: a IA chamou browser_type com o parametro 'target', que nao existe -
+    o certo e 'element' + 'ref'. O servidor recusou, mas devolveu a recusa como
+    TEXTO COMUM, sem marcar isError. Ou seja: nem o modelo entendeu direito o
+    que errou, nem o aplicativo tinha como saber que a chamada falhou. A IA
+    repetiu o mesmo erro no passo seguinte e o relatorio final ainda declarou
+    sucesso.
+
+    Conferir aqui resolve os tres problemas de uma vez: a chamada errada nao sai
+    do aplicativo, o modelo recebe os nomes certos em vez de uma mensagem vaga,
+    e a falha entra na contagem que vira aviso no relatorio.
+
+    Deliberadamente conservador - so reclama de parametro obrigatorio que faltou
+    e de nome que nao existe no schema. Nao valida tipo nem formato: um schema
+    que a gente entenda mal nao pode impedir uma chamada que funcionaria."""
+    esquema = _ESQUEMAS_FERRAMENTAS.get(nome)
+    props = (esquema or {}).get("properties")
+    if not isinstance(props, dict) or not props:
+        return ""      # sem schema utilizavel, nao ha o que conferir
+
+    faltando = [n for n in ((esquema or {}).get("required") or [])
+                if n not in (args or {})]
+    desconhecidos = [n for n in (args or {}) if n not in props]
+    if not faltando and not desconhecidos:
+        return ""
+
+    partes = []
+    if desconhecidos:
+        partes.append("parametro que nao existe: "
+                      + ", ".join(f"'{n}'" for n in desconhecidos))
+    if faltando:
+        partes.append("faltou o parametro obrigatorio: "
+                      + ", ".join(f"'{n}'" for n in faltando))
+    return ("; ".join(partes) + ". Parametros aceitos por "
+            + f"{nome}: {_descrever_parametros(esquema)}. "
+            "Refaca a chamada usando exatamente esses nomes.")
+
+
 async def _chamar_ferramenta_mcp(session, nome, args):
     """Executa uma ferramenta MCP com TIMEOUT e devolve (texto, navegador_morto).
 
@@ -1072,6 +1133,14 @@ async def _chamar_ferramenta_mcp(session, nome, args):
        Claude ou OpenAI a automacao seguia iterando as cegas contra um navegador
        morto ate queimar todos os passos (e os tokens).
     """
+    motivo = _conferir_args(nome, args)
+    if motivo:
+        # Nao sai do aplicativo: economiza a ida ao servidor e, principalmente,
+        # devolve ao modelo os nomes certos em vez de uma recusa vaga.
+        log(f">>> chamada recusada antes de sair: {nome} - {motivo[:100]}")
+        _registrar_falha_ferramenta(nome)
+        return f"ERRO na chamada de {nome}: {motivo}", False
+
     try:
         r = await asyncio.wait_for(session.call_tool(nome, args or {}),
                                    timeout=TIMEOUT_OPERACAO)
@@ -1115,6 +1184,7 @@ async def loop_anthropic(session, api_key, objetivo, mcp_tools):
     from anthropic import Anthropic
     client = Anthropic(api_key=api_key)
 
+    _registrar_esquemas((t.name, t.inputSchema) for t in mcp_tools)
     ferramentas = [{
         "name": t.name,
         "description": (t.description or "")[:1024],
@@ -1182,6 +1252,7 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
     from openai import OpenAI
     client = OpenAI(api_key=api_key)
 
+    _registrar_esquemas((t.name, t.inputSchema) for t in mcp_tools)
     ferramentas = [{
         "type": "function",
         "function": {
@@ -1252,6 +1323,8 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
 async def loop_gemini(session, api_key, objetivo, mcp_tools):
     import google.generativeai as genai
     genai.configure(api_key=api_key)
+
+    _registrar_esquemas((t.name, t.inputSchema) for t in mcp_tools)
 
     # Converte as ferramentas MCP para o formato do Gemini (whitelist de schema).
     declaracoes = []

@@ -695,6 +695,70 @@ def teste_falhas_de_ferramenta():
         A._zerar_execucao()
         A._zerar_falhas_ferramenta()
 
+    # ---- Conferencia dos argumentos antes de gastar a chamada ----
+    # O caso real: a IA insistiu em 'target' (que nao existe) em vez de
+    # 'element' + 'ref'. O servidor recusou, mas devolveu a recusa como TEXTO
+    # COMUM, sem marcar isError - entao nem o modelo entendia o erro, nem o
+    # aplicativo sabia que a chamada tinha falhado.
+    esquema = {"type": "object",
+               "properties": {"element": {"type": "string"},
+                              "ref": {"type": "string"},
+                              "text": {"type": "string"},
+                              "submit": {"type": "boolean"}},
+               "required": ["element", "ref", "text"]}
+    A._registrar_esquemas([("browser_type", esquema)])
+
+    class ServidorProibido:
+        """Chamar o servidor com argumento invalido e o que se quer evitar."""
+        def __init__(self): self.chamado = False
+        async def call_tool(self, nome, args):
+            self.chamado = True
+            return resultado("nao deveria chegar aqui")
+        def __getattr__(self, n): raise AttributeError(n)
+
+    A._zerar_falhas_ferramenta()
+    srv2 = ServidorProibido()
+    txt, _ = asyncio.run(A._chamar_ferramenta_mcp(
+        srv2, "browser_type", {"text": "x", "target": "ref=f1e40", "submit": True}))
+    checa("argumento invalido nao chega ao servidor", srv2.chamado is False)
+    checa("a recusa nomeia o parametro inventado", "'target'" in txt)
+    checa("a recusa diz quais parametros existem",
+          "element (obrigatorio)" in txt and "ref (obrigatorio)" in txt)
+    checa("a recusa manda refazer", "Refaca a chamada" in txt)
+    checa("a recusa entra na contagem de falhas",
+          A._FALHAS_FERRAMENTA.get("browser_type") == 1)
+
+    A._zerar_falhas_ferramenta()
+    srv3 = ServidorProibido()
+    txt2, _ = asyncio.run(A._chamar_ferramenta_mcp(
+        srv3, "browser_type", {"element": "campo", "text": "x"}))
+    checa("obrigatorio que faltou e apontado pelo nome", "'ref'" in txt2)
+    checa("chamada incompleta tambem nao chega ao servidor", srv3.chamado is False)
+
+    # E o principal: chamada CORRETA nao pode ser barrada. Um schema que a gente
+    # entenda mal nao pode impedir um teste que funcionaria.
+    A._zerar_falhas_ferramenta()
+    srv4 = ServidorProibido()
+    asyncio.run(A._chamar_ferramenta_mcp(
+        srv4, "browser_type",
+        {"element": "campo de busca", "ref": "f1e40", "text": "x", "submit": True}))
+    checa("chamada correta passa direto para o servidor", srv4.chamado is True)
+    checa("chamada correta nao conta como falha", not A._FALHAS_FERRAMENTA)
+
+    # Opcional ausente e legitimo: so o que esta em 'required' e cobrado.
+    A._zerar_falhas_ferramenta()
+    srv5 = ServidorProibido()
+    asyncio.run(A._chamar_ferramenta_mcp(
+        srv5, "browser_type", {"element": "campo", "ref": "f1", "text": "x"}))
+    checa("parametro opcional pode faltar", srv5.chamado is True)
+
+    # Ferramenta sem schema conhecido nao pode ser bloqueada por precaucao.
+    A._zerar_falhas_ferramenta()
+    srv6 = ServidorProibido()
+    asyncio.run(A._chamar_ferramenta_mcp(srv6, "ferramenta_sem_schema", {"x": 1}))
+    checa("sem schema, a chamada segue normalmente", srv6.chamado is True)
+    A._registrar_esquemas([])
+
     # Uma execucao nova nao pode herdar as falhas da anterior.
     A._registrar_falha_ferramenta("browser_click")
     A.iniciar_execucao("Tela", "x", "y")
