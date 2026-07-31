@@ -193,6 +193,14 @@ namespace T2MSecurityManager {
 		String^ cfgModeloClaude;  // modelo da Anthropic (custo x capacidade)
 		String^ cfgModeloOpenAI;  // modelo da OpenAI
 		String^ cfgModeloGemini;  // modelo do Google Gemini
+		// Endpoint que fala o protocolo da OpenAI (Groq, Ollama, LM Studio,
+		// vLLM, OpenRouter...). Preenchido, ele atende as chaves que nao sao
+		// reconhecidas como Claude/OpenAI/Gemini - e sempre as do Groq (gsk_).
+		// Existe por um motivo pratico: a cota gratuita do Gemini rende poucas
+		// requisicoes por minuto e uma automacao MCP gasta uma por passo, entao
+		// testar virava espera. Com Ollama, roda ate sem internet.
+		String^ cfgEndpointCompativel;
+		String^ cfgModeloCompativel;
 		// Seguranca da automacao de tela. O navegador do Playwright roda por padrao
 		// com perfil PERSISTENTE (guarda cookies e sessoes logadas entre execucoes)
 		// e sem restricao de dominio. Se uma pagina hostil conseguir induzir a IA a
@@ -1700,7 +1708,31 @@ namespace T2MSecurityManager {
 		if (String::IsNullOrWhiteSpace(chave)) return L"";
 		if (chave->StartsWith("sk-ant-")) return L"Claude";
 		if (chave->StartsWith("sk-")) return L"OpenAI";
-		return L"Gemini";  // AIza / AQ. / outros = Gemini (padrao)
+		if (chave->StartsWith("gsk_")) return L"Groq";
+		if (chave->StartsWith("AIza") || chave->StartsWith("AQ")) return L"Gemini";
+		// Chave que nao se parece com nenhuma conhecida (ex.: "ollama") so vai
+		// para o endpoint compativel se ELE estiver configurado. Sem essa
+		// condicao, quem ja usa o aplicativo veria suas chaves mudarem de rota
+		// sozinhas depois de atualizar. Espelha _e_rota_openai no Python.
+		if (!String::IsNullOrWhiteSpace(cfgEndpointCompativel)) {
+			return (cfgEndpointCompativel->Contains("localhost")
+				|| cfgEndpointCompativel->Contains("127.0.0.1"))
+				? L"Local" : L"Compativel";
+		}
+		return L"Gemini";  // padrao historico
+	}
+
+		   // Modelo configurado para um provedor. Estava escrito tres vezes, em
+		   // tres metodos vizinhos - e um provedor novo exigiria acertar os tres,
+		   // com o terceiro sendo esquecido em silencio.
+	private: String^ ModeloDoProvedor(String^ ia) {
+		if (ia == L"Claude") return cfgModeloClaude;
+		if (ia == L"OpenAI") return cfgModeloOpenAI;
+		if (ia == L"Groq" || ia == L"Local" || ia == L"Compativel") {
+			return String::IsNullOrWhiteSpace(cfgModeloCompativel)
+				? L"llama-3.3-70b-versatile" : cfgModeloCompativel;
+		}
+		return cfgModeloGemini;
 	}
 
 		   // Atualiza o indicador visual (bolinha colorida + nome) da IA da chave selecionada.
@@ -1714,16 +1746,15 @@ namespace T2MSecurityManager {
 		System::Drawing::Color cor;
 		if (ia == L"Claude") cor = System::Drawing::Color::MediumPurple;
 		else if (ia == L"OpenAI") cor = System::Drawing::Color::MediumSeaGreen;
+		else if (ia == L"Groq" || ia == L"Compativel") cor = System::Drawing::Color::Chocolate;
+		else if (ia == L"Local") cor = System::Drawing::Color::DarkSlateGray;
 		else cor = System::Drawing::Color::SteelBlue;  // Gemini
 		lblIndicadorIA->ForeColor = cor;
 
 		// Mostra TAMBEM o modelo, ao lado do provedor. Sem isso, a unica forma
 		// de saber qual modelo esta valendo era abrir Configuracoes ou ler o log
 		// depois de gastar uma mensagem - e trocar de modelo virava um ato de fe.
-		String^ modelo;
-		if (ia == L"Claude") modelo = cfgModeloClaude;
-		else if (ia == L"OpenAI") modelo = cfgModeloOpenAI;
-		else modelo = cfgModeloGemini;
+		String^ modelo = ModeloDoProvedor(ia);
 
 		lblIndicadorIA->Text = String::IsNullOrWhiteSpace(modelo)
 			? (L"● IA: " + ia)
@@ -1734,10 +1765,7 @@ namespace T2MSecurityManager {
 	private: String^ ProvedorEModeloAtual() {
 		String^ ia = DetectarIA(ObterChaveReal());
 		if (String::IsNullOrWhiteSpace(ia)) return L"";
-		String^ modelo;
-		if (ia == L"Claude") modelo = cfgModeloClaude;
-		else if (ia == L"OpenAI") modelo = cfgModeloOpenAI;
-		else modelo = cfgModeloGemini;
+		String^ modelo = ModeloDoProvedor(ia);
 		if (String::IsNullOrWhiteSpace(modelo)) return ia;
 		return ia + L"  |  " + modelo;
 	}
@@ -1747,10 +1775,7 @@ namespace T2MSecurityManager {
 	private: String^ ModeloAtualCurto() {
 		String^ ia = DetectarIA(ObterChaveReal());
 		if (String::IsNullOrWhiteSpace(ia)) return L"";
-		String^ modelo;
-		if (ia == L"Claude") modelo = cfgModeloClaude;
-		else if (ia == L"OpenAI") modelo = cfgModeloOpenAI;
-		else modelo = cfgModeloGemini;
+		String^ modelo = ModeloDoProvedor(ia);
 		return String::IsNullOrWhiteSpace(modelo) ? ia : modelo;
 	}
 
@@ -2351,6 +2376,8 @@ namespace T2MSecurityManager {
 		cfgModeloClaude = "claude-sonnet-4-6";
 		cfgModeloOpenAI = "gpt-4o-mini";
 		cfgModeloGemini = "gemini-2.5-flash";
+		cfgEndpointCompativel = "";   // vazio = recurso desligado
+		cfgModeloCompativel = "";
 		cfgNavegadorIsolado = true;
 		cfgPermitirJsPagina = false;
 		cfgDominiosConfiaveis = "";
@@ -2374,6 +2401,8 @@ namespace T2MSecurityManager {
 				else if (chave == "modelo_claude" && valor != "") cfgModeloClaude = valor;
 				else if (chave == "modelo_openai" && valor != "") cfgModeloOpenAI = valor;
 				else if (chave == "modelo_gemini" && valor != "") cfgModeloGemini = valor;
+				else if (chave == "endpoint_compativel") cfgEndpointCompativel = valor;
+				else if (chave == "modelo_compativel") cfgModeloCompativel = valor;
 				else if (chave == "navegador_isolado") cfgNavegadorIsolado = (valor != "0");
 				else if (chave == "permitir_js_pagina") cfgPermitirJsPagina = (valor == "1");
 				else if (chave == "dominios_confiaveis") cfgDominiosConfiaveis = valor;
@@ -2415,7 +2444,8 @@ namespace T2MSecurityManager {
 				"modelo_gemini", "navegador_isolado", "permitir_js_pagina",
 				"dominios_confiaveis",
 				"max_historico", "instrucoes_extras",
-				"modelos_gemini", "modelos_openai", "modelos_claude"
+				"modelos_gemini", "modelos_openai", "modelos_claude",
+				"endpoint_compativel", "modelo_compativel"
 			};
 			System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
 			sb->AppendLine("pasta_relatorios=" + cfgPastaRelatorios);
@@ -2434,6 +2464,8 @@ namespace T2MSecurityManager {
 			sb->AppendLine("modelo_claude=" + cfgModeloClaude);
 			sb->AppendLine("modelo_openai=" + cfgModeloOpenAI);
 			sb->AppendLine("modelo_gemini=" + cfgModeloGemini);
+			sb->AppendLine("endpoint_compativel=" + cfgEndpointCompativel);
+			sb->AppendLine("modelo_compativel=" + cfgModeloCompativel);
 			sb->AppendLine("navegador_isolado=" + (cfgNavegadorIsolado ? "1" : "0"));
 			sb->AppendLine("permitir_js_pagina=" + (cfgPermitirJsPagina ? "1" : "0"));
 			sb->AppendLine("dominios_confiaveis=" + cfgDominiosConfiaveis);
@@ -2469,7 +2501,10 @@ namespace T2MSecurityManager {
 	private: System::Void btnConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
 		Form^ f = gcnew Form();
 		f->Text = L"Configuracoes";
-		f->Size = System::Drawing::Size(720, 862);   // +80: instrucoes permanentes
+		// Altura acompanha o conteudo: os controles sao posicionados por um "y"
+		// que so cresce, entao uma secao nova sem ajustar isto empurra Salvar e
+		// Cancelar para fora da janela - e a tela fica sem saida a nao ser pelo X.
+		f->Size = System::Drawing::Size(720, 940);   // +78: endpoint compativel
 		// Rede de seguranca para monitor pequeno ou escala de fonte alta: sem isto
 		// os botoes Salvar/Cancelar podem cair fora da area visivel e a tela fica
 		// sem saida a nao ser pelo X.
@@ -2650,6 +2685,77 @@ namespace T2MSecurityManager {
 		dicaModelo->ForeColor = System::Drawing::Color::DimGray;
 		dicaModelo->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(dicaModelo);
+
+		// --- ENDPOINT COMPATIVEL COM A OPENAI ---
+		// Groq, Ollama, LM Studio, vLLM e OpenRouter falam o mesmo protocolo da
+		// OpenAI: muda so o endereco. Um campo resolve todos, e resolve o
+		// problema real que motivou isto - testar automacao MCP na cota gratuita
+		// do Gemini virava fila de 30 em 30 segundos, porque cada passo gasta
+		// uma requisicao.
+		y += 62;
+		Label^ lblSecaoComp = gcnew Label();
+		lblSecaoComp->Text = L"Endpoint compativel com a OpenAI (opcional)";
+		lblSecaoComp->Location = System::Drawing::Point(x1, y); lblSecaoComp->AutoSize = true;
+		lblSecaoComp->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+		f->Controls->Add(lblSecaoComp);
+
+		y += 26;
+		Label^ lblEndp = gcnew Label();
+		lblEndp->Text = L"Endereco (base URL):";
+		lblEndp->Location = System::Drawing::Point(x1, y + 3); lblEndp->AutoSize = true;
+		f->Controls->Add(lblEndp);
+		TextBox^ txtEndpoint = gcnew TextBox();
+		txtEndpoint->Location = System::Drawing::Point(x1 + 150, y);
+		txtEndpoint->Size = System::Drawing::Size(340, 22);
+		txtEndpoint->Text = cfgEndpointCompativel;
+		f->Controls->Add(txtEndpoint);
+		Button^ btnGroq = gcnew Button();
+		btnGroq->Text = L"Groq";
+		btnGroq->Location = System::Drawing::Point(x1 + 498, y - 1);
+		btnGroq->Size = System::Drawing::Size(58, 24);
+		btnGroq->FlatStyle = FlatStyle::Flat;
+		btnGroq->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		btnGroq->Cursor = Cursors::Hand;
+		btnGroq->Tag = txtEndpoint;
+		btnGroq->Click += gcnew System::EventHandler(this, &MyForm::preencherEndpoint_Handler);
+		f->Controls->Add(btnGroq);
+		Button^ btnOllama = gcnew Button();
+		btnOllama->Text = L"Ollama";
+		btnOllama->Location = System::Drawing::Point(x1 + 560, y - 1);
+		btnOllama->Size = System::Drawing::Size(62, 24);
+		btnOllama->FlatStyle = FlatStyle::Flat;
+		btnOllama->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		btnOllama->Cursor = Cursors::Hand;
+		btnOllama->Tag = txtEndpoint;
+		btnOllama->Click += gcnew System::EventHandler(this, &MyForm::preencherEndpoint_Handler);
+		f->Controls->Add(btnOllama);
+
+		y += 28;
+		Label^ lblModComp = gcnew Label();
+		lblModComp->Text = L"Modelo deste endpoint:";
+		lblModComp->Location = System::Drawing::Point(x1, y + 3); lblModComp->AutoSize = true;
+		f->Controls->Add(lblModComp);
+		TextBox^ txtModeloComp = gcnew TextBox();
+		txtModeloComp->Location = System::Drawing::Point(x1 + 150, y);
+		txtModeloComp->Size = System::Drawing::Size(340, 22);
+		txtModeloComp->Text = cfgModeloCompativel;
+		f->Controls->Add(txtModeloComp);
+
+		y += 26;
+		Label^ dicaComp = gcnew Label();
+		dicaComp->Text =
+			L"Vazio = desligado. Preenchido, atende as chaves que nao sao Claude "
+			L"(sk-ant-), OpenAI (sk-) nem Google (AIza/AQ).\n"
+			L"Chaves do Groq (gsk_...) sao reconhecidas sozinhas, mesmo com o "
+			L"campo vazio.  Com Ollama, use uma chave qualquer (ex.: ollama).\n"
+			L"Serve para testar sem gastar cota: o Groq tem limite por minuto "
+			L"bem mais folgado, e o Ollama roda local, sem internet.";
+		dicaComp->Location = System::Drawing::Point(x1, y);
+		dicaComp->Size = System::Drawing::Size(640, 48);
+		dicaComp->ForeColor = System::Drawing::Color::DimGray;
+		dicaComp->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		f->Controls->Add(dicaComp);
+		y += 18;
 
 		// Secao de limites
 		y += 62;
@@ -2839,12 +2945,13 @@ namespace T2MSecurityManager {
 		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
 		f->Controls->Add(btnCancel);
 
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(12);
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(14);
 		campos[0] = txtRel; campos[1] = txtSes; campos[2] = txtScr;
 		campos[3] = numPassos; campos[4] = numLinhas; campos[5] = numTimeout;
 		campos[6] = cbModelo; campos[7] = numHist;
 		campos[8] = chkIsolado; campos[9] = txtDominios; campos[10] = chkJs;
 		campos[11] = txtInstrOculto;
+		campos[12] = txtEndpoint; campos[13] = txtModeloComp;
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
@@ -3261,34 +3368,34 @@ namespace T2MSecurityManager {
 		passoTour++;
 		switch (passoTour) {
 		case 1:
-			MostrarBalao(btnGerarIA, L"1 de 8  -  O Copilot",
+			MostrarBalao(btnGerarIA, L"1 de 9  -  O Copilot",
 				L"Aqui dentro a IA planeja, gera script e - pelo botao Automacao - "
 				L"EXECUTA testes de verdade via MCP: tela, banco de dados "
 				L"(sete tipos) ou API.\n\n"
 				L"Clique no \"?\" de novo para o proximo passo.");
 			break;
 		case 2:
-			MostrarBalao(txtUrl, L"2 de 8  -  URL Alvo",
+			MostrarBalao(txtUrl, L"2 de 9  -  URL Alvo",
 				L"O endereco do sistema em teste.\n\n"
 				L"Serve para a IA no modo Tela e tambem para os scripts da lista: "
 				L"o aplicativo entrega essa URL ao script quando o executa.");
 			break;
 		case 3:
-			MostrarBalao(lstScripts, L"3 de 8  -  Scripts de teste",
+			MostrarBalao(lstScripts, L"3 de 9  -  Scripts de teste",
 				L"Os scripts que voce ja tem, ou que a IA gerou para voce.\n\n"
 				L"Rodar um script daqui NAO consome credito de IA. E o objetivo "
 				L"final: a IA descobre o teste uma vez, o script repete quantas "
 				L"vezes voce quiser.");
 			break;
 		case 4:
-			MostrarBalao(btnStart, L"4 de 8  -  Iniciar teste",
+			MostrarBalao(btnStart, L"4 de 9  -  Iniciar teste",
 				L"Executa o script selecionado contra a URL Alvo.\n\n"
 				L"O token de autenticacao vai por variavel de ambiente, nunca na "
 				L"linha de comando - assim ele nao aparece na lista de processos "
 				L"da maquina.");
 			break;
 		case 5:
-			MostrarBalao(txtOutput, L"5 de 8  -  O terminal",
+			MostrarBalao(txtOutput, L"5 de 9  -  O terminal",
 				L"Aqui sai TUDO: a saida dos scripts e, enquanto a IA trabalha, o "
 				L"raciocinio dela passo a passo, em tempo real - qual ferramenta "
 				L"chamou, o que leu, o que foi recusado.\n\n"
@@ -3296,23 +3403,38 @@ namespace T2MSecurityManager {
 				L"e aparece um aviso aqui dizendo isso.");
 			break;
 		case 6:
-			MostrarBalao(btnAnalisarSaida, L"6 de 8  -  Analisar com a IA",
+			MostrarBalao(btnAnalisarSaida, L"6 de 9  -  Analisar com a IA",
 				L"Leva a saida acima para o Copilot explicar o que falhou e por que.\n\n"
 				L"Senhas e tokens sao mascarados antes de sair da maquina. O envio "
 				L"nao e automatico: voce revisa a pergunta e decide a hora.");
 			break;
 		case 7:
-			MostrarBalao(btnHistorico, L"7 de 8  -  Historico",
+			MostrarBalao(btnHistorico, L"7 de 9  -  Historico",
 				L"Toda execucao fica registrada: data, alvo, quantos passos a IA "
 				L"gastou, o que foi recusado e o relatorio completo.\n\n"
 				L"E a trilha de auditoria para quando perguntarem o que foi "
 				L"testado, e quando.");
 			break;
 		case 8:
-			MostrarBalao(btnConfiguracoes, L"8 de 8  -  Configuracoes",
+			MostrarBalao(btnConfiguracoes, L"8 de 9  -  Configuracoes",
 				L"Onde ficam os limites que controlam o custo (passos da IA por "
 				L"tarefa), as protecoes de seguranca e as instrucoes permanentes "
-				L"que valem para todo teste.\n\n"
+				L"que valem para todo teste.");
+			break;
+		case 9:
+			// Este passo existe porque o problema que ele resolve custou um dia
+			// de trabalho: cada passo da automacao gasta UMA requisicao, e a cota
+			// gratuita do Gemini rende poucas por minuto - testar virava espera
+			// de 30 em 30 segundos. Quem nao sabe que existe alternativa conclui
+			// que o produto e lento.
+			MostrarBalao(btnConfiguracoes, L"9 de 9  -  Sem gastar cota",
+				L"Ainda em Configuracoes: o campo \"Endpoint compativel com a "
+				L"OpenAI\" aceita Groq (nuvem, gratuito e rapido) ou Ollama "
+				L"(na sua maquina, sem internet). Os botoes Groq e Ollama "
+				L"preenchem o endereco.\n\n"
+				L"Serve porque cada passo da automacao gasta uma requisicao: "
+				L"num plano gratuito apertado, o teste para no meio esperando "
+				L"cota.\n\n"
 				L"Fim do tour. Clique no \"?\" para recomecar, ou no \"?\" dentro "
 				L"do Copilot para conhecer aquela janela.");
 			break;
@@ -3620,6 +3742,17 @@ namespace T2MSecurityManager {
 		if (l != nullptr) l->Text = t->Text->Length.ToString() + L" de 2000 caracteres";
 	}
 
+		   // Preenche o endereco do endpoint com um valor conhecido. Digitar
+		   // "https://api.groq.com/openai/v1" a mao erra em um caractere e o erro
+		   // so aparece como falha de conexao, sem dizer onde foi.
+	private: System::Void preencherEndpoint_Handler(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		TextBox^ alvo = safe_cast<TextBox^>(b->Tag);
+		alvo->Text = (b->Text == L"Ollama")
+			? L"http://localhost:11434/v1"
+			: L"https://api.groq.com/openai/v1";
+	}
+
 		   // Botao de abrir a pasta indicada no campo (Tag = TextBox).
 	private: System::Void abrirPastaConfig_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
@@ -3670,6 +3803,8 @@ namespace T2MSecurityManager {
 		cfgDominiosConfiaveis = safe_cast<TextBox^>(ctl[9])->Text->Trim();
 		cfgPermitirJsPagina = safe_cast<CheckBox^>(ctl[10])->Checked;
 		cfgInstrucoesExtras = safe_cast<TextBox^>(ctl[11])->Text->Trim();
+		cfgEndpointCompativel = safe_cast<TextBox^>(ctl[12])->Text->Trim();
+		cfgModeloCompativel = safe_cast<TextBox^>(ctl[13])->Text->Trim();
 
 		SalvarConfiguracoesApp();
 		// O indicador do Copilot passa a mostrar o modelo novo na hora, se a
@@ -4238,7 +4373,7 @@ namespace T2MSecurityManager {
 		// Guarda campos + labels de erro no Tag (para o salvar validar e mostrar erros).
 		// Ordem: 0=cbTipo 1=txtHost 2=txtPorta 3=txtNome 4=txtUser 5=txtSenha 6=chkRO
 		//        7=errHost 8=errNome 9=errUser 10=txtWallet 11=txtWalletSenha
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(12);
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(14);
 		campos[0] = cbTipo; campos[1] = txtHost; campos[2] = txtPorta;
 		campos[3] = txtNome; campos[4] = txtUser; campos[5] = txtSenha;
 		campos[6] = chkRO; campos[7] = errHost; campos[8] = errNome; campos[9] = errUser;
@@ -4817,7 +4952,9 @@ namespace T2MSecurityManager {
 		case 1:
 			MostrarBalao(comboModeloChat, L"1 de 9  -  A chave da IA",
 				L"O provedor e detectado pelo inicio da chave: sk-ant e Claude, "
-				L"sk- e OpenAI, AIza ou AQ. e Gemini.\n\n"
+				L"sk- e OpenAI, gsk_ e Groq, AIza ou AQ. e Gemini.\n\n"
+				L"Da para usar tambem um modelo local (Ollama) ou outro servico "
+				L"compativel: veja Configuracoes na tela principal.\n\n"
 				L"A chave fica cifrada no seu perfil do Windows e nunca vai por "
 				L"linha de comando.\n\n"
 				L"Clique no \"?\" de novo para o proximo passo.");

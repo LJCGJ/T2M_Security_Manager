@@ -52,8 +52,12 @@ API key you provide.
 
 - **Static DOM scan** — a fast, lightweight read of a page's structure, useful for
   security review and simple checks.
-- **Multi-AI routing** — Claude (`sk-ant-...`), OpenAI (`sk-...`), or Gemini, chosen
-  automatically by the key prefix, with a clear on-screen indicator.
+- **Multi-AI routing** — Claude (`sk-ant-...`), OpenAI (`sk-...`), Groq (`gsk_...`), or
+  Gemini, chosen automatically by the key prefix, with a clear on-screen indicator.
+- **OpenAI-compatible endpoints** — one address field in Settings unlocks Groq, Ollama,
+  LM Studio, vLLM and OpenRouter with no new code: they all speak the same protocol.
+  Useful for testing without burning paid quota, and Ollama runs **locally, with no
+  internet** — the only way to demo for a client whose data cannot leave the building.
 - **Cost control** — pick the Claude model (Haiku / Sonnet / Opus) and cap the number
   of agent steps per task, so you decide the trade-off between capability and spend.
 - **Session history** — save a conversation and reopen it later, formatting intact.
@@ -94,11 +98,51 @@ useful, a test script.
 - **Node.js 18+** — for the MCP servers (`npx` launches the Playwright, DBHub and
   MongoDB servers)
 - **Python 3.10+**
-- An **API key** for at least one provider (Claude, OpenAI, or Gemini)
+- An **API key** for at least one provider (Claude, OpenAI, Gemini or Groq) — or none at
+  all, if you use a local model through Ollama
 
-> **A note on AI backends:** the automation modes make multiple sequential AI calls.
-> Free Gemini keys have low per-minute limits that interrupt longer runs; a Claude or
-> OpenAI key with available credit gives the most reliable experience.
+> **A note on AI backends:** the automation modes make **one call per step**, so the
+> limit that matters is requests per minute, not tokens. Free Gemini keys allow only a
+> few per minute, and a 15-step automation ends up queuing. To test without that
+> friction see [OpenAI-compatible endpoints](#openai-compatible-endpoints); for serious
+> work, a Claude or OpenAI key with available credit gives the most reliable experience.
+
+---
+
+## OpenAI-compatible endpoints
+
+Groq, Ollama, LM Studio, vLLM and OpenRouter all speak **the same protocol as OpenAI** —
+only the address changes. That is why there is no "new provider" in the code: there is
+the OpenAI route pointing somewhere else, reusing the same tool-calling loop.
+
+Configure it under **Settings → OpenAI-compatible endpoint**. The *Groq* and *Ollama*
+buttons fill the address in for you.
+
+| Service | Address | Key | Example model |
+|---|---|---|---|
+| Groq (cloud, free tier) | `https://api.groq.com/openai/v1` | your `gsk_...` | `llama-3.3-70b-versatile` or `llama-3.1-8b-instant` |
+| Ollama (local) | `http://localhost:11434/v1` | any text (e.g. `ollama`) | `qwen2.5:7b` |
+| LM Studio (local) | `http://localhost:1234/v1` | any text | whichever model is loaded |
+
+**Groq needs no configuration:** keys starting with `gsk_` are recognised on their own
+and already point at the official address. Paste the key, pick a model, done.
+
+**Ollama, step by step:**
+
+```bash
+ollama pull qwen2.5:7b     # download the model (once)
+ollama serve               # start the local server
+```
+
+Then, in Settings, click *Ollama*, type `qwen2.5:7b` in the model field and register any
+key. Prefer models that support **tool calling** — without it the automation modes will
+not work, only Chat.
+
+> **Two guarantees.** Leave the field empty and nothing changes: existing installs behave
+> exactly as before. And even when it is filled in, keys recognised as Claude (`sk-ant-`),
+> OpenAI (`sk-`) or Google (`AIza`/`AQ`) are **never** diverted — only keys that match no
+> known provider go to the endpoint. Without that rule, one mistyped address would
+> silently hijack keys that already worked.
 
 ---
 

@@ -1921,10 +1921,17 @@ def teste_modelo_na_conversa():
 
     # Os tres provedores precisam ser cobertos: o campo de modelo e diferente
     # em cada um, e ate agora so o Gemini tinha tratamento em varios pontos.
-    k = fonte.find("String^ ProvedorEModeloAtual")
+    # A escolha do modelo por provedor foi unificada em ModeloDoProvedor: antes
+    # a mesma cadeia if/else estava copiada em tres metodos vizinhos, e um
+    # provedor novo exigia acertar os tres - com o terceiro sendo esquecido em
+    # silencio, que e o pior tipo de erro porque a tela continua mostrando algo.
+    k = fonte.find("String^ ModeloDoProvedor")
     blocoP = fonte[k:k + 700] if k >= 0 else ""
-    for campo in ("cfgModeloClaude", "cfgModeloOpenAI", "cfgModeloGemini"):
-        checa(f"o anuncio cobre {campo}", campo in blocoP)
+    for campo in ("cfgModeloClaude", "cfgModeloOpenAI", "cfgModeloGemini",
+                  "cfgModeloCompativel"):
+        checa(f"a escolha de modelo cobre {campo}", campo in blocoP, blocoP[:60])
+    checa("os tres metodos que mostram o modelo usam a mesma fonte",
+          fonte.count("ModeloDoProvedor(ia)") == 3)
 
     # --- MODO usado em cada mensagem ---
     # Encontrado usando: rodando a mesma pergunta em Chat e em Scan DOM, as
@@ -2068,6 +2075,171 @@ def teste_modelo_na_conversa():
 
 
 # ==================================================================== #
+def teste_endpoint_compativel():
+    """Endpoint que fala o protocolo da OpenAI (Groq, Ollama, LM Studio...).
+
+    Pedido do operador depois de perder um dia inteiro na fila da cota gratuita
+    do Gemini: uma automacao MCP gasta uma requisicao POR PASSO, e o plano
+    gratuito rende poucas por minuto - testar virava espera de 30 em 30
+    segundos. Aqui nao entra "provedor novo": entra a rota da OpenAI apontando
+    para outro endereco, porque o protocolo e o mesmo. O laco de ferramentas
+    ja testado continua sendo um so."""
+    secao("Endpoint compativel com a OpenAI")
+
+    import importlib
+    G = importlib.import_module("gerador_ia")
+
+    for M, nome in ((A, "agente_mcp"), (G, "gerador_ia")):
+        endp, mod = M.ENDPOINT_COMPATIVEL, M.MODELO_COMPATIVEL
+        try:
+            M.ENDPOINT_COMPATIVEL = ""
+            M.MODELO_COMPATIVEL = ""
+
+            # Sem endpoint configurado, NADA pode mudar de rota. Este e o teste
+            # que protege quem ja usa o aplicativo: uma atualizacao nao pode
+            # sequestrar chaves que hoje funcionam.
+            for chave, esperado in (("sk-ant-abc", False), ("sk-proj-abc", True),
+                                    ("AIzaSyABC", False), ("AQ.Ab8xyz", False),
+                                    ("ollama", False)):
+                checa(f"{nome}: sem endpoint, {chave[:9]} mantem a rota de sempre",
+                      M._e_rota_openai(chave) == esperado)
+
+            # Groq e reconhecido sozinho: a chave tem prefixo proprio e o
+            # endereco e sempre o mesmo, entao exigir configuracao seria so um
+            # passo a mais para errar.
+            checa(f"{nome}: chave do Groq e reconhecida sem configurar nada",
+                  M._e_rota_openai("gsk_abc") is True)
+            checa(f"{nome}: e aponta para o endereco oficial do Groq",
+                  M._base_url_openai("gsk_abc") == "https://api.groq.com/openai/v1")
+            checa(f"{nome}: o rotulo diz Groq, nao OpenAI",
+                  M._nome_rota_openai("gsk_abc") == "Groq")
+            checa(f"{nome}: chave da OpenAI continua na OpenAI oficial",
+                  M._base_url_openai("sk-proj-abc") == "")
+            checa(f"{nome}: e o rotulo dela continua OpenAI",
+                  M._nome_rota_openai("sk-proj-abc") == "OpenAI")
+
+            # Com endpoint local configurado, uma chave qualquer passa a valer.
+            M.ENDPOINT_COMPATIVEL = "http://localhost:11434/v1"
+            M.MODELO_COMPATIVEL = "qwen2.5:7b"
+            checa(f"{nome}: com endpoint, chave generica vira rota compativel",
+                  M._e_rota_openai("ollama") is True)
+            checa(f"{nome}: modelo local sai do campo proprio",
+                  M._modelo_openai("ollama") == "qwen2.5:7b")
+            checa(f"{nome}: rodando na maquina, o rotulo e Local",
+                  M._nome_rota_openai("ollama") == "Local")
+            # As duas garantias que impedem o campo de virar sequestrador.
+            checa(f"{nome}: chave do Google NAO e desviada pelo endpoint",
+                  M._e_rota_openai("AIzaSyABC") is False)
+            checa(f"{nome}: chave da OpenAI NAO e desviada pelo endpoint",
+                  M._base_url_openai("sk-proj-abc") == "")
+            checa(f"{nome}: chave do Claude NAO e desviada pelo endpoint",
+                  M._e_rota_openai("sk-ant-abc") is False)
+
+            # Campo de modelo separado: os nomes nao se parecem em nada
+            # (gpt-4o-mini x llama-3.3-70b x qwen2.5:7b), entao um campo unico
+            # faria trocar de servico apagar a escolha do outro.
+            checa(f"{nome}: o modelo da OpenAI nao e contaminado",
+                  M._modelo_openai("sk-proj-abc") == M.MODELO_OPENAI)
+            M.MODELO_COMPATIVEL = ""
+            checa(f"{nome}: sem modelo escolhido, ha um padrao utilizavel",
+                  M._modelo_openai("gsk_abc") == "llama-3.3-70b-versatile")
+        finally:
+            M.ENDPOINT_COMPATIVEL, M.MODELO_COMPATIVEL = endp, mod
+
+    # As duas copias precisam decidir IGUAL. Se divergirem, o chat e a automacao
+    # mandam a mesma chave para servicos diferentes - e o sintoma seria "no chat
+    # funciona, no MCP nao".
+    for chave in ("sk-ant-x", "sk-proj-x", "gsk_x", "AIzaSyX", "AQ.x", "ollama"):
+        checa(f"chat e automacao concordam sobre {chave[:8]}",
+              A._e_rota_openai(chave) == G._e_rota_openai(chave)
+              and A._base_url_openai(chave) == G._base_url_openai(chave))
+
+    # O laco de ferramentas tem de ser reaproveitado, nao duplicado.
+    fonte_a = open(A.__file__, encoding="utf-8").read()
+    checa("a automacao usa o cliente que ja sabe o endereco",
+          fonte_a.count("_cliente_openai(api_key)") >= 2)
+    checa("nenhum ponto ainda constroi o cliente na mao",
+          "OpenAI(api_key=api_key)" not in fonte_a)
+    checa("o modelo do passo vem da rota, nao da constante",
+          "_marcar_passo(rota, modelo, passo + 1)" in fonte_a)
+    checa("todas as rotas de provedor passam pelo mesmo decisor",
+          fonte_a.count("elif _e_rota_openai(api_key):") == 6)
+
+    # Lado C++: precisa concordar com o Python, senao o indicador e o carimbo
+    # do cabecalho mostram um provedor e a execucao usa outro.
+    cpp = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "T2M_Security_Manager", "MyForm.h")
+    if not os.path.exists(cpp):
+        cpp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MyForm.h")
+    if os.path.exists(cpp):
+        fonte = open(cpp, encoding="utf-8", errors="replace").read()
+        checa("o C++ guarda o endereco e o modelo do endpoint",
+              "String^ cfgEndpointCompativel;" in fonte
+              and "String^ cfgModeloCompativel;" in fonte)
+        checa("as duas chaves novas sao gravadas no arquivo",
+              'sb->AppendLine("endpoint_compativel=" + cfgEndpointCompativel);' in fonte
+              and 'sb->AppendLine("modelo_compativel=" + cfgModeloCompativel);' in fonte)
+        checa("e sao lidas de volta",
+              'chave == "endpoint_compativel"' in fonte
+              and 'chave == "modelo_compativel"' in fonte)
+        # Sem entrar na lista de chaves conhecidas, SalvarConfiguracoesApp
+        # apagaria as duas a cada gravacao - o defeito ja visto com as opcoes
+        # avancadas do Oracle.
+        checa("as chaves novas entram na lista das conhecidas",
+              '"endpoint_compativel", "modelo_compativel"' in fonte)
+        i = fonte.find("String^ DetectarIA")
+        bloco = fonte[i:i + 1400] if i >= 0 else ""
+        checa("o C++ reconhece a chave do Groq",
+              'chave->StartsWith("gsk_")' in bloco)
+        checa("o C++ so desvia chave desconhecida se houver endpoint",
+              "IsNullOrWhiteSpace(cfgEndpointCompativel)" in bloco)
+        checa("chave do Google continua indo para o Gemini",
+              'chave->StartsWith("AIza")' in bloco)
+        checa("o modelo do provedor foi para um lugar so",
+              "String^ ModeloDoProvedor(String^ ia)" in fonte)
+        checa("e as tres copias antigas sumiram",
+              fonte.count("else modelo = cfgModeloGemini;") == 0)
+        checa("ha atalho para preencher o endereco sem digitar",
+              "preencherEndpoint_Handler" in fonte
+              and "http://localhost:11434/v1" in fonte
+              and "https://api.groq.com/openai/v1" in fonte)
+        checa("os dois campos novos sao lidos ao salvar",
+              "safe_cast<TextBox^>(ctl[12])" in fonte
+              and "safe_cast<TextBox^>(ctl[13])" in fonte)
+        checa("o vetor de campos cresceu junto",
+              "gcnew cli::array<Object^>(14)" in fonte)
+        checa("a janela cresceu para nao esconder Salvar/Cancelar",
+              "Size(720, 940)" in fonte)
+        # O tutorial de baloes tem de citar o recurso: quem nao sabe que existe
+        # alternativa a cota gratuita conclui que o produto e lento.
+        checa("o tour da tela principal ensina o endpoint",
+              'L"9 de 9  -  Sem gastar cota"' in fonte)
+        checa("e a contagem dos baloes foi corrigida junto",
+              fonte.count("de 8  -  ") == 0 and fonte.count("de 9  -  ") == 18)
+        checa("o tour do chat cita a chave do Groq",
+              "gsk_ e Groq" in fonte)
+
+    # A documentacao precisa cobrir o recurso nos dois idiomas.
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    for arq, titulo, marca in (
+            ("README.pt.md", "## Endpoints compat", "Ollama"),
+            ("README.md", "## OpenAI-compatible endpoints", "Ollama")):
+        caminho = os.path.join(raiz, arq)
+        if not os.path.exists(caminho):
+            continue
+        doc = open(caminho, encoding="utf-8").read()
+        checa(f"{arq}: tem a secao do endpoint compativel", titulo in doc)
+        checa(f"{arq}: cita o endereco do Groq",
+              "api.groq.com/openai/v1" in doc)
+        checa(f"{arq}: cita o endereco do Ollama",
+              "localhost:11434/v1" in doc)
+        checa(f"{arq}: avisa que o modelo precisa de tool calling",
+              "tool calling" in doc)
+        checa(f"{arq}: registra a garantia de nao sequestrar chaves",
+              ("nunca" in doc.lower() or "never" in doc.lower()) and marca in doc)
+
+
+# ==================================================================== #
 def main():
     print("SUITE DE REGRESSAO DO AGENTE - T2M")
     print("(sem chave de IA, sem internet, sem banco, sem navegador)")
@@ -2083,7 +2255,8 @@ def main():
                   teste_args_do_gemini, teste_falhas_de_ferramenta,
                   teste_pausa_adaptativa, teste_modelo_do_chat,
                   teste_regra_de_qualidade_do_script,
-                  teste_leitura_da_pagina, teste_modelo_na_conversa):
+                  teste_leitura_da_pagina, teste_modelo_na_conversa,
+                  teste_endpoint_compativel):
         try:
             teste()
         except Exception as e:

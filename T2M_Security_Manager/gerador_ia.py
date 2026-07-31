@@ -209,6 +209,81 @@ MODELO_OPENAI = _CFG.get("modelo_openai", "gpt-4o-mini").strip() or "gpt-4o-mini
 # usuario escolhesse na tela nao tinha efeito nenhum para chaves do Google.
 MODELO_GEMINI = _CFG.get("modelo_gemini", "").strip()
 
+# --- ENDPOINT COMPATIVEL COM A OPENAI ---------------------------------------
+# Groq, Ollama, LM Studio, vLLM, OpenRouter e afins falam o MESMO protocolo da
+# OpenAI: muda so a base URL. Entao aqui nao existe "provedor novo" - existe a
+# rota da OpenAI apontando para outro lugar. Isso importa porque o laco de
+# ferramentas (tool calling) ja esta escrito e testado; duplica-lo por servico
+# seria criar tres copias para derivarem em ritmos diferentes.
+#
+# Para que serve na pratica: a cota gratuita do Gemini rende poucas requisicoes
+# por minuto, e uma automacao MCP gasta uma por passo - testar virava fila de
+# espera de 30 em 30 segundos. Num endpoint com limite folgado o mesmo teste
+# roda direto. E com Ollama na maquina, roda sem internet e sem mandar nada
+# para fora, que e o unico jeito de demonstrar em cliente com dado sensivel.
+ENDPOINT_COMPATIVEL = _CFG.get("endpoint_compativel", "").strip()
+MODELO_COMPATIVEL = _CFG.get("modelo_compativel", "").strip()
+_BASE_GROQ = "https://api.groq.com/openai/v1"
+
+
+def _base_url_openai(chave):
+    """Para onde apontar o SDK da OpenAI. Vazio = OpenAI oficial."""
+    c = (chave or "").strip()
+    if c.startswith("gsk_"):                 # chave do Groq: reconhecida sozinha
+        return ENDPOINT_COMPATIVEL or _BASE_GROQ
+    if c.startswith("sk-"):                  # chave da OpenAI vale a oficial
+        return ""
+    return ENDPOINT_COMPATIVEL               # ex.: chave "ollama" + endpoint local
+
+
+def _e_rota_openai(chave):
+    """Esta chave e atendida pelo SDK da OpenAI (oficial OU compativel)?"""
+    c = (chave or "").strip()
+    if c.startswith("sk-ant-"):
+        return False                         # Claude
+    if c.startswith("sk-"):
+        return True                          # OpenAI oficial
+    if c.startswith("gsk_"):
+        return True                          # Groq
+    if c.startswith("AIza") or c.startswith("AQ"):
+        return False                         # Gemini (formato antigo e o novo)
+    # Chave que nao se parece com nenhuma conhecida so vai para o endpoint
+    # compativel se ELE estiver configurado. Sem isso, quem ja usa o aplicativo
+    # veria suas chaves mudarem de rota sozinhas depois de uma atualizacao.
+    return bool(ENDPOINT_COMPATIVEL)
+
+
+def _modelo_openai(chave):
+    """Modelo da rota OpenAI.
+
+    O endpoint compativel tem campo PROPRIO de modelo, e nao e preciosismo: os
+    nomes nao se parecem (gpt-4o-mini x llama-3.3-70b-versatile x qwen2.5:7b),
+    entao um campo unico faria trocar de servico apagar a escolha do outro."""
+    if _base_url_openai(chave):
+        return MODELO_COMPATIVEL or "llama-3.3-70b-versatile"
+    return MODELO_OPENAI
+
+
+def _cliente_openai(chave):
+    """Cliente da OpenAI ja apontado para o lugar certo."""
+    from openai import OpenAI
+    base = _base_url_openai(chave)
+    return OpenAI(api_key=chave, base_url=base) if base else OpenAI(api_key=chave)
+
+
+def _nome_rota_openai(chave):
+    """Rotulo para log, cabecalho e historico. Dizer "OpenAI" quando a resposta
+    veio do Groq ou de um modelo local seria a mesma mentira de carimbar o
+    modelo configurado quando outro respondeu."""
+    base = _base_url_openai(chave)
+    if not base:
+        return "OpenAI"
+    if "groq" in base:
+        return "Groq"
+    if "localhost" in base or "127.0.0.1" in base:
+        return "Local"
+    return "Compativel"
+
 # Quantas mensagens do historico sao reenviadas a cada chamada.
 # Sem limite, a conversa cresce para sempre: cada pergunta nova reenviaria toda
 # a conversa anterior, ficando progressivamente mais lenta e mais cara.
@@ -270,7 +345,7 @@ def garantir_bibliotecas(api_key=""):
     # Apenas o SDK do provedor para o qual esta chave sera roteada.
     if api_key.startswith("sk-ant-"):
         necessarias["anthropic"] = "anthropic"
-    elif api_key.startswith("sk-"):
+    elif _e_rota_openai(api_key):
         necessarias["openai"] = "openai"
     elif api_key:
         necessarias["google-generativeai"] = "google.generativeai"
@@ -675,13 +750,13 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             ).strip()
 
         # --- ROTA OPENAI (CHATGPT) ---
-        elif api_key.startswith("sk-"):
-            log(f">>> Consultando a OpenAI ({MODELO_OPENAI})...")
-            _MODELO_EFETIVO = MODELO_OPENAI
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
+        elif _e_rota_openai(api_key):
+            modelo = _modelo_openai(api_key)
+            log(f">>> Consultando {_nome_rota_openai(api_key)} ({modelo})...")
+            _MODELO_EFETIVO = modelo
+            client = _cliente_openai(api_key)
             response = client.chat.completions.create(
-                model=MODELO_OPENAI,
+                model=modelo,
                 messages=[{"role": "system", "content": sistema}] + memoria,
             )
             # content vem None em recusas e quando o modelo devolve tool_calls;
@@ -796,8 +871,11 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             chave = ""
         if chave.startswith("sk-ant-"):
             provedor, modelo_cfg, alternativa = "Claude", MODELO_CLAUDE, "claude-haiku"
-        elif chave.startswith("sk-"):
-            provedor, modelo_cfg, alternativa = "OpenAI", MODELO_OPENAI, "gpt-4o-mini"
+        elif _e_rota_openai(chave):
+            provedor = _nome_rota_openai(chave)
+            modelo_cfg = _modelo_openai(chave)
+            alternativa = ("llama-3.1-8b-instant" if _base_url_openai(chave)
+                           else "gpt-4o-mini")
         else:
             provedor, modelo_cfg, alternativa = "Gemini", MODELO_GEMINI, "gemini-2.0-flash"
 

@@ -46,8 +46,9 @@
 <div class="wrap">
 
 <h1>Roteiro de verificacao &mdash; T2M Security Manager</h1>
-<p class="lead">Vinte itens, uns 35 minutos. Atualizado para a versao de hoje: faixa revertida,
-Automacao de volta no Copilot, terminal com o raciocinio completo.</p>
+<p class="lead">Vinte e cinco itens, uns 45 minutos. Atualizado para a versao de hoje:
+rastreabilidade de modo e modelo, mascaramento de senha no log e endpoint compativel
+(Groq / Ollama).</p>
 
 <div class="aviso">
   <b>Por que agora.</b> Desde a ultima compilacao limpa a tela foi reposicionada duas vezes, a
@@ -59,7 +60,7 @@ Automacao de volta no Copilot, terminal com o raciocinio completo.</p>
 </div>
 
 <div class="barra">
-  <span><span id="feitos">0</span> de <span id="total">20</span> conferidos</span>
+  <span><span id="feitos">0</span> de <span id="total">25</span> conferidos</span>
   <b id="pct">0%</b>
 </div>
 
@@ -67,7 +68,7 @@ Automacao de volta no Copilot, terminal com o raciocinio completo.</p>
 
 <div class="item"><input type="checkbox">
   <p class="faca"><span class="n">1.</span> No repositorio: <code>python testar_regressao.py</code></p>
-  <p class="esp"><b>Esperado:</b> <code>275 verificacoes, todas OK</code>.</p>
+  <p class="esp"><b>Esperado:</b> <code>520 verificacoes, todas OK</code>.</p>
   <p class="falha">Falhou: me mande as linhas de FALHOU. Elas dizem exatamente qual contrato quebrou, sem precisar de mais nada.</p>
 </div>
 
@@ -82,11 +83,12 @@ Automacao de volta no Copilot, terminal com o raciocinio completo.</p>
 </div>
 
 <div class="item"><input type="checkbox">
-  <p class="faca"><span class="n">3.</span> Clique <b>nove</b> vezes no <code>?</code> da barra
+  <p class="faca"><span class="n">3.</span> Clique <b>dez</b> vezes no <code>?</code> da barra
   superior.</p>
-  <p class="esp"><b>Esperado:</b> oito baloes (1 de 8 &hellip; 8 de 8), cada um ancorado no
-  controle certo; o nono clique reinicia no 1.</p>
-  <p class="falha">Os passos 4 a 8 apontam para controles baixos &mdash; se algum balao sair da tela em vez de virar para cima, e a ancora que precisa mudar.</p>
+  <p class="esp"><b>Esperado:</b> nove baloes (1 de 9 &hellip; 9 de 9), cada um ancorado no
+  controle certo; o decimo clique reinicia no 1. O passo 9 fala do endpoint compativel
+  (Groq / Ollama).</p>
+  <p class="falha">Os passos 4 a 9 apontam para controles baixos &mdash; se algum balao sair da tela em vez de virar para cima, e a ancora que precisa mudar.</p>
 </div>
 
 <div class="item"><input type="checkbox">
@@ -255,6 +257,27 @@ Automacao de volta no Copilot, terminal com o raciocinio completo.</p>
   e a sessao restaurada tambem &mdash; logo depois de
   <i>&gt;&gt;&gt; Sessao restaurada</i>.</p>
   <p class="falha">Sem reanuncio = a linha antiga do arquivo passa a valer para o que vier depois, com o modelo errado.</p>
+</div>
+
+<h2>Endpoint compativel (Groq / Ollama) <small>2 itens</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">24.</span> Em Configuracoes, clique em <b>Groq</b> e depois
+  em <b>Ollama</b>, na secao do endpoint. Salve com o campo <b>vazio</b> e reabra.</p>
+  <p class="esp"><b>Esperado:</b> os botoes preenchem
+  <code>https://api.groq.com/openai/v1</code> e <code>http://localhost:11434/v1</code>. Com o
+  campo vazio salvo, tudo continua funcionando como antes &mdash; o recurso e opcional.</p>
+  <p class="falha">Se com o campo vazio alguma chave mudar de rota, a condicao que exige o endpoint se perdeu: chaves que hoje funcionam passariam a ir para um servico que nao existe.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">25.</span> Cadastre uma chave do Groq (<code>gsk_...</code>),
+  escreva <code>llama-3.3-70b-versatile</code> no modelo do endpoint e rode o teste de login
+  em <b>Automacao &rarr; Teste de Tela</b>. <span class="custa">gasta cota do Groq, nao do Google</span></p>
+  <p class="esp"><b>Esperado:</b> o indicador mostra <code>&#9679; IA: Groq</code>, o cabecalho
+  sai como <code>T2M Copilot (Automacao MCP - tela | llama-3.3-70b-versatile)</code>, e a
+  execucao vai do inicio ao fim <b>sem nenhuma linha de espera de cota</b>.</p>
+  <p class="falha">Cabecalho dizendo OpenAI = o rotulo da rota nao acompanhou o endereco. Erro de modelo inexistente = o nome do modelo pertence a outro provedor.</p>
 </div>
 
 <div class="fim">

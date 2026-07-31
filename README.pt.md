@@ -52,8 +52,13 @@ API que fornece.
 
 - **Scan de DOM estático** — leitura rápida e leve da estrutura de uma página, útil para
   análise de segurança e verificações simples.
-- **Roteamento multi-IA** — Claude (`sk-ant-...`), OpenAI (`sk-...`) ou Gemini, escolhido
-  automaticamente pelo prefixo da chave, com um indicador visual claro.
+- **Roteamento multi-IA** — Claude (`sk-ant-...`), OpenAI (`sk-...`), Groq (`gsk_...`)
+  ou Gemini, escolhido automaticamente pelo prefixo da chave, com um indicador visual
+  claro.
+- **Endpoints compatíveis com a OpenAI** — um campo de endereço em Configurações libera
+  Groq, Ollama, LM Studio, vLLM e OpenRouter sem código novo: todos falam o mesmo
+  protocolo. Serve para testar sem gastar cota paga, e o Ollama roda **local, sem
+  internet** — o único jeito de demonstrar em cliente que não pode mandar dado para fora.
 - **Controle de custo** — escolha o modelo Claude (Haiku / Sonnet / Opus) e limite os
   passos do agente por tarefa, decidindo o equilíbrio entre capacidade e gasto.
 - **Histórico de sessões** — salve uma conversa e reabra depois, com a formatação intacta.
@@ -95,11 +100,51 @@ de teste.
 - **Node.js 18+** — para os servidores MCP (`npx` inicia o Playwright, o DBHub e o
   servidor do MongoDB)
 - **Python 3.10+**
-- Uma **chave de API** de pelo menos um provedor (Claude, OpenAI ou Gemini)
+- Uma **chave de API** de pelo menos um provedor (Claude, OpenAI, Gemini ou Groq) — ou
+  nenhuma, se você usar um modelo local via Ollama
 
-> **Sobre as IAs:** os modos de automação fazem várias chamadas sequenciais à IA. Chaves
-> gratuitas do Gemini têm limites baixos por minuto que interrompem execuções mais
-> longas; uma chave Claude ou OpenAI com crédito disponível dá a experiência mais confiável.
+> **Sobre as IAs:** os modos de automação fazem **uma chamada por passo**, então o limite
+> que importa é o de requisições por minuto, não o de tokens. Chaves gratuitas do Gemini
+> rendem poucas por minuto e uma automação de 15 passos entra em fila de espera. Para
+> testar sem esse atrito, veja [Endpoints compatíveis](#endpoints-compatíveis-com-a-openai);
+> para trabalho sério, uma chave Claude ou OpenAI com crédito dá a experiência mais confiável.
+
+---
+
+## Endpoints compatíveis com a OpenAI
+
+Groq, Ollama, LM Studio, vLLM e OpenRouter falam **o mesmo protocolo da OpenAI** — muda
+só o endereço. Por isso não existe "provedor novo" no código: existe a rota da OpenAI
+apontando para outro lugar, reaproveitando o mesmo laço de chamada de ferramentas.
+
+Configure em **Configurações → Endpoint compatível com a OpenAI**. Os botões *Groq* e
+*Ollama* preenchem o endereço para você.
+
+| Serviço | Endereço | Chave | Modelo de exemplo |
+|---|---|---|---|
+| Groq (nuvem, gratuito) | `https://api.groq.com/openai/v1` | a sua `gsk_...` | `llama-3.3-70b-versatile` ou `llama-3.1-8b-instant` |
+| Ollama (local) | `http://localhost:11434/v1` | qualquer texto (ex.: `ollama`) | `qwen2.5:7b` |
+| LM Studio (local) | `http://localhost:1234/v1` | qualquer texto | o modelo carregado |
+
+**Groq dispensa configuração:** chaves que começam com `gsk_` são reconhecidas sozinhas
+e já apontam para o endereço oficial. Basta colar a chave e escolher o modelo.
+
+**Ollama, passo a passo:**
+
+```bash
+ollama pull qwen2.5:7b     # baixa o modelo (uma vez)
+ollama serve               # sobe o servidor local
+```
+
+Depois, em Configurações, clique em *Ollama*, escreva `qwen2.5:7b` no campo de modelo e
+cadastre uma chave qualquer. Prefira modelos que suportem **tool calling** — sem isso os
+modos de automação não funcionam, só o Chat.
+
+> **Duas garantias.** Com o campo vazio, nada muda: quem já usa o aplicativo continua
+> exatamente como está. E mesmo preenchido, chaves reconhecidas como Claude (`sk-ant-`),
+> OpenAI (`sk-`) ou Google (`AIza`/`AQ`) **nunca** são desviadas — só chaves que não se
+> parecem com nenhuma conhecida vão para o endpoint. Sem isso, um endereço mal digitado
+> sequestraria em silêncio as chaves que já funcionavam.
 
 ---
 

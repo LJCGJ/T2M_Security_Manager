@@ -204,6 +204,81 @@ MODELO_CLAUDE = _CFG.get("modelo_claude", "claude-sonnet-4-6").strip() or "claud
 MODELO_OPENAI = _CFG.get("modelo_openai", "gpt-4o-mini").strip() or "gpt-4o-mini"
 MODELO_GEMINI = _CFG.get("modelo_gemini", "").strip()
 
+# --- ENDPOINT COMPATIVEL COM A OPENAI ---------------------------------------
+# Groq, Ollama, LM Studio, vLLM, OpenRouter e afins falam o MESMO protocolo da
+# OpenAI: muda so a base URL. Entao aqui nao existe "provedor novo" - existe a
+# rota da OpenAI apontando para outro lugar. Isso importa porque o laco de
+# ferramentas (tool calling) ja esta escrito e testado; duplica-lo por servico
+# seria criar tres copias para derivarem em ritmos diferentes.
+#
+# Para que serve na pratica: a cota gratuita do Gemini rende poucas requisicoes
+# por minuto, e uma automacao MCP gasta uma por passo - testar virava fila de
+# espera de 30 em 30 segundos. Num endpoint com limite folgado o mesmo teste
+# roda direto. E com Ollama na maquina, roda sem internet e sem mandar nada
+# para fora, que e o unico jeito de demonstrar em cliente com dado sensivel.
+ENDPOINT_COMPATIVEL = _CFG.get("endpoint_compativel", "").strip()
+MODELO_COMPATIVEL = _CFG.get("modelo_compativel", "").strip()
+_BASE_GROQ = "https://api.groq.com/openai/v1"
+
+
+def _base_url_openai(chave):
+    """Para onde apontar o SDK da OpenAI. Vazio = OpenAI oficial."""
+    c = (chave or "").strip()
+    if c.startswith("gsk_"):                 # chave do Groq: reconhecida sozinha
+        return ENDPOINT_COMPATIVEL or _BASE_GROQ
+    if c.startswith("sk-"):                  # chave da OpenAI vale a oficial
+        return ""
+    return ENDPOINT_COMPATIVEL               # ex.: chave "ollama" + endpoint local
+
+
+def _e_rota_openai(chave):
+    """Esta chave e atendida pelo SDK da OpenAI (oficial OU compativel)?"""
+    c = (chave or "").strip()
+    if c.startswith("sk-ant-"):
+        return False                         # Claude
+    if c.startswith("sk-"):
+        return True                          # OpenAI oficial
+    if c.startswith("gsk_"):
+        return True                          # Groq
+    if c.startswith("AIza") or c.startswith("AQ"):
+        return False                         # Gemini (formato antigo e o novo)
+    # Chave que nao se parece com nenhuma conhecida so vai para o endpoint
+    # compativel se ELE estiver configurado. Sem isso, quem ja usa o aplicativo
+    # veria suas chaves mudarem de rota sozinhas depois de uma atualizacao.
+    return bool(ENDPOINT_COMPATIVEL)
+
+
+def _modelo_openai(chave):
+    """Modelo da rota OpenAI.
+
+    O endpoint compativel tem campo PROPRIO de modelo, e nao e preciosismo: os
+    nomes nao se parecem (gpt-4o-mini x llama-3.3-70b-versatile x qwen2.5:7b),
+    entao um campo unico faria trocar de servico apagar a escolha do outro."""
+    if _base_url_openai(chave):
+        return MODELO_COMPATIVEL or "llama-3.3-70b-versatile"
+    return MODELO_OPENAI
+
+
+def _cliente_openai(chave):
+    """Cliente da OpenAI ja apontado para o lugar certo."""
+    from openai import OpenAI
+    base = _base_url_openai(chave)
+    return OpenAI(api_key=chave, base_url=base) if base else OpenAI(api_key=chave)
+
+
+def _nome_rota_openai(chave):
+    """Rotulo para log, cabecalho e historico. Dizer "OpenAI" quando a resposta
+    veio do Groq ou de um modelo local seria a mesma mentira de carimbar o
+    modelo configurado quando outro respondeu."""
+    base = _base_url_openai(chave)
+    if not base:
+        return "OpenAI"
+    if "groq" in base:
+        return "Groq"
+    if "localhost" in base or "127.0.0.1" in base:
+        return "Local"
+    return "Compativel"
+
 # Seguranca da automacao de tela (definidas na tela de Configuracoes).
 # Isolado por padrao: sem isso o Playwright usa perfil PERSISTENTE e a automacao
 # herda cookies e sessoes logadas do operador.
@@ -1336,8 +1411,9 @@ async def loop_anthropic(session, api_key, objetivo, mcp_tools):
 # LOOP OPENAI (GPT)                                                  #
 # ================================================================== #
 async def loop_openai(session, api_key, objetivo, mcp_tools):
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key)
+    client = _cliente_openai(api_key)
+    modelo = _modelo_openai(api_key)
+    rota = _nome_rota_openai(api_key)
 
     _registrar_esquemas((t.name, t.inputSchema) for t in mcp_tools)
     ferramentas = [{
@@ -1359,9 +1435,9 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
     ultimo_texto = ""
 
     for passo in range(MAX_ITERACOES):
-        _marcar_passo("OpenAI", MODELO_OPENAI, passo + 1)
+        _marcar_passo(rota, modelo, passo + 1)
         resp = client.chat.completions.create(
-            model=MODELO_OPENAI,
+            model=modelo,
             tools=ferramentas,
             messages=mensagens,
             max_tokens=MAX_TOKENS,
@@ -1683,7 +1759,7 @@ async def executar(api_key, url_alvo, objetivo):
                         responder("Biblioteca ausente: anthropic.", erro=True)
                         return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
-                elif api_key.startswith("sk-"):
+                elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
                         responder("Biblioteca ausente: openai.", erro=True)
                         return
@@ -1793,7 +1869,7 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
                     if not tem_lib("anthropic"):
                         responder("Biblioteca ausente: anthropic.", erro=True); return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
-                elif api_key.startswith("sk-"):
+                elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
                         responder("Biblioteca ausente: openai.", erro=True); return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
@@ -1909,7 +1985,7 @@ async def executar_api(api_key, req, objetivo):
                     if not tem_lib("anthropic"):
                         responder("Biblioteca ausente: anthropic.", erro=True); return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
-                elif api_key.startswith("sk-"):
+                elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
                         responder("Biblioteca ausente: openai.", erro=True); return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
@@ -2040,8 +2116,8 @@ def _modelo_para_auditoria(api_key):
     Sem isso o log fica com 'UNKNOWN-LLM' e perde metade da utilidade."""
     if api_key.startswith("sk-ant-"):
         return MODELO_CLAUDE
-    if api_key.startswith("sk-"):
-        return MODELO_OPENAI
+    if _e_rota_openai(api_key):
+        return _modelo_openai(api_key)
     return MODELO_GEMINI or "gemini"
 
 
@@ -2901,7 +2977,7 @@ async def executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
                     if not tem_lib("anthropic"):
                         responder("Biblioteca ausente: anthropic.", erro=True); return True
                     resultado = await loop_anthropic(filtrada, api_key, instrucao, permitidas)
-                elif api_key.startswith("sk-"):
+                elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
                         responder("Biblioteca ausente: openai.", erro=True); return True
                     resultado = await loop_openai(filtrada, api_key, instrucao, permitidas)
@@ -3001,7 +3077,7 @@ async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
             if not tem_lib("anthropic"):
                 responder("Biblioteca ausente: anthropic.", erro=True); return
             resultado = await _loop_ferramentas_anthropic(api_key, instrucao, ferramentas, despachar)
-        elif api_key.startswith("sk-"):
+        elif _e_rota_openai(api_key):
             if not tem_lib("openai"):
                 responder("Biblioteca ausente: openai.", erro=True); return
             resultado = await _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar)
@@ -3070,16 +3146,17 @@ async def _loop_ferramentas_anthropic(api_key, instrucao, ferramentas, despachar
 
 
 async def _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar):
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key)
+    client = _cliente_openai(api_key)
+    modelo = _modelo_openai(api_key)
+    rota = _nome_rota_openai(api_key)
     tools = [{"type": "function", "function": {
         "name": f["name"], "description": f["description"], "parameters": f["input_schema"]}}
         for f in ferramentas]
     mensagens = [{"role": "user", "content": instrucao}]
     ultimo_texto = ""
     for passo in range(MAX_ITERACOES):
-        _marcar_passo("OpenAI", MODELO_OPENAI, passo + 1)
-        resp = client.chat.completions.create(model=MODELO_OPENAI, tools=tools,
+        _marcar_passo(rota, modelo, passo + 1)
+        resp = client.chat.completions.create(model=modelo, tools=tools,
                                               messages=mensagens, max_tokens=MAX_TOKENS)
         msg = resp.choices[0].message
         mensagens.append(msg.model_dump(exclude_none=True))
@@ -3226,7 +3303,7 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
                     if not tem_lib("anthropic"):
                         responder("Biblioteca ausente: anthropic.", erro=True); return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
-                elif api_key.startswith("sk-"):
+                elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
                         responder("Biblioteca ausente: openai.", erro=True); return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
