@@ -655,6 +655,136 @@ COMO_TROCAR_MODELO = (
     "proxima mensagem, e o log mostra qual modelo respondeu cada uma."
 )
 
+
+# --- ANEXOS DE IMAGEM (VISAO) ------------------------------------------------
+# Duas origens, um caminho so: o print que o proprio teste tirou e a imagem que
+# o operador anexou pelo botao "+". Em ambos os casos a imagem vai para o modelo
+# no formato de cada provedor - que sao tres formatos diferentes para a mesma
+# coisa, e e por isso que a conversao mora aqui e nao espalhada pelos lacos.
+#
+# Custo: imagem custa MUITO mais token que texto (uma tela cheia sai por ordem
+# de milhares). Por isso nada e enviado por conta propria: prints de teste so
+# com o interruptor ligado em Configuracoes, e anexos so quando a pessoa anexa.
+_LIMITE_IMAGEM_MB = 5
+
+
+def _ler_imagem_para_envio(caminho):
+    """Devolve (base64, mime) ou (None, None). Nunca levanta: um anexo ruim nao
+    pode custar a mensagem inteira."""
+    try:
+        if not caminho or not os.path.isfile(caminho):
+            return None, None
+        tamanho = os.path.getsize(caminho)
+        if tamanho <= 0 or tamanho > _LIMITE_IMAGEM_MB * 1024 * 1024:
+            log(f">>> imagem ignorada ({tamanho // 1024} KB, limite "
+                f"{_LIMITE_IMAGEM_MB} MB): {os.path.basename(caminho)}")
+            return None, None
+        import base64
+        ext = os.path.splitext(caminho)[1].lower()
+        mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".gif": "image/gif", ".webp": "image/webp",
+                ".bmp": "image/bmp"}.get(ext)
+        if not mime:
+            log(f">>> formato de imagem nao suportado: {ext or '(sem extensao)'}")
+            return None, None
+        with open(caminho, "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii"), mime
+    except Exception as e:
+        log(f">>> nao foi possivel ler a imagem: {type(e).__name__}")
+        return None, None
+
+
+def _parte_imagem(caminho, provedor):
+    """Bloco de imagem no formato do provedor. None se a imagem nao serve.
+
+    Os tres nomeiam a mesma coisa de tres jeitos, e errar o formato produz um
+    erro de API generico que nao diz que o problema era a imagem."""
+    dados, mime = _ler_imagem_para_envio(caminho)
+    if not dados:
+        return None
+    if provedor == "claude":
+        return {"type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": dados}}
+    if provedor == "openai":
+        return {"type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{dados}"}}
+    return {"mime_type": mime, "data": dados}      # gemini
+
+
+# Limites de imagem POR PROVEDOR. Numeros verificados na documentacao de cada
+# um, com folga proposital: o que se ganha raspando o teto e um erro opaco no
+# meio de um teste que ja custou tempo e token.
+#
+#   Claude  - 100 imagens por requisicao (modelos de 200k), 5 MB por imagem em
+#             Bedrock/Vertex, 10 MB na API direta. Acima de 20 imagens vale um
+#             limite de dimensao mais apertado (2000 px por lado), e por isso 20
+#             e um teto naturalmente seguro.
+#   Gemini  - o limite REAL e o tamanho da requisicao inteira: 20 MB somando
+#             texto, instrucoes e as imagens embutidas. O numero de imagens
+#             (3600) nunca e o que estoura primeiro.
+#   OpenAI  - a documentacao publica nao expoe o teto por requisicao de forma
+#             estavel; 10 e o limite documentado em implantacoes Azure dos
+#             mesmos modelos, entao serve como piso conservador.
+#
+# O teto de bytes vale para os TRES: e ele que produz o erro dificil de
+# diagnosticar, porque a mensagem do provedor fala de "request too large" sem
+# dizer que o culpado foi o anexo.
+_LIMITES_IMAGEM = {
+    "claude": {"itens": 20, "mb_item": 5},
+    "openai": {"itens": 10, "mb_item": 20},
+    "gemini": {"itens": 16, "mb_item": 7},
+}
+_MB_TOTAL_IMAGENS = 15      # abaixo dos 20 MB do Gemini, sobrando para o texto
+
+
+def limite_de_imagens(provedor):
+    """Quantas imagens este provedor aceita por mensagem, na nossa conta."""
+    return _LIMITES_IMAGEM.get(provedor, _LIMITES_IMAGEM["gemini"])["itens"]
+
+
+class _OrcamentoImagens:
+    """Controla quantas imagens e quantos bytes ja foram para esta requisicao.
+
+    Existe porque os dois limites sao independentes: cabe estourar o teto de
+    bytes com tres imagens grandes, ou o de itens com vinte imagens pequenas.
+    Recusar aqui, com motivo, e melhor que deixar o provedor recusar tudo."""
+
+    def __init__(self, provedor):
+        lim = _LIMITES_IMAGEM.get(provedor, _LIMITES_IMAGEM["gemini"])
+        self.provedor = provedor
+        self.max_itens = lim["itens"]
+        self.max_item = lim["mb_item"] * 1024 * 1024
+        self.restante = _MB_TOTAL_IMAGENS * 1024 * 1024
+        self.usadas = 0
+        self.recusadas = []
+
+    def cabe(self, nome, tamanho):
+        if self.usadas >= self.max_itens:
+            self.recusadas.append(
+                f"{nome}: {self.provedor} aceita {self.max_itens} imagens por "
+                f"mensagem nesta configuracao")
+            return False
+        if tamanho > self.max_item:
+            self.recusadas.append(
+                f"{nome}: {tamanho // (1024 * 1024)} MB, acima do teto de "
+                f"{self.max_item // (1024 * 1024)} MB por imagem do {self.provedor}")
+            return False
+        if tamanho > self.restante:
+            self.recusadas.append(
+                f"{nome}: nao cabe no teto de {_MB_TOTAL_IMAGENS} MB da "
+                f"requisicao inteira")
+            return False
+        self.usadas += 1
+        self.restante -= tamanho
+        return True
+
+    def relatar(self):
+        for motivo in self.recusadas:
+            log(f">>> imagem NAO enviada - {motivo}")
+        if self.usadas:
+            log(f">>> {self.usadas} imagem(ns) enviada(s) a IA "
+                f"({(_MB_TOTAL_IMAGENS * 1024 * 1024 - self.restante) // 1024} KB).")
+
 HEADLESS = False            # False = voce ve o navegador agindo; True = invisivel
 
 

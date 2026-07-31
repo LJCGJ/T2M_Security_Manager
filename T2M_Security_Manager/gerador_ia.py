@@ -170,6 +170,259 @@ def responder(texto):
     print("CHAT_MSG_FIM")
 
 
+
+# --- ANEXOS DE IMAGEM (VISAO) ------------------------------------------------
+# Duas origens, um caminho so: o print que o proprio teste tirou e a imagem que
+# o operador anexou pelo botao "+". Em ambos os casos a imagem vai para o modelo
+# no formato de cada provedor - que sao tres formatos diferentes para a mesma
+# coisa, e e por isso que a conversao mora aqui e nao espalhada pelos lacos.
+#
+# Custo: imagem custa MUITO mais token que texto (uma tela cheia sai por ordem
+# de milhares). Por isso nada e enviado por conta propria: prints de teste so
+# com o interruptor ligado em Configuracoes, e anexos so quando a pessoa anexa.
+_LIMITE_IMAGEM_MB = 5
+
+
+def _ler_imagem_para_envio(caminho):
+    """Devolve (base64, mime) ou (None, None). Nunca levanta: um anexo ruim nao
+    pode custar a mensagem inteira."""
+    try:
+        if not caminho or not os.path.isfile(caminho):
+            return None, None
+        tamanho = os.path.getsize(caminho)
+        if tamanho <= 0 or tamanho > _LIMITE_IMAGEM_MB * 1024 * 1024:
+            log(f">>> imagem ignorada ({tamanho // 1024} KB, limite "
+                f"{_LIMITE_IMAGEM_MB} MB): {os.path.basename(caminho)}")
+            return None, None
+        import base64
+        ext = os.path.splitext(caminho)[1].lower()
+        mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".gif": "image/gif", ".webp": "image/webp",
+                ".bmp": "image/bmp"}.get(ext)
+        if not mime:
+            log(f">>> formato de imagem nao suportado: {ext or '(sem extensao)'}")
+            return None, None
+        with open(caminho, "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii"), mime
+    except Exception as e:
+        log(f">>> nao foi possivel ler a imagem: {type(e).__name__}")
+        return None, None
+
+
+def _modelo_de_imagem():
+    """Lido na chamada, e nao na importacao: este bloco fica acima da leitura de
+    configuracoes no arquivo, e amarrar a ordem so criaria uma armadilha para a
+    proxima pessoa que mover qualquer coisa."""
+    return (_CFG.get("modelo_imagem", "").strip() or "gemini-2.5-flash-image")
+
+
+def _pasta_prints():
+    """A mesma pasta dos prints de teste: e a unica que o C++ aceita exibir, e
+    manter duas pastas de imagem so criaria a duvida de qual limpar."""
+    base = os.path.dirname(_caminho_dados("historico_execucoes.jsonl"))
+    destino = os.path.join(base, "prints")
+    os.makedirs(destino, exist_ok=True)
+    return destino
+
+
+def _gerar_imagem(api_key, descricao):
+    """Gera uma imagem e devolve o texto que acompanha a resposta.
+
+    So Gemini por enquanto: e o provedor cujo modelo de imagem responde pelo
+    mesmo generate_content ja usado aqui. Dizer isso na cara e melhor que
+    falhar com um erro de API que nao explica nada."""
+    if not descricao:
+        return "Descreva a imagem que voce quer gerar."
+    if api_key.startswith("sk-ant-") or _e_rota_openai(api_key):
+        return ("A geracao de imagem esta disponivel apenas com chave do Google "
+                "(Gemini) por enquanto.\n\n" + COMO_TROCAR_MODELO)
+    try:
+        import base64
+        import uuid
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        log(f">>> Gerando imagem com {_modelo_de_imagem()}...")
+        modelo = genai.GenerativeModel(_modelo_de_imagem())
+        resp = modelo.generate_content(descricao)
+
+        legenda, salvas = [], 0
+        for cand in getattr(resp, "candidates", []) or []:
+            for parte in getattr(getattr(cand, "content", None), "parts", []) or []:
+                texto = getattr(parte, "text", None)
+                if texto:
+                    legenda.append(texto)
+                dados = getattr(parte, "inline_data", None)
+                if dados is None:
+                    continue
+                bruto = getattr(dados, "data", None)
+                if not bruto:
+                    continue
+                if isinstance(bruto, str):
+                    bruto = base64.b64decode(bruto)
+                caminho = os.path.join(_pasta_prints(),
+                                       f"gerada_{uuid.uuid4().hex[:10]}.png")
+                with open(caminho, "wb") as f:
+                    f.write(bruto)
+                rotulo = _sem_marcadores_simples(descricao)[:80]
+                print("IMAGEM:" + caminho + "|" + rotulo, flush=True)
+                salvas += 1
+
+        if not salvas:
+            return ("O modelo nao devolveu imagem nenhuma. Isso costuma ser o "
+                    "modelo configurado nao ser de imagem, ou o pedido ter sido "
+                    "recusado pela politica do provedor.\n\n"
+                    f"Modelo usado: {_modelo_de_imagem()}")
+        cabeca = f"Imagem gerada com {_modelo_de_imagem()}."
+        return (cabeca + "\n\n" + "\n".join(legenda)).strip() if legenda else cabeca
+    except Exception as e:
+        if _e_erro_de_modelo(e):
+            return (f"O modelo de imagem \"{_modelo_de_imagem()}\" nao esta disponivel "
+                    f"para esta chave.\n\nDetalhe: {type(e).__name__}")
+        if _e_erro_de_cota(e):
+            return ("Limite de uso atingido ao gerar a imagem.\n\n"
+                    + COMO_TROCAR_MODELO)
+        return f"Falha ao gerar a imagem: {type(e).__name__}: {str(e)[:200]}"
+
+
+def _sem_marcadores_simples(texto):
+    """Impede que o rotulo quebre o protocolo: um "|" ou uma quebra de linha na
+    descricao partiria o marcador IMAGEM: ao meio."""
+    return (str(texto or "").replace("|", "/").replace("\r", " ")
+            .replace("\n", " ").strip())
+
+
+
+# Limites de imagem POR PROVEDOR. Numeros verificados na documentacao de cada
+# um, com folga proposital: o que se ganha raspando o teto e um erro opaco no
+# meio de um teste que ja custou tempo e token.
+#
+#   Claude  - 100 imagens por requisicao (modelos de 200k), 5 MB por imagem em
+#             Bedrock/Vertex, 10 MB na API direta. Acima de 20 imagens vale um
+#             limite de dimensao mais apertado (2000 px por lado), e por isso 20
+#             e um teto naturalmente seguro.
+#   Gemini  - o limite REAL e o tamanho da requisicao inteira: 20 MB somando
+#             texto, instrucoes e as imagens embutidas. O numero de imagens
+#             (3600) nunca e o que estoura primeiro.
+#   OpenAI  - a documentacao publica nao expoe o teto por requisicao de forma
+#             estavel; 10 e o limite documentado em implantacoes Azure dos
+#             mesmos modelos, entao serve como piso conservador.
+#
+# O teto de bytes vale para os TRES: e ele que produz o erro dificil de
+# diagnosticar, porque a mensagem do provedor fala de "request too large" sem
+# dizer que o culpado foi o anexo.
+_LIMITES_IMAGEM = {
+    "claude": {"itens": 20, "mb_item": 5},
+    "openai": {"itens": 10, "mb_item": 20},
+    "gemini": {"itens": 16, "mb_item": 7},
+}
+_MB_TOTAL_IMAGENS = 15      # abaixo dos 20 MB do Gemini, sobrando para o texto
+
+
+def limite_de_imagens(provedor):
+    """Quantas imagens este provedor aceita por mensagem, na nossa conta."""
+    return _LIMITES_IMAGEM.get(provedor, _LIMITES_IMAGEM["gemini"])["itens"]
+
+
+class _OrcamentoImagens:
+    """Controla quantas imagens e quantos bytes ja foram para esta requisicao.
+
+    Existe porque os dois limites sao independentes: cabe estourar o teto de
+    bytes com tres imagens grandes, ou o de itens com vinte imagens pequenas.
+    Recusar aqui, com motivo, e melhor que deixar o provedor recusar tudo."""
+
+    def __init__(self, provedor):
+        lim = _LIMITES_IMAGEM.get(provedor, _LIMITES_IMAGEM["gemini"])
+        self.provedor = provedor
+        self.max_itens = lim["itens"]
+        self.max_item = lim["mb_item"] * 1024 * 1024
+        self.restante = _MB_TOTAL_IMAGENS * 1024 * 1024
+        self.usadas = 0
+        self.recusadas = []
+
+    def cabe(self, nome, tamanho):
+        if self.usadas >= self.max_itens:
+            self.recusadas.append(
+                f"{nome}: {self.provedor} aceita {self.max_itens} imagens por "
+                f"mensagem nesta configuracao")
+            return False
+        if tamanho > self.max_item:
+            self.recusadas.append(
+                f"{nome}: {tamanho // (1024 * 1024)} MB, acima do teto de "
+                f"{self.max_item // (1024 * 1024)} MB por imagem do {self.provedor}")
+            return False
+        if tamanho > self.restante:
+            self.recusadas.append(
+                f"{nome}: nao cabe no teto de {_MB_TOTAL_IMAGENS} MB da "
+                f"requisicao inteira")
+            return False
+        self.usadas += 1
+        self.restante -= tamanho
+        return True
+
+    def relatar(self):
+        for motivo in self.recusadas:
+            log(f">>> imagem NAO enviada - {motivo}")
+        if self.usadas:
+            log(f">>> {self.usadas} imagem(ns) enviada(s) a IA "
+                f"({(_MB_TOTAL_IMAGENS * 1024 * 1024 - self.restante) // 1024} KB).")
+
+def _memoria_com_imagens(memoria, provedor):
+    """Copia da memoria pronta para a API: onde havia "_imagens", o content
+    vira lista de blocos. A memoria original NAO e alterada - ela vai para o
+    disco, e gravar blocos de imagem la dentro faria o arquivo crescer sem
+    limite guardando o mesmo binario a cada turno."""
+    orcamento = _OrcamentoImagens(provedor)
+    saida = []
+    # De tras para frente: se algo tiver de ficar de fora, que fique a imagem
+    # ANTIGA. A mensagem que a pessoa acabou de mandar e a que ela espera que
+    # seja respondida; sacrificar essa em favor de um anexo de dez turnos atras
+    # seria o pior corte possivel.
+    convertidas = {}
+    for m in reversed(memoria):
+        imagens = m.get("_imagens") or []
+        if not imagens:
+            continue
+        blocos = []
+        for caminho in imagens:
+            parte = _parte_imagem(caminho, provedor, orcamento)
+            if parte:
+                blocos.append(parte)
+        if blocos:
+            convertidas[id(m)] = blocos
+    orcamento.relatar()
+
+    for m in memoria:
+        blocos = convertidas.get(id(m))
+        if not blocos:
+            saida.append({"role": m["role"], "content": m["content"]})
+            continue
+        saida.append({"role": m["role"],
+                      "content": blocos + [{"type": "text", "text": m["content"]}]})
+    return saida
+
+
+def _parte_imagem(caminho, provedor, orcamento=None):
+    """Bloco de imagem no formato do provedor. None se a imagem nao serve.
+
+    Os tres nomeiam a mesma coisa de tres jeitos, e errar o formato produz um
+    erro de API generico que nao diz que o problema era a imagem."""
+    dados, mime = _ler_imagem_para_envio(caminho)
+    if not dados:
+        return None
+    # O que conta para o provedor e o tamanho JA em base64, que e ~33% maior
+    # que o arquivo. Medir o arquivo cru deixaria passar justamente o caso que
+    # estoura o limite por pouco - o mais dificil de diagnosticar depois.
+    if orcamento is not None and not orcamento.cabe(os.path.basename(caminho),
+                                                    len(dados)):
+        return None
+    if provedor == "claude":
+        return {"type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": dados}}
+    if provedor == "openai":
+        return {"type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{dados}"}}
+    return {"mime_type": mime, "data": dados}      # gemini
+
 def log(msg):
     """Mensagens de progresso vao para stderr; o app as exibe ao vivo no chat.
     O stdout fica reservado para a resposta final (marcadores CHAT_MSG_*)."""
@@ -568,6 +821,32 @@ def main():
         arquivo_memoria = ARQUIVO_MEMORIA
         memoria = []
 
+        # --- ANEXOS DO OPERADOR (botao "+") ---
+        # Chegam como linhas --IMAGEM--<caminho> no inicio do prompt. Poderiam
+        # vir numa quarta linha do stdin, mas isso mudaria o contrato que os
+        # tres scripts compartilham; um marcador no proprio texto e reversivel
+        # e nao quebra quem chama sem anexo nenhum.
+        anexos = []
+        while prompt_usuario.startswith("--IMAGEM--"):
+            corte = prompt_usuario.find("\n")
+            linha = prompt_usuario[:corte] if corte >= 0 else prompt_usuario
+            prompt_usuario = prompt_usuario[corte + 1:] if corte >= 0 else ""
+            caminho = linha[len("--IMAGEM--"):].strip()
+            if caminho:
+                anexos.append(caminho)
+        if anexos:
+            log(f">>> {len(anexos)} imagem(ns) anexada(s) pelo operador.")
+
+        # --- GERACAO DE IMAGEM ---
+        # Modelo separado de proposito: os de imagem nao respondem em texto e
+        # nao servem para o chat (foi por isso que sairam da lista de modelos).
+        # Aqui eles sao chamados sob demanda, sem virar a escolha padrao de
+        # ninguem, e a imagem volta pelo mesmo marcador dos prints de teste.
+        if prompt_usuario.startswith("--GERAR_IMAGEM--"):
+            descricao = prompt_usuario[len("--GERAR_IMAGEM--"):].strip()
+            responder(_gerar_imagem(api_key, descricao))
+            return
+
         # --- COMANDOS DE CONTROLE (vindos do C++) ---
         # --INICIAR_NOVO_CHAT-- : primeira mensagem (apresentacao). MCP_OFF = sem scanner.
         # --SCAN_DOM--          : o usuario esta no modo Scan DOM; escaneia a pagina e
@@ -647,6 +926,14 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                 except Exception:
                     memoria = []
             memoria.append({"role": "user", "content": prompt_usuario})
+
+        # Anexa as imagens a ultima fala do usuario. O formato muda por
+        # provedor, entao a conversao acontece na hora do envio, mais abaixo -
+        # aqui so fica registrado O QUE anexar, para a memoria em disco guardar
+        # a referencia e nao o binario (que incharia memoria_chat.json sem
+        # nenhum ganho: numa proxima mensagem a imagem seria reenviada de graca).
+        if anexos and memoria:
+            memoria[-1]["_imagens"] = list(anexos)
 
         # Corta o historico antes de enviar (controla custo e tempo)
         total_antes = len(memoria)
@@ -739,7 +1026,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                 model=MODELO_CLAUDE,
                 max_tokens=2048,
                 system=sistema,
-                messages=memoria,
+                messages=_memoria_com_imagens(memoria, "claude"),
             )
             # content pode trazer blocos que nao sao texto (ThinkingBlock, quando
             # o modelo escolhido tem raciocinio estendido) e pode vir vazio.
@@ -757,7 +1044,8 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             client = _cliente_openai(api_key)
             response = client.chat.completions.create(
                 model=modelo,
-                messages=[{"role": "system", "content": sistema}] + memoria,
+                messages=([{"role": "system", "content": sistema}]
+                          + _memoria_com_imagens(memoria, "openai")),
             )
             # content vem None em recusas e quando o modelo devolve tool_calls;
             # o .strip() direto dava AttributeError em NoneType.
@@ -767,11 +1055,21 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
         else:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
-            mensagens = [
-                {"role": "user" if m["role"] == "user" else "model",
-                 "parts": [m["content"]]}
-                for m in memoria
-            ]
+            # Mesmo criterio das outras rotas: orcamento unico para a
+            # requisicao e prioridade para as imagens mais recentes.
+            orcamento = _OrcamentoImagens("gemini")
+            extras = {}
+            for m in reversed(memoria):
+                for caminho in m.get("_imagens") or []:
+                    parte = _parte_imagem(caminho, "gemini", orcamento)
+                    if parte:
+                        extras.setdefault(id(m), []).append(parte)
+            orcamento.relatar()
+            mensagens = []
+            for m in memoria:
+                partes = [m["content"]] + extras.get(id(m), [])
+                mensagens.append({"role": "user" if m["role"] == "user" else "model",
+                                  "parts": partes})
             # Modelos estaveis primeiro. gemini-flash-latest é um alias que o
             # Google mantem sempre apontando para a versao flash atual (bom fallback).
             # Diz o que o app LEU do arquivo, antes de tentar qualquer coisa.
@@ -850,6 +1148,8 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
 
         # --- PERSISTE MEMORIA E RETORNA PARA A INTERFACE ---
         memoria.append({"role": "assistant", "content": resposta_ia})
+        # "_imagens" guarda CAMINHOS, nao binario: o arquivo de memoria continua
+        # pequeno, e uma imagem apagada depois simplesmente deixa de ser enviada.
         try:
             with open(arquivo_memoria, 'w', encoding='utf-8') as f:
                 json.dump(memoria, f, ensure_ascii=False, indent=4)

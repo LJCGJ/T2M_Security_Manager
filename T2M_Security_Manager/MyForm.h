@@ -272,6 +272,14 @@ namespace T2MSecurityManager {
 		// Prints de evidencia da execucao atual: cada item e {caminho, rotulo}.
 		List<cli::array<String^>^>^ printsDaExecucao;
 
+		// Anexos que o operador pendurou na PROXIMA mensagem (botao "+").
+		// Ficam aqui ate o envio: assim ele pode anexar, ler o que escreveu,
+		// trocar de ideia e remover antes de gastar token.
+		List<String^>^ anexosPendentes;
+		System::Windows::Forms::ContextMenuStrip^ menuAnexo;
+		Button^ btnAnexo;
+		Label^ lblAnexos;
+
 		// Modo ativo do chat: 0 = Chat (so conversa), 1 = DOM, 2 = Automacao (dropdown).
 		// So um modo fica ligado por vez; o controle ligado fica em destaque.
 		int modoAtivo;
@@ -783,6 +791,7 @@ namespace T2MSecurityManager {
 		   this->modeloEfetivoRelatado = L"";
 		   this->paradaPedidaPeloOperador = false;
 		   this->printsDaExecucao = gcnew List<cli::array<String^>^>();
+		   this->anexosPendentes = gcnew List<String^>();
 
 			   this->BackColor = System::Drawing::Color::WhiteSmoke;
 			   this->ClientSize = System::Drawing::Size(924, 711);
@@ -2146,11 +2155,71 @@ namespace T2MSecurityManager {
 		formIA->Controls->Add(rtbChat);
 
 		txtChatInput = gcnew TextBox();
-		txtChatInput->Location = System::Drawing::Point(20, 476);
-		txtChatInput->Size = System::Drawing::Size(594, 54);
+		// Recuada 36px: o "+" ocupa a esquerda da caixa, como em qualquer
+		// aplicativo de conversa. Sobrepor os dois faria o botao cobrir o texto
+		// digitado justamente na primeira linha.
+		txtChatInput->Location = System::Drawing::Point(56, 476);
+		txtChatInput->Size = System::Drawing::Size(558, 54);
 		txtChatInput->Multiline = true;
 		txtChatInput->Font = gcnew System::Drawing::Font("Segoe UI", 10);
 		formIA->Controls->Add(txtChatInput);
+
+		// Botao "+" no canto da caixa de escrita, no lugar onde todo mundo
+		// procura anexo. Menu em vez de varios botoes: e o mesmo padrao ja usado
+		// em Automacao, e a barra do Copilot nao tem espaco para quatro botoes
+		// novos sem voltar a ser "um monte de botao".
+		btnAnexo = gcnew Button();
+		btnAnexo->Text = L"+";
+		btnAnexo->Location = System::Drawing::Point(20, 476);
+		btnAnexo->Size = System::Drawing::Size(30, 54);
+		btnAnexo->BackColor = System::Drawing::Color::FromArgb(238, 241, 246);
+		btnAnexo->ForeColor = System::Drawing::Color::FromArgb(60, 66, 87);
+		btnAnexo->FlatStyle = FlatStyle::Flat;
+		btnAnexo->Font = gcnew System::Drawing::Font("Segoe UI", 12, System::Drawing::FontStyle::Bold);
+		btnAnexo->Cursor = Cursors::Hand;
+		btnAnexo->Click += gcnew System::EventHandler(this, &MyForm::btnAnexo_Click);
+		formIA->Controls->Add(btnAnexo);
+		dica->SetToolTip(btnAnexo,
+			L"Anexar imagem, colar da area de transferencia, usar o print do "
+			L"ultimo teste, anexar um log ou gerar uma imagem com a IA.");
+
+		menuAnexo = gcnew System::Windows::Forms::ContextMenuStrip();
+		System::Windows::Forms::ToolStripMenuItem^ itArquivo =
+			gcnew System::Windows::Forms::ToolStripMenuItem(L"🖼  Imagem do computador...");
+		System::Windows::Forms::ToolStripMenuItem^ itColar =
+			gcnew System::Windows::Forms::ToolStripMenuItem(L"📋  Colar imagem copiada");
+		System::Windows::Forms::ToolStripMenuItem^ itPrint =
+			gcnew System::Windows::Forms::ToolStripMenuItem(L"📸  Print do ultimo teste");
+		System::Windows::Forms::ToolStripMenuItem^ itTexto =
+			gcnew System::Windows::Forms::ToolStripMenuItem(L"📄  Arquivo de texto (log, csv, html)...");
+		System::Windows::Forms::ToolStripMenuItem^ itGerar =
+			gcnew System::Windows::Forms::ToolStripMenuItem(L"🎨  Gerar imagem com a IA...");
+		System::Windows::Forms::ToolStripMenuItem^ itLimpar =
+			gcnew System::Windows::Forms::ToolStripMenuItem(L"✖  Remover anexos");
+		itArquivo->Click += gcnew System::EventHandler(this, &MyForm::anexoArquivo_Click);
+		itColar->Click += gcnew System::EventHandler(this, &MyForm::anexoColar_Click);
+		itPrint->Click += gcnew System::EventHandler(this, &MyForm::anexoPrint_Click);
+		itTexto->Click += gcnew System::EventHandler(this, &MyForm::anexoTexto_Click);
+		itGerar->Click += gcnew System::EventHandler(this, &MyForm::anexoGerar_Click);
+		itLimpar->Click += gcnew System::EventHandler(this, &MyForm::anexoLimpar_Click);
+		menuAnexo->Items->Add(itArquivo);
+		menuAnexo->Items->Add(itColar);
+		menuAnexo->Items->Add(itPrint);
+		menuAnexo->Items->Add(itTexto);
+		menuAnexo->Items->Add(gcnew System::Windows::Forms::ToolStripSeparator());
+		menuAnexo->Items->Add(itGerar);
+		menuAnexo->Items->Add(gcnew System::Windows::Forms::ToolStripSeparator());
+		menuAnexo->Items->Add(itLimpar);
+
+		// Diz o que esta pendurado. Sem isso o anexo vira invisivel: a pessoa
+		// anexa, escreve, envia, e nao sabe se a imagem foi junto.
+		lblAnexos = gcnew Label();
+		lblAnexos->Location = System::Drawing::Point(56, 458);
+		lblAnexos->AutoSize = true;
+		lblAnexos->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Italic);
+		lblAnexos->ForeColor = System::Drawing::Color::SteelBlue;
+		lblAnexos->Text = L"";
+		formIA->Controls->Add(lblAnexos);
 
 		btnSendChat = gcnew Button();
 		btnSendChat->Text = L"➤ Enviar";
@@ -5216,6 +5285,226 @@ namespace T2MSecurityManager {
 		AnunciarModeloNoChat(true);
 	}
 
+		   // ======================================================================
+		   // --- ANEXOS DO OPERADOR (botao "+") ---
+		   // ======================================================================
+
+	private: System::Void btnAnexo_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (menuAnexo == nullptr || btnAnexo == nullptr) return;
+		menuAnexo->Show(btnAnexo, 0, btnAnexo->Height);
+	}
+
+		   // Pasta onde ficam as imagens que o aplicativo pode exibir. Anexo
+		   // vindo de fora e COPIADO para ca: o exibidor so aceita arquivos
+		   // desta pasta (senao a palavra IMAGEM: num relatorio viraria um
+		   // leitor de arquivo arbitrario), e um anexo que o usuario apagasse
+		   // depois deixaria a conversa com um buraco.
+	private: String^ PastaPrints() {
+		String^ base = Path::GetDirectoryName(CaminhoDados("historico_execucoes.jsonl"));
+		String^ destino = Path::Combine(base, L"prints");
+		try { Directory::CreateDirectory(destino); }
+		catch (...) {}
+		return destino;
+	}
+
+	private: String^ CopiarParaPrints(String^ origem, String^ prefixo) {
+		try {
+			String^ nome = prefixo + DateTime::Now.ToString("yyyyMMdd_HHmmss_fff") + L".png";
+			String^ destino = Path::Combine(PastaPrints(), nome);
+
+			// REDUZ ao copiar, em vez de guardar o original. Uma foto de celular
+			// de 4000 px nao ajuda o modelo - ele reduz internamente de qualquer
+			// jeito - e chega a estourar sozinha o teto de tamanho da
+			// requisicao. Aqui o corte acontece uma vez, e vale para o envio, a
+			// exibicao no chat e o relatorio.
+			array<System::Byte>^ menor = ImagemParaExibir(origem, 1600);
+			if (menor != nullptr && menor->Length > 0) {
+				File::WriteAllBytes(destino, menor);
+				return destino;
+			}
+			// Nao era imagem (ou nao deu para reabrir): copia como veio e deixa
+			// o agente decidir - ele conhece os formatos aceitos por provedor.
+			String^ ext = Path::GetExtension(origem);
+			if (String::IsNullOrWhiteSpace(ext)) ext = L".png";
+			destino = Path::Combine(PastaPrints(),
+				prefixo + DateTime::Now.ToString("yyyyMMdd_HHmmss_fff") + ext);
+			File::Copy(origem, destino, true);
+			return destino;
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Nao foi possivel usar este arquivo: " + ex->Message,
+				L"Anexo");
+			return L"";
+		}
+	}
+
+		   // Quantas imagens o provedor da chave selecionada aceita por mensagem.
+		   // Os numeros vem da documentacao de cada um, com folga proposital, e
+		   // sao os MESMOS do lado Python (_LIMITES_IMAGEM) - divergir faria a
+		   // tela aceitar um anexo que o agente descartaria depois, em silencio.
+		   //
+		   //   Claude - 100 por requisicao, mas acima de 20 vale um limite de
+		   //            dimensao mais apertado; 20 e o teto naturalmente seguro.
+		   //   OpenAI - a documentacao publica nao expoe um teto estavel; 10 e o
+		   //            documentado em implantacoes Azure dos mesmos modelos.
+		   //   Gemini - o limite real e o tamanho da requisicao (20 MB), nunca a
+		   //            contagem; 16 mantem o total bem abaixo disso.
+	private: int LimiteImagensDoProvedor() {
+		String^ ia = DetectarIA(ObterChaveReal());
+		if (ia == L"Claude") return 20;
+		if (ia == L"OpenAI") return 10;
+		return 16;   // Gemini, Groq, local e compativeis
+	}
+
+	private: void RegistrarAnexo(String^ caminho) {
+		if (String::IsNullOrWhiteSpace(caminho)) return;
+		int teto = LimiteImagensDoProvedor();
+		if (anexosPendentes->Count >= teto) {
+			String^ ia = DetectarIA(ObterChaveReal());
+			MessageBox::Show(
+				L"Limite de " + teto.ToString() + L" imagens por mensagem"
+				+ (String::IsNullOrWhiteSpace(ia) ? L"" : (L" (" + ia + L")")) + L".\n\n"
+				L"Nao e uma regra nossa: e o teto do provedor. Passar dele faz a "
+				L"chamada inteira ser recusada, com uma mensagem que nao diz que "
+				L"o culpado foi o anexo.\n\n"
+				L"Alem disso, cada imagem custa varias vezes mais token que "
+				L"texto - mandar muitas de uma vez encarece rapido sem melhorar "
+				L"a resposta.",
+				L"Limite do provedor", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			return;
+		}
+		anexosPendentes->Add(caminho);
+		AtualizarRotuloAnexos();
+	}
+
+	private: void AtualizarRotuloAnexos() {
+		if (lblAnexos == nullptr) return;
+		if (anexosPendentes->Count == 0) { lblAnexos->Text = L""; return; }
+		System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
+		sb->Append(L"📎 " + anexosPendentes->Count.ToString()
+			+ (anexosPendentes->Count == 1 ? L" anexo: " : L" anexos: "));
+		for (int i = 0; i < anexosPendentes->Count; i++) {
+			if (i > 0) sb->Append(L", ");
+			sb->Append(Path::GetFileName(anexosPendentes[i]));
+		}
+		sb->Append(L"   (vai junto na proxima mensagem - limite de "
+			+ LimiteImagensDoProvedor().ToString() + L")");
+		lblAnexos->Text = sb->ToString();
+	}
+
+	private: System::Void anexoArquivo_Click(System::Object^ sender, System::EventArgs^ e) {
+		OpenFileDialog^ dlg = gcnew OpenFileDialog();
+		dlg->Title = L"Escolher imagem para enviar a IA";
+		dlg->Filter = L"Imagens (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp)|"
+			L"*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp|Todos os arquivos (*.*)|*.*";
+		dlg->Multiselect = true;
+		if (dlg->ShowDialog() != System::Windows::Forms::DialogResult::OK) return;
+		for each (String ^ arq in dlg->FileNames)
+			RegistrarAnexo(CopiarParaPrints(arq, L"anexo_"));
+	}
+
+	private: System::Void anexoColar_Click(System::Object^ sender, System::EventArgs^ e) {
+		try {
+			if (!Clipboard::ContainsImage()) {
+				MessageBox::Show(
+					L"Nao ha imagem na area de transferencia.\n\n"
+					L"Copie um print (Print Screen, ou a ferramenta de captura do "
+					L"Windows com Win+Shift+S) e tente de novo.",
+					L"Colar imagem", MessageBoxButtons::OK, MessageBoxIcon::Information);
+				return;
+			}
+			System::Drawing::Image^ img = Clipboard::GetImage();
+			if (img == nullptr) return;
+			String^ destino = Path::Combine(PastaPrints(),
+				L"colado_" + DateTime::Now.ToString("yyyyMMdd_HHmmss_fff") + L".png");
+			img->Save(destino, System::Drawing::Imaging::ImageFormat::Png);
+			delete img;
+			RegistrarAnexo(destino);
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Nao foi possivel colar a imagem: " + ex->Message, L"Anexo");
+		}
+	}
+
+		   // Evidencia do teste que acabou de rodar, sem procurar em pasta
+		   // nenhuma. E tambem o jeito barato de dar VISAO ao modelo: em vez de
+		   // mandar todo print automaticamente (o que encareceria toda execucao),
+		   // a pessoa manda o print que interessa, quando interessa.
+	private: System::Void anexoPrint_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (printsDaExecucao == nullptr || printsDaExecucao->Count == 0) {
+			MessageBox::Show(
+				L"Nenhum print disponivel ainda.\n\n"
+				L"Rode um teste em Automacao > Teste de Tela: o aplicativo guarda "
+				L"o estado final da tela, e ele fica disponivel aqui.",
+				L"Print do teste", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			return;
+		}
+		for each (cli::array<String^> ^ par in printsDaExecucao)
+			RegistrarAnexo(par[0]);
+	}
+
+		   // Log, CSV ou HTML entram como TEXTO no proprio prompt - nao como
+		   // imagem. Mandar um log como print gastaria dez vezes mais token e o
+		   // modelo leria pior, porque teria de reconhecer os caracteres.
+	private: System::Void anexoTexto_Click(System::Object^ sender, System::EventArgs^ e) {
+		OpenFileDialog^ dlg = gcnew OpenFileDialog();
+		dlg->Title = L"Escolher arquivo de texto";
+		dlg->Filter = L"Texto e dados (*.txt;*.log;*.csv;*.json;*.xml;*.html;*.md)|"
+			L"*.txt;*.log;*.csv;*.json;*.xml;*.html;*.md|Todos os arquivos (*.*)|*.*";
+		if (dlg->ShowDialog() != System::Windows::Forms::DialogResult::OK) return;
+		try {
+			System::IO::FileInfo^ info = gcnew System::IO::FileInfo(dlg->FileName);
+			const long long TETO = 200000;   // ~200 KB de texto ja e muito prompt
+			String^ conteudo = File::ReadAllText(dlg->FileName);
+			bool cortado = false;
+			if (info->Length > TETO) {
+				// Fica com o FIM: num log, o que interessa e o que aconteceu por
+				// ultimo - o erro esta no fim, nunca no cabecalho de inicializacao.
+				conteudo = conteudo->Substring(conteudo->Length - (int)TETO);
+				cortado = true;
+			}
+			conteudo = MascararSegredosEmTexto(conteudo);
+			String^ nome = Path::GetFileName(dlg->FileName);
+			String^ bloco = L"\n\n--- conteudo de " + nome
+				+ (cortado ? L" (ultimos 200 KB) ---\n" : L" ---\n")
+				+ conteudo + L"\n--- fim de " + nome + L" ---\n";
+			txtChatInput->AppendText(bloco);
+			txtChatInput->Focus();
+			txtChatInput->SelectionStart = txtChatInput->TextLength;
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Nao foi possivel ler o arquivo: " + ex->Message, L"Anexo");
+		}
+	}
+
+	private: System::Void anexoGerar_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (workerChat != nullptr && workerChat->IsBusy) {
+			MessageBox::Show(L"Aguarde a execucao atual terminar.", L"Ocupado");
+			return;
+		}
+		String^ desc = txtChatInput->Text->Trim();
+		if (String::IsNullOrWhiteSpace(desc)) {
+			MessageBox::Show(
+				L"Escreva na caixa de mensagem o que a imagem deve mostrar, e "
+				L"escolha esta opcao de novo.\n\n"
+				L"Ex.: \"diagrama do fluxo de login: tela de login, area segura, "
+				L"logout\".",
+				L"Gerar imagem", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			return;
+		}
+		if (ObterChaveReal() == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
+		rtbChat->SelectionColor = System::Drawing::Color::DarkBlue;
+		rtbChat->AppendText(NomeUsuarioWindows() + L":\n" + desc + L"\n\n");
+		txtChatInput->Clear();
+		AnunciarModoNoChat(L"Geracao de imagem", L"pedindo a imagem a IA. Aguarde...");
+		RodarWorker(0, L"--GERAR_IMAGEM--" + desc, L"Gerando a imagem...");
+	}
+
+	private: System::Void anexoLimpar_Click(System::Object^ sender, System::EventArgs^ e) {
+		anexosPendentes->Clear();
+		AtualizarRotuloAnexos();
+	}
+
 	private: System::Void btnSendChat_Click(System::Object^ sender, System::EventArgs^ e) {
 		// Com uma execucao em andamento, este botao E o de parar.
 		if (workerChat != nullptr && workerChat->IsBusy) {
@@ -5250,9 +5539,39 @@ namespace T2MSecurityManager {
 		// modelo respondeu o que, sem precisar cruzar com o log depois.
 		AnunciarModeloNoChat(false);
 
+		// Anexo so vale no modo Chat: o Scan DOM manda a leitura da pagina e os
+		// modos MCP mandam um objetivo para um laco de ferramentas - nenhum dos
+		// dois tem onde encaixar uma imagem. Enviar mesmo assim faria os
+		// marcadores virarem texto solto dentro do objetivo, e a IA tentaria
+		// interpretar "--IMAGEM--C:\..." como parte do pedido.
+		if (anexosPendentes->Count > 0 && modoAtivo != 0) {
+			MessageBox::Show(
+				L"Anexos so funcionam no modo Chat.\n\n"
+				L"Volte para Chat para enviar a imagem, ou remova os anexos pelo "
+				L"botao + antes de rodar este modo.",
+				L"Anexo", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			return;
+		}
+
+		// Anexos viram marcadores no inicio do prompt. O agente Python os
+		// destaca antes de qualquer outra coisa, entao o texto que a IA le
+		// continua sendo exatamente o que a pessoa escreveu.
+		if (anexosPendentes->Count > 0) {
+			System::Text::StringBuilder^ cab = gcnew System::Text::StringBuilder();
+			for each (String ^ caminho in anexosPendentes)
+				cab->Append(L"--IMAGEM--" + caminho + L"\n");
+			prompt = cab->ToString() + prompt;
+		}
+
 		// Eco da mensagem do usuario
 		rtbChat->SelectionColor = System::Drawing::Color::DarkBlue;
-		rtbChat->AppendText(NomeUsuarioWindows() + L":\n" + prompt + L"\n\n");
+		rtbChat->AppendText(NomeUsuarioWindows() + L":\n" + txtChatInput->Text->Trim() + L"\n\n");
+		// As imagens anexadas aparecem na conversa, do lado de quem as mandou:
+		// relendo depois, ninguem precisa adivinhar o que a IA estava vendo.
+		for each (String ^ caminho in anexosPendentes)
+			InserirImagemNoChat(caminho, L"anexado por voce");
+		anexosPendentes->Clear();
+		AtualizarRotuloAnexos();
 		txtChatInput->Clear();
 
 		// Decide a acao conforme o modo ativo

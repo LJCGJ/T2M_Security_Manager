@@ -1950,9 +1950,14 @@ def teste_modelo_na_conversa():
           "nada e lido da pagina nesta resposta" in fonte)
     # Todo caminho de envio tem de anunciar: um caminho mudo reintroduz
     # exatamente a duvida que gerou esta mudanca.
-    checa("todos os cinco caminhos de envio anunciam o modo",
-          fonte.count("AnunciarModoNoChat(") == 6,
-          f"encontrados {fonte.count('AnunciarModoNoChat(')} (5 chamadas + 1 definicao)")
+    # Cinco modos de envio + a geracao de imagem, mais a definicao. Um caminho
+    # mudo reintroduz exatamente a duvida que criou esta linha: "isso foi Chat
+    # ou Scan DOM?".
+    checa("todo caminho de envio anuncia o modo",
+          fonte.count("AnunciarModoNoChat(") == 7,
+          f"encontrados {fonte.count('AnunciarModoNoChat(')} (6 chamadas + 1 definicao)")
+    checa("a geracao de imagem tambem se identifica",
+          'AnunciarModoNoChat(L"Geracao de imagem"' in fonte)
     m = fonte.find("void AnunciarModoNoChat")
     blocoM = fonte[m:m + 1200] if m >= 0 else ""
     checa("o anuncio de modo nao escreve em chat destruido",
@@ -2394,6 +2399,177 @@ def teste_prints_de_evidencia():
 
 
 # ==================================================================== #
+def teste_anexos_e_visao():
+    """Botao "+": imagem do computador, colar, print do teste, log e geracao.
+
+    A visao (mandar imagem PARA o modelo) nasceu aqui em vez de automatica: uma
+    imagem custa varias vezes mais token que texto, entao mandar todo print de
+    toda execucao encareceria tudo para beneficiar poucos casos. Anexando, a
+    pessoa manda o print que interessa, quando interessa."""
+    secao("Anexos e visao")
+
+    import importlib
+    G = importlib.import_module("gerador_ia")
+
+    # --- formato por provedor: os tres nomeiam a mesma coisa de jeitos
+    # diferentes, e errar produz um erro de API que nao menciona a imagem.
+    png = os.path.join(tempfile.mkdtemp(prefix="t2m_anexo_"), "p.png")
+    import base64
+    with open(png, "wb") as f:
+        f.write(base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
+            "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+
+    claude = G._parte_imagem(png, "claude")
+    checa("formato do Claude: bloco image/source/base64",
+          claude["type"] == "image"
+          and claude["source"]["type"] == "base64"
+          and claude["source"]["media_type"] == "image/png")
+    openai = G._parte_imagem(png, "openai")
+    checa("formato da OpenAI: image_url com data URI",
+          openai["type"] == "image_url"
+          and openai["image_url"]["url"].startswith("data:image/png;base64,"))
+    gemini = G._parte_imagem(png, "gemini")
+    checa("formato do Gemini: mime_type + data",
+          gemini["mime_type"] == "image/png" and gemini["data"])
+
+    checa("arquivo inexistente nao vira anexo",
+          G._parte_imagem(os.path.join(os.path.dirname(png), "nada.png"), "gemini") is None)
+    # Um .exe renomeado para .png passaria; um .exe com o proprio nome, nao.
+    exe = os.path.join(os.path.dirname(png), "coisa.exe")
+    with open(exe, "wb") as f:
+        f.write(b"MZ" + b"\0" * 2048)
+    checa("formato nao suportado e recusado", G._parte_imagem(exe, "gemini") is None)
+
+    # --- a memoria em disco guarda CAMINHO, nao binario ---
+    memoria = [{"role": "user", "content": "olha isso", "_imagens": [png]},
+               {"role": "assistant", "content": "vi"}]
+    convertida = G._memoria_com_imagens(memoria, "openai")
+    checa("a mensagem com imagem vira lista de blocos",
+          isinstance(convertida[0]["content"], list))
+    checa("o texto do usuario sobrevive junto da imagem",
+          any(b.get("text") == "olha isso" for b in convertida[0]["content"]
+              if isinstance(b, dict)))
+    checa("mensagem sem imagem continua texto simples",
+          convertida[1]["content"] == "vi")
+    # Se a conversao alterasse a memoria original, o binario iria para o
+    # memoria_chat.json e o arquivo cresceria sem limite - reenviando a mesma
+    # imagem de graca em todo turno seguinte.
+    checa("a memoria original nao e alterada pela conversao",
+          memoria[0]["content"] == "olha isso"
+          and memoria[0]["_imagens"] == [png])
+
+    # --- geracao de imagem ---
+    checa("geracao sem descricao pede a descricao",
+          "Descreva a imagem" in G._gerar_imagem("AIza-x", ""))
+    for chave in ("sk-ant-abc", "sk-proj-abc", "gsk_abc"):
+        checa(f"geracao com chave {chave[:7]} explica que so ha Gemini",
+              "apenas com chave do Google" in G._gerar_imagem(chave, "um gato"))
+    checa("o rotulo do marcador nao pode quebrar o protocolo",
+          "|" not in G._sem_marcadores_simples("a|b")
+          and "\n" not in G._sem_marcadores_simples("a\nb"))
+
+    # --- LIMITES DOS PROVEDORES ---
+    # Observacao do operador: "as IA nao aceitam muitos prints". Passar do teto
+    # nao degrada a resposta - faz a chamada INTEIRA ser recusada, com uma
+    # mensagem que nao menciona o anexo. Recusar aqui, dizendo o motivo, e
+    # melhor que deixar o provedor recusar tudo.
+    checa("cada provedor tem teto proprio de imagens",
+          G.limite_de_imagens("claude") == 20
+          and G.limite_de_imagens("openai") == 10
+          and G.limite_de_imagens("gemini") == 16)
+    checa("provedor desconhecido cai no teto mais conservador",
+          G.limite_de_imagens("qualquer") == G.limite_de_imagens("gemini"))
+
+    muitas = [{"role": "user", "content": "x", "_imagens": [png] * 25}]
+    conv = G._memoria_com_imagens(muitas, "claude")
+    checa("o teto de itens e respeitado de verdade",
+          len([b for b in conv[0]["content"]
+               if isinstance(b, dict) and b.get("type") == "image"]) == 20)
+    conv = G._memoria_com_imagens(muitas, "openai")
+    checa("e o teto muda junto com o provedor",
+          len([b for b in conv[0]["content"]
+               if isinstance(b, dict) and b.get("type") == "image_url"]) == 10)
+    checa("o texto sobrevive mesmo com imagens recusadas",
+          any(isinstance(b, dict) and b.get("text") == "x"
+              for b in conv[0]["content"]))
+
+    orc = G._OrcamentoImagens("gemini")
+    checa("imagem maior que o teto por item e recusada",
+          orc.cabe("gigante.png", 99 * 1024 * 1024) is False)
+    checa("e o motivo da recusa e registrado", len(orc.recusadas) == 1)
+    checa("o motivo cita o provedor", "gemini" in orc.recusadas[0])
+    # Bytes e contagem sao limites INDEPENDENTES: cabe estourar um sem o outro.
+    orc = G._OrcamentoImagens("claude")
+    checa("tres imagens grandes estouram o teto da requisicao",
+          orc.cabe("a", 4 * 1024 * 1024) and orc.cabe("b", 4 * 1024 * 1024)
+          and orc.cabe("c", 4 * 1024 * 1024)
+          and orc.cabe("d", 4 * 1024 * 1024) is False)
+    checa("mesmo sem ter chegado perto do teto de itens", orc.usadas == 3)
+
+    fonte_g = open(G.__file__, encoding="utf-8").read()
+    checa("o tamanho medido e o de base64, nao o do arquivo",
+          "len(dados)" in fonte_g and "~33% maior" in fonte_g)
+    checa("na falta de espaco, a imagem antiga e que sai",
+          "for m in reversed(memoria):" in fonte_g)
+    checa("os anexos sao destacados antes de qualquer comando",
+          'while prompt_usuario.startswith("--IMAGEM--")' in fonte_g)
+    checa("ha teto de tamanho por imagem", "_LIMITE_IMAGEM_MB" in fonte_g)
+    checa("a imagem gerada volta pelo mesmo marcador dos prints",
+          'print("IMAGEM:" + caminho + "|" + rotulo' in fonte_g)
+
+    # --- lado C++ ---
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    cpp = os.path.join(raiz, "T2M_Security_Manager", "MyForm.h")
+    if not os.path.exists(cpp):
+        cpp = os.path.join(raiz, "MyForm.h")
+    if os.path.exists(cpp):
+        fonte = open(cpp, encoding="utf-8", errors="replace").read()
+        checa("existe o botao +", 'btnAnexo->Text = L"+";' in fonte)
+        checa("com menu, e nao mais botoes soltos na barra",
+              "menuAnexo->Items->Add" in fonte)
+        for h in ("anexoArquivo_Click", "anexoColar_Click", "anexoPrint_Click",
+                  "anexoTexto_Click", "anexoGerar_Click", "anexoLimpar_Click"):
+            checa(f"o menu tem {h}", h in fonte)
+        checa("o + nao fica em cima do Enviar",
+              "btnAnexo->Location = System::Drawing::Point(20, 476)" in fonte
+              and "txtChatInput->Location = System::Drawing::Point(56, 476)" in fonte)
+        # Anexo invisivel e anexo esquecido: a pessoa anexa, escreve, envia e
+        # nao sabe se a imagem foi junto.
+        checa("o que esta anexado fica visivel antes do envio",
+              "void AtualizarRotuloAnexos()" in fonte)
+        checa("e a imagem aparece na conversa do lado de quem mandou",
+              'InserirImagemNoChat(caminho, L"anexado por voce")' in fonte)
+        checa("anexo de fora e copiado para a pasta controlada",
+              "String^ CopiarParaPrints(" in fonte)
+        checa("o teto de anexos vem do provedor, nao e numero solto",
+              "int LimiteImagensDoProvedor()" in fonte
+              and "anexosPendentes->Count >= teto" in fonte)
+        checa("os tetos do C++ batem com os do Python",
+              'if (ia == L"Claude") return 20;' in fonte
+              and 'if (ia == L"OpenAI") return 10;' in fonte
+              and "return 16;" in fonte)
+        checa("a mensagem explica que o limite e do provedor",
+              "e o teto do provedor" in fonte)
+        checa("o rotulo mostra o teto antes de a pessoa esbarrar nele",
+              "LimiteImagensDoProvedor().ToString()" in fonte)
+        # Uma foto de 4000px nao ajuda o modelo (ele reduz internamente) e
+        # estoura sozinha o teto de tamanho da requisicao.
+        checa("a imagem e reduzida ao ser anexada, nao so ao ser exibida",
+              "ImagemParaExibir(origem, 1600)" in fonte)
+        checa("a lista e esvaziada depois do envio",
+              "anexosPendentes->Clear();" in fonte)
+        # Nos modos MCP o marcador viraria texto solto dentro do objetivo.
+        checa("anexo em modo que nao suporta e barrado com explicacao",
+              "anexosPendentes->Count > 0 && modoAtivo != 0" in fonte)
+        # Log como imagem custaria dez vezes mais e o modelo leria pior.
+        checa("arquivo de texto entra como texto, nao como imagem",
+              "conteudo de " in fonte and "MascararSegredosEmTexto(conteudo)" in fonte)
+        checa("e o log grande e cortado pelo FIM, onde esta o erro",
+              "conteudo->Length - (int)TETO" in fonte)
+
+
+# ==================================================================== #
 def main():
     print("SUITE DE REGRESSAO DO AGENTE - T2M")
     print("(sem chave de IA, sem internet, sem banco, sem navegador)")
@@ -2410,7 +2586,8 @@ def main():
                   teste_pausa_adaptativa, teste_modelo_do_chat,
                   teste_regra_de_qualidade_do_script,
                   teste_leitura_da_pagina, teste_modelo_na_conversa,
-                  teste_endpoint_compativel, teste_prints_de_evidencia):
+                  teste_endpoint_compativel, teste_prints_de_evidencia,
+                  teste_anexos_e_visao):
         try:
             teste()
         except Exception as e:
