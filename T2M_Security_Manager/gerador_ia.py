@@ -135,6 +135,18 @@ def _caminho_dados(arquivo):
 
 ARQUIVO_MEMORIA = _caminho_dados("memoria_chat.json")
 
+# Onde trocar de modelo. A frase se repete em TODA mensagem de cota de proposito:
+# a informacao util para quem esbarrou no limite nao e "acabou a cota", e "va ali
+# e mude isto". Observado com o operador: ele nao sabia que Configuracoes fica na
+# TELA PRINCIPAL (nao no Copilot), e achava que precisava fechar o chat para a
+# troca valer - passou uma execucao inteira sem entender por que nada mudava.
+COMO_TROCAR_MODELO = (
+    "Como trocar de modelo: volte para a TELA PRINCIPAL, clique em "
+    "Configuracoes e mude o campo Modelo (o botao Buscar lista os disponiveis "
+    "para a sua chave). Nao precisa fechar o Copilot: a troca vale ja na "
+    "proxima mensagem, e o log mostra qual modelo respondeu cada uma."
+)
+
 
 # Modelo que REALMENTE produziu a resposta. Nem sempre e o escolhido em
 # Configuracoes: quando o escolhido esta sem cota, o laco cai para o proximo da
@@ -748,7 +760,8 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                         "- trocar de modelo em Configuracoes (o limite e por "
                         "modelo, entao outro pode ter cota livre);\n"
                         "- usar uma chave da Anthropic ou da OpenAI;\n"
-                        "- ativar billing no Google AI Studio.")
+                        "- ativar billing no Google AI Studio.\n\n"
+                        + COMO_TROCAR_MODELO)
                     return
                 detalhe = " || ".join(erros)
                 responder(f"Nenhum modelo Gemini respondeu.\n\nDetalhes: {detalhe}")
@@ -757,7 +770,7 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
         # Resposta vazia nao deve virar um bloco CHAT_MSG em branco na tela.
         if not resposta_ia:
             responder("A IA devolveu uma resposta vazia. Tente reformular a pergunta "
-                      "ou confira o modelo selecionado em Configuracoes.")
+                      "ou troque de modelo.\n\n" + COMO_TROCAR_MODELO)
             return
 
         # --- PERSISTE MEMORIA E RETORNA PARA A INTERFACE ---
@@ -798,7 +811,8 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                 f"modelo, entao um mais leve como {alternativa} pode ter cota "
                 f"livre);\n"
                 f"- usar uma chave de outro provedor;\n"
-                f"- revisar o plano da sua conta na {provedor}.")
+                f"- revisar o plano da sua conta na {provedor}.\n\n"
+                + COMO_TROCAR_MODELO)
             return
         if _e_erro_de_modelo(e):
             responder(

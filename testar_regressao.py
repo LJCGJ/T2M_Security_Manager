@@ -783,6 +783,35 @@ def teste_leitura_da_pagina():
           "NUNCA indique Scan DOM para isso" in fonte)
     checa("dizendo por que: ele nao age na pagina",
           "nao age na pagina" in fonte)
+
+    # --- ONDE TROCAR DE MODELO ---
+    # Sugestao do operador depois de esbarrar na cota tres vezes num dia: as
+    # mensagens diziam "troque em Configuracoes" e paravam ai. Faltava o que ele
+    # nao sabia - que Configuracoes fica na TELA PRINCIPAL, e nao dentro do
+    # Copilot, e que a troca vale sem fechar o chat. Ele chegou a fechar e
+    # reabrir a janela achando que era obrigatorio.
+    for mod, nome in ((G, "gerador_ia"), (A, "agente_mcp")):
+        texto = mod.COMO_TROCAR_MODELO
+        checa(f"{nome}: diz para voltar a tela principal",
+              "TELA PRINCIPAL" in texto, texto)
+        checa(f"{nome}: nomeia o botao Configuracoes",
+              "Configuracoes" in texto)
+        checa(f"{nome}: avisa que nao precisa fechar o Copilot",
+              "Nao precisa fechar o Copilot" in texto)
+        checa(f"{nome}: diz a partir de quando vale",
+              "proxima mensagem" in texto)
+    # Duas copias da mesma frase derivam com o tempo, e a que fica para tras e
+    # sempre a que ninguem le.
+    checa("a frase e identica nos dois arquivos",
+          G.COMO_TROCAR_MODELO == A.COMO_TROCAR_MODELO)
+
+    # E precisa SAIR nas mensagens de cota, que e onde a duvida aparece.
+    fonte_g = open(G.__file__, encoding="utf-8").read()
+    fonte_a = open(A.__file__, encoding="utf-8").read()
+    checa("o chat anexa a orientacao nas mensagens de cota",
+          fonte_g.count("COMO_TROCAR_MODELO") >= 4, fonte_g.count("COMO_TROCAR_MODELO"))
+    checa("a automacao MCP tambem anexa",
+          fonte_a.count("COMO_TROCAR_MODELO") >= 4, fonte_a.count("COMO_TROCAR_MODELO"))
     checa("o aviso vai no prompt de sistema, fora da memoria gravada",
           "sistema += (" in fonte)
     checa("o terminal tambem registra que nada foi lido",

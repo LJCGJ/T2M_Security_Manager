@@ -568,6 +568,18 @@ def _modelos_gemini():
         return padrao
     return [MODELO_GEMINI] + [m for m in padrao if m != MODELO_GEMINI]
 
+# Onde trocar de modelo. A frase se repete em TODA mensagem de cota de proposito:
+# a informacao util para quem esbarrou no limite nao e "acabou a cota", e "va ali
+# e mude isto". Observado com o operador: ele nao sabia que Configuracoes fica na
+# TELA PRINCIPAL (nao no Copilot), e achava que precisava fechar o chat para a
+# troca valer - passou uma execucao inteira sem entender por que nada mudava.
+COMO_TROCAR_MODELO = (
+    "Como trocar de modelo: volte para a TELA PRINCIPAL, clique em "
+    "Configuracoes e mude o campo Modelo (o botao Buscar lista os disponiveis "
+    "para a sua chave). Nao precisa fechar o Copilot: a troca vale ja na "
+    "proxima mensagem, e o log mostra qual modelo respondeu cada uma."
+)
+
 HEADLESS = False            # False = voce ve o navegador agindo; True = invisivel
 
 
@@ -1501,7 +1513,8 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
                     if ultimo_texto:
                         return (ultimo_texto + "\n\n[Automacao interrompida: limite de uso "
                                 "da IA (cota gratuita por minuto) atingido. Aguarde 1 minuto "
-                                "e tente de novo, ou ative billing para limites maiores.]")
+                                "e tente de novo, ou ative billing para limites maiores.\n"
+                                + COMO_TROCAR_MODELO + "]")
                     return ("Limite de uso da IA atingido (cota gratuita do Gemini: "
                             "poucas requisicoes por minuto).\n\n"
                             "O que costuma resolver, em ordem de esforco:\n"
@@ -1510,7 +1523,8 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
                             "limite por minuto mais folgado;\n"
                             "- usar uma chave da Anthropic ou da OpenAI para os testes "
                             "que importam;\n"
-                            "- ativar billing no Google AI Studio.")
+                            "- ativar billing no Google AI Studio.\n\n"
+                            + COMO_TROCAR_MODELO)
 
                 # 2) Modelo inexistente/aposentado/sem acesso: cai para o proximo.
                 #    So no primeiro passo - depois ja existe historico de conversa,
@@ -3116,7 +3130,8 @@ async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
             if "ResourceExhausted" in type(e).__name__ or "429" in str(e):
                 if pausa_passo < 6:
                     pausa_passo = 6
-                return (ultimo or "") + "\n[Limite de uso da IA atingido. Aguarde 1-2 min.]"
+                return ((ultimo or "") + "\n[Limite de uso da IA atingido. "
+                        "Aguarde 1-2 min.\n" + COMO_TROCAR_MODELO + "]")
             return f"O modelo Gemini falhou: {type(e).__name__}"
         texto_parcial = _texto_do_modelo(resp)
         if texto_parcial:
