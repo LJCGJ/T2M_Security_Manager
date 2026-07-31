@@ -2336,20 +2336,22 @@ def teste_endpoint_compativel():
               "txtEndpoint->Items->Insert(0, cfgEndpointCompativel);" in fonte)
         checa("e o detectado tambem",
               "caixaEndereco->Items->Insert(0, primeiro);" in fonte)
-        checa("a dica avisa que o campo aceita digitacao",
-              "o campo aceita " in fonte and "fica guardado na lista" in fonte)
+        checa("a dica avisa que da para digitar",
+              "digite o seu" in fonte)
         # A lista mostra 3 enderecos e o detector conhece 7 - sem dizer isso, a
         # tela sugere que so os 3 sao suportados.
-        checa("a dica diz que a busca cobre mais que a lista",
-              "7 portas" in fonte)
-        checa("e ensina o formato para endereco proprio",
-              "http://IP-OU-NOME:PORTA/v1" in fonte)
-        checa("avisando do /v1 obrigatorio, que e o erro mais facil de cometer",
-              "/v1 no fim e " in fonte and "obrigatorio" in fonte)
+        checa("a dica diz que o app acha sozinho",
+              "o aplicativo acha o servidor" in fonte)
+        checa("e diz que da para digitar o seu",
+              "digite o seu se for outro" in fonte)
+        # O /v1 sai da dica (que encurtou) mas continua no aviso de falha, que
+        # e onde ele importa: e la que a pessoa esta procurando o que errou.
+        checa("o /v1 e lembrado quando o endereco falha",
+              "falte o /v1 no fim" in fonte)
         # O campo passou a ser excecao, nao etapa: com ele vazio o app procura
         # sozinho e ainda pergunta ao servidor qual modelo usar.
         checa("a dica avisa que com o campo vazio ele procura sozinho",
-              "procura sozinho um servidor" in fonte)
+              "Deixe VAZIO" in fonte)
         # O campo mudou de tipo uma vez; pode mudar de novo. Todo controle tem
         # ->Text, entao o cast por Control sobrevive a isso.
         checa("o codigo nao depende do tipo exato do campo",
@@ -2378,6 +2380,10 @@ def teste_endpoint_compativel():
         # dica - justamente onde estava a explicacao.
         checa("a moldura e medida pelo ultimo controle, nao por numero solto",
               "dicaComp->Bottom + 10" in fonte)
+        # A secao seguinte ja invadiu esta duas vezes por causa de um numero
+        # copiado que envelhecia quando o texto mudava.
+        checa("e a secao seguinte tambem acompanha a altura real",
+              "y = dicaComp->Bottom + 4;" in fonte)
 
         # --- deteccao de porta do servidor local ---
         # 11434 e 1234 sao PADRAO, nao lei: quem sobe o Ollama com OLLAMA_HOST
@@ -2397,9 +2403,21 @@ def teste_endpoint_compativel():
               "modelo(s)" in fonte)
         checa("nao achando nada, ensina a escrever a mao",
               "http://localhost:PORTA/v1" in fonte)
+        # Os tres enderecos da lista sao padrao de fabrica, nao verificacao: o
+        # botao so sabia varrer, entao escolher um item dava falsa sensacao de
+        # configurado e a falha so aparecia na primeira mensagem.
+        checa("o botao confere o endereco escrito, nao so varre",
+              "bool conferindo = !String::IsNullOrWhiteSpace(escrito);" in fonte)
+        checa("dizendo com todas as letras que respondeu",
+              "Este endereco esta funcionando." in fonte)
+        checa("e oferecendo a varredura quando nao responde",
+              "Quer que eu procure um servidor nesta maquina?" in fonte)
+        checa("lembrando do /v1, que e o erro mais comum",
+              "falte o /v1 no fim" in fonte)
+        checa("a dica avisa que a lista e sugestao, nao verificacao",
+              "da lista sao sugestao" in fonte)
         checa("e comeca dizendo o que ja e automatico",
-              "sao reconhecidos pelo inicio da " in fonte
-              and "para eles, nao precisa de nada aqui" in fonte)
+              "nao precisa de nada aqui, a chave " in fonte)
         checa("o endereco do servidor e lido ao salvar",
               "safe_cast<Control^>(ctl[12])->Text->Trim()" in fonte)
         checa("o vetor de campos tem o tamanho certo",

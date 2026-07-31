@@ -3063,7 +3063,7 @@ namespace T2MSecurityManager {
 		// tambem vLLM, llama.cpp, LocalAI, Jan e GPT4All, que nunca teriam
 		// atalho proprio.
 		Button^ btnDetectar = gcnew Button();
-		btnDetectar->Text = L"🔎 Detectar servidor local";
+		btnDetectar->Text = L"🔎 Detectar / conferir";
 		// x1+478 + 164 = 662, dentro da moldura que termina em 670. Conferir a
 		// conta antes de mandar evita a terceira rodada de "o botao esta fora".
 		btnDetectar->Location = System::Drawing::Point(x1 + 478, y - 1);
@@ -3081,27 +3081,27 @@ namespace T2MSecurityManager {
 		// discordam e ninguem sabe qual vale.
 		y += 34;
 		Label^ dicaComp = gcnew Label();
+		// Curta de proposito. A versao anterior tinha dez linhas e era cortada
+		// pelo rodape do quadro - e mesmo inteira ninguem leria: paredao de
+		// texto numa secao opcional e o mesmo que texto nenhum. Ficou o que
+		// muda decisao; o resto esta no tutorial e no README.
 		dicaComp->Text =
-			L"Groq, OpenAI, Claude e Gemini sao reconhecidos pelo inicio da "
-			L"chave - para eles, nao precisa de nada aqui.\n"
-			L"Use so para um servidor que fala o protocolo da OpenAI e nao tem "
-			L"chave propria: Ollama ou LM Studio na sua maquina, vLLM, ou um "
-			L"endpoint interno da empresa. Cadastre uma chave qualquer (ex.: "
-			L"ollama) e escolha o modelo no campo la de cima.\n"
-			L"Campo VAZIO ja funciona: o aplicativo procura sozinho um servidor "
-			L"aqui na maquina (7 portas, entre elas Ollama, LM Studio, vLLM, "
-			L"llama.cpp, LocalAI, Jan e GPT4All) e ainda pergunta a ele qual "
-			L"modelo usar.\n"
-			L"A lista e so atalho para os enderecos mais comuns: o campo aceita "
-			L"digitacao. Clique nele e escreva o seu - inclusive de outra "
-			L"maquina: http://IP-OU-NOME:PORTA/v1  (o /v1 no fim e "
-			L"obrigatorio). O que voce escrever fica guardado na lista.";
+			L"Groq, OpenAI, Claude e Gemini: nao precisa de nada aqui, a chave "
+			L"ja diz qual e.\n"
+			L"Isto e so para servidor proprio (Ollama, LM Studio, vLLM). "
+			L"Cadastre uma chave qualquer, ex.: ollama.\n"
+			L"Deixe VAZIO: o aplicativo acha o servidor e ate escolhe o modelo. "
+			L"Os enderecos da lista sao sugestao - digite o seu se for outro, "
+			L"e confira no botao ao lado.";
 		dicaComp->Location = System::Drawing::Point(x1, y);
-		dicaComp->Size = System::Drawing::Size(640, 86);
+		dicaComp->Size = System::Drawing::Size(640, 58);
 		dicaComp->ForeColor = System::Drawing::Color::DimGray;
 		dicaComp->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(dicaComp);
-		y += 20;   // a dica ocupa 76px; o resto da tela comeca depois dela
+		// Acompanha a altura REAL da dica, em vez de um numero copiado que
+		// envelhece toda vez que o texto muda - foi assim que a secao seguinte
+		// ja invadiu esta duas vezes.
+		y = dicaComp->Bottom + 4;
 
 		// Moldura em volta da secao inteira. Ela e a unica parte desta tela que
 		// a maioria nunca vai usar, e sem um contorno os campos ficam com o
@@ -4366,8 +4366,18 @@ namespace T2MSecurityManager {
 			L"8080|llama.cpp", L"5000|LocalAI", L"1337|Jan", L"4891|GPT4All"
 		};
 
+		// Se ja ha endereco escrito, a pergunta deixa de ser "onde esta?" e passa
+		// a ser "esse ai funciona?". Sem isto, escolher um item da lista dava
+		// uma falsa sensacao de configurado: os tres enderecos que vem prontos
+		// sao PADRAO DE FABRICA, nao verificacao - e a pessoa so descobria que
+		// nao servia quando a mensagem falhasse, com um erro de conexao que nao
+		// diz que o culpado era o endereco.
+		String^ escrito = (alvo->Text == nullptr) ? L"" : alvo->Text->Trim();
+		bool conferindo = !String::IsNullOrWhiteSpace(escrito);
+
 		String^ textoOriginal = b->Text;
-		b->Text = L"procurando..."; b->Enabled = false;
+		b->Text = conferindo ? L"conferindo..." : L"procurando...";
+		b->Enabled = false;
 		// Tipo qualificado por inteiro: dentro da classe, "Cursor" sozinho
 		// resolve para a PROPRIEDADE Control::Cursor, nao para o tipo - e a
 		// declaracao nem chega a compilar.
@@ -4381,12 +4391,20 @@ namespace T2MSecurityManager {
 		if (janela != nullptr) janela->Cursor = Cursors::WaitCursor;
 		Application::DoEvents();   // deixa o botao redesenhar antes de travar
 
+		// Conferindo um endereco escrito, a lista de alvos e ele mesmo.
+		if (conferindo) {
+			String^ semBarra = escrito->TrimEnd('/');
+			portas = gcnew cli::array<String^>{ semBarra + L"|o endereco escrito" };
+		}
+
 		List<String^>^ achados = gcnew List<String^>();
 		String^ primeiro = L"";
 		try {
 			for each (String ^ item in portas) {
 				array<String^>^ parte = item->Split('|');
-				String^ url = L"http://localhost:" + parte[0] + L"/v1/models";
+				String^ url = conferindo
+					? (parte[0] + L"/models")
+					: (L"http://localhost:" + parte[0] + L"/v1/models");
 				try {
 					System::Net::HttpWebRequest^ req = safe_cast<System::Net::HttpWebRequest^>(
 						System::Net::WebRequest::Create(url));
@@ -4410,7 +4428,8 @@ namespace T2MSecurityManager {
 					// certo: "achei, e ele tem 3 modelos" vale mais que "achei".
 					int quantos = 0, pos = 0;
 					while ((pos = corpo->IndexOf(L"\"id\"", pos)) >= 0) { quantos++; pos += 4; }
-					String^ endereco = L"http://localhost:" + parte[0] + L"/v1";
+					String^ endereco = conferindo
+						? parte[0] : (L"http://localhost:" + parte[0] + L"/v1");
 					achados->Add(parte[1] + L"  (" + endereco + L")"
 						+ (quantos > 0 ? (L" - " + quantos.ToString() + L" modelo(s)") : L""));
 					if (String::IsNullOrWhiteSpace(primeiro)) primeiro = endereco;
@@ -4421,6 +4440,29 @@ namespace T2MSecurityManager {
 		finally {
 			if (janela != nullptr) janela->Cursor = cursorAntes;
 			b->Text = textoOriginal; b->Enabled = true;
+		}
+
+		if (achados->Count == 0 && conferindo) {
+			// Nao respondeu: oferece a varredura, em vez de so dar a ma noticia.
+			if (MessageBox::Show(
+				L"O endereco escrito nao respondeu:\n\n   " + escrito + L"\n\n"
+				L"Pode ser que o servidor nao esteja rodando, que a porta seja "
+				L"outra, ou que falte o /v1 no fim.\n\n"
+				L"Quer que eu procure um servidor nesta maquina?",
+				L"Endereco nao respondeu", MessageBoxButtons::YesNo,
+				MessageBoxIcon::Warning) == System::Windows::Forms::DialogResult::Yes) {
+				alvo->Text = L"";
+				detectarServidorLocal_Click(sender, e);   // agora sem endereco: varre
+			}
+			return;
+		}
+		if (achados->Count > 0 && conferindo) {
+			MessageBox::Show(
+				L"Respondeu:\n\n   " + achados[0] + L"\n\n"
+				L"Este endereco esta funcionando.",
+				L"Endereco conferido", MessageBoxButtons::OK,
+				MessageBoxIcon::Information);
+			return;
 		}
 
 		if (achados->Count == 0) {
