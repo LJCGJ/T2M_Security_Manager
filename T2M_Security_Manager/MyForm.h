@@ -2940,8 +2940,9 @@ namespace T2MSecurityManager {
 			dicaTexto =
 				L"Modelo usado pela chave selecionada (Groq, servidor local ou "
 				L"endpoint compativel).\n"
-				L"No Groq: "instant" e mais rapido e tem limite diario maior; "
-				L"os "llama-4" aceitam imagem, os "llama-3.x" nao.";
+				L"No Groq, os modelos 'instant' sao mais rapidos e tem limite "
+				L"diario maior; os da familia llama-4 aceitam imagem, os "
+				L"llama-3.x nao.";
 		}
 		else {
 			if (cbModelo->Items->Count == 0) {
@@ -3029,6 +3030,21 @@ namespace T2MSecurityManager {
 		btnOllama->Click += gcnew System::EventHandler(this, &MyForm::preencherEndpoint_Handler);
 		f->Controls->Add(btnOllama);
 
+		// As portas padrao sao so PADRAO: quem roda Ollama com OLLAMA_HOST
+		// apontando para outra porta, ou muda a porta no LM Studio, ficaria
+		// preso a um botao que preenche o endereco errado. O Detectar pergunta
+		// a maquina em vez de supor.
+		Button^ btnDetectar = gcnew Button();
+		btnDetectar->Text = L"🔎 Detectar servidor local";
+		btnDetectar->Location = System::Drawing::Point(x1 + 150, y + 26);
+		btnDetectar->Size = System::Drawing::Size(170, 24);
+		btnDetectar->FlatStyle = FlatStyle::Flat;
+		btnDetectar->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		btnDetectar->Cursor = Cursors::Hand;
+		btnDetectar->Tag = txtEndpoint;
+		btnDetectar->Click += gcnew System::EventHandler(this, &MyForm::detectarServidorLocal_Click);
+		f->Controls->Add(btnDetectar);
+
 		// O modelo NAO fica aqui: ele e o campo la de cima, que ja muda de nome
 		// conforme a chave selecionada ("Modelo Groq", "Modelo Local"). Ter dois
 		// lugares para a mesma configuracao e fabrica de bug - um dia os dois
@@ -3041,7 +3057,7 @@ namespace T2MSecurityManager {
 		// sem uma saida a unica alternativa seria achar o arquivo na mao.
 		Button^ btnEsquecer = gcnew Button();
 		btnEsquecer->Text = L"↻ Reaprender capacidades";
-		btnEsquecer->Location = System::Drawing::Point(x1 + 498, y - 1);
+		btnEsquecer->Location = System::Drawing::Point(x1 + 498, y + 26);
 		btnEsquecer->Size = System::Drawing::Size(160, 24);
 		btnEsquecer->FlatStyle = FlatStyle::Flat;
 		btnEsquecer->Font = gcnew System::Drawing::Font("Segoe UI", 8);
@@ -3049,7 +3065,7 @@ namespace T2MSecurityManager {
 		btnEsquecer->Click += gcnew System::EventHandler(this, &MyForm::esquecerCapacidades_Click);
 		f->Controls->Add(btnEsquecer);
 
-		y += 26;
+		y += 54;
 		Label^ dicaComp = gcnew Label();
 		dicaComp->Text =
 			L"NAO precisa mexer aqui para usar Groq, OpenAI, Claude ou Gemini: o "
@@ -3069,6 +3085,7 @@ namespace T2MSecurityManager {
 		dicaComp->ForeColor = System::Drawing::Color::DimGray;
 		dicaComp->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(dicaComp);
+		y += 20;   // a dica ocupa 76px; o resto da tela comeca depois dela
 
 		// Moldura em volta da secao inteira. Ela e a unica parte desta tela que
 		// a maioria nunca vai usar, e sem um contorno os campos ficam com o
@@ -3076,7 +3093,11 @@ namespace T2MSecurityManager {
 		// para tentar entender se aquilo era obrigatorio.
 		Panel^ molduraComp = gcnew Panel();
 		molduraComp->Location = System::Drawing::Point(x1 - 10, yInicioComp - 6);
-		molduraComp->Size = System::Drawing::Size(660, (y + 62) - yInicioComp);
+		// Altura medida a partir do ULTIMO controle, e nao um numero solto: a
+		// dica tem 76px e a moldura fechava antes dela, cortando as duas ultimas
+		// linhas justamente onde estava a explicacao.
+		molduraComp->Size = System::Drawing::Size(660,
+			(dicaComp->Bottom + 10) - (yInicioComp - 6));
 		molduraComp->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
 		molduraComp->BackColor = System::Drawing::Color::FromArgb(247, 249, 252);
 		f->Controls->Add(molduraComp);
@@ -4186,6 +4207,106 @@ namespace T2MSecurityManager {
 		catch (Exception^ ex) {
 			MessageBox::Show(L"Nao foi possivel apagar: " + ex->Message, L"Erro");
 		}
+	}
+
+		   // Procura um servidor de IA local ja rodando nesta maquina.
+		   //
+		   // Respondendo a pergunta certa: as portas 11434 (Ollama) e 1234 (LM
+		   // Studio) sao PADRAO, nao lei. Quem sobe o Ollama com
+		   // OLLAMA_HOST=0.0.0.0:11500, ou muda a porta no LM Studio para nao
+		   // conflitar com outra coisa, ficaria preso a um botao que preenche o
+		   // endereco errado - e o sintoma seria "falha de conexao", sem dizer
+		   // que a porta e que era outra. Perguntar a maquina custa menos que
+		   // supor.
+		   //
+		   // A prova e um GET em /v1/models: e o endpoint que TODO servidor
+		   // compativel com a OpenAI expoe. Porta ocupada por outra coisa
+		   // responde erro ou nao responde, e nao entra na lista.
+	private: System::Void detectarServidorLocal_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		TextBox^ alvo = safe_cast<TextBox^>(b->Tag);
+
+		// Portas dos servidores locais mais comuns, na ordem em que costumam
+		// aparecer. O nome ao lado serve so para o relatorio final.
+		cli::array<String^>^ portas = gcnew cli::array<String^>{
+			L"11434|Ollama", L"1234|LM Studio", L"8000|vLLM",
+			L"8080|llama.cpp", L"5000|LocalAI", L"1337|Jan", L"4891|GPT4All"
+		};
+
+		String^ textoOriginal = b->Text;
+		b->Text = L"procurando..."; b->Enabled = false;
+		Cursor^ cursorAntes = this->Cursor;
+		this->Cursor = Cursors::WaitCursor;
+		Application::DoEvents();   // deixa o botao redesenhar antes de travar
+
+		List<String^>^ achados = gcnew List<String^>();
+		String^ primeiro = L"";
+		try {
+			for each (String ^ item in portas) {
+				array<String^>^ parte = item->Split('|');
+				String^ url = L"http://localhost:" + parte[0] + L"/v1/models";
+				try {
+					System::Net::HttpWebRequest^ req = safe_cast<System::Net::HttpWebRequest^>(
+						System::Net::WebRequest::Create(url));
+					req->Method = "GET";
+					// Curto de proposito: porta fechada recusa na hora; este
+					// prazo so vale para porta aberta que nao responde HTTP.
+					req->Timeout = 700;
+					req->ReadWriteTimeout = 700;
+					System::Net::HttpWebResponse^ resp =
+						safe_cast<System::Net::HttpWebResponse^>(req->GetResponse());
+					bool ok = (resp->StatusCode == System::Net::HttpStatusCode::OK);
+					String^ corpo = L"";
+					if (ok) {
+						StreamReader^ sr = gcnew StreamReader(resp->GetResponseStream());
+						corpo = sr->ReadToEnd();
+						sr->Close();
+					}
+					resp->Close();
+					if (!ok) continue;
+					// Conta os modelos so para dar confianca de que e o servidor
+					// certo: "achei, e ele tem 3 modelos" vale mais que "achei".
+					int quantos = 0, pos = 0;
+					while ((pos = corpo->IndexOf(L"\"id\"", pos)) >= 0) { quantos++; pos += 4; }
+					String^ endereco = L"http://localhost:" + parte[0] + L"/v1";
+					achados->Add(parte[1] + L"  (" + endereco + L")"
+						+ (quantos > 0 ? (L" - " + quantos.ToString() + L" modelo(s)") : L""));
+					if (String::IsNullOrWhiteSpace(primeiro)) primeiro = endereco;
+				}
+				catch (...) { /* porta fechada ou nao e servidor de IA */ }
+			}
+		}
+		finally {
+			this->Cursor = cursorAntes;
+			b->Text = textoOriginal; b->Enabled = true;
+		}
+
+		if (achados->Count == 0) {
+			MessageBox::Show(
+				L"Nenhum servidor de IA local respondeu nas portas mais comuns "
+				L"(11434, 1234, 8000, 8080, 5000, 1337, 4891).\n\n"
+				L"Se o seu esta em outra porta, escreva o endereco a mao no "
+				L"formato http://localhost:PORTA/v1 - o importante e terminar "
+				L"em /v1.\n\n"
+				L"Se ainda nao subiu nenhum: no Ollama, rode \"ollama serve\"; "
+				L"no LM Studio, ligue o servidor local na aba de servidor.",
+				L"Detectar servidor local", MessageBoxButtons::OK,
+				MessageBoxIcon::Information);
+			return;
+		}
+
+		System::Text::StringBuilder^ lista = gcnew System::Text::StringBuilder();
+		for each (String ^ a in achados) lista->AppendLine(L"   - " + a);
+		alvo->Text = primeiro;
+		MessageBox::Show(
+			L"Encontrado:\n\n" + lista->ToString() + L"\n"
+			+ (achados->Count > 1
+				? L"Preenchi o primeiro. Se quiser outro, troque a porta no campo.\n\n"
+				: L"Endereco preenchido.\n\n")
+			+ L"Falta cadastrar uma chave qualquer (ex.: ollama) no Copilot e "
+			L"escolher o modelo no campo de modelo, la em cima.",
+			L"Detectar servidor local", MessageBoxButtons::OK,
+			MessageBoxIcon::Information);
 	}
 
 		   // Preenche o endereco do endpoint com um valor conhecido. Digitar

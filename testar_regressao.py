@@ -2281,6 +2281,29 @@ def teste_endpoint_compativel():
               and "BorderStyle::FixedSingle" in fonte)
         checa("e a moldura fica atras dos campos",
               "molduraComp->SendToBack();" in fonte)
+        # A moldura fechava num numero solto e cortava as duas ultimas linhas da
+        # dica - justamente onde estava a explicacao.
+        checa("a moldura e medida pelo ultimo controle, nao por numero solto",
+              "dicaComp->Bottom + 10" in fonte)
+
+        # --- deteccao de porta do servidor local ---
+        # 11434 e 1234 sao PADRAO, nao lei: quem sobe o Ollama com OLLAMA_HOST
+        # em outra porta ficaria preso a um botao que preenche o endereco errado,
+        # e o sintoma seria "falha de conexao" sem dizer que a porta era outra.
+        checa("da para detectar o servidor local em vez de supor a porta",
+              "detectarServidorLocal_Click" in fonte)
+        for porta in ("11434", "1234", "8000", "8080", "5000", "1337", "4891"):
+            checa(f"a busca cobre a porta {porta}", f'L"{porta}|' in fonte)
+        # /v1/models e o endpoint que TODO servidor compativel expoe - e o que
+        # distingue "porta aberta" de "servidor de IA".
+        checa("a prova e o endpoint que todo compativel expoe",
+              '/v1/models' in fonte)
+        checa("com prazo curto, para porta fechada nao travar a tela",
+              "req->Timeout = 700;" in fonte)
+        checa("e conta os modelos, para dar confianca de que achou o certo",
+              "modelo(s)" in fonte)
+        checa("nao achando nada, ensina a escrever a mao",
+              "http://localhost:PORTA/v1" in fonte)
         checa("e comeca dizendo o que ja e automatico",
               "NAO precisa mexer aqui para usar Groq" in fonte)
         checa("nomeando os prefixos reconhecidos sozinhos",
