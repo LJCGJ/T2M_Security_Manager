@@ -123,21 +123,53 @@ def _e_erro_de_modelo(e):
 _ARQ_CAPACIDADES = "capacidades_modelos.txt"
 
 
+# Validade do que foi aprendido. O registro e por NOME de modelo, e provedor
+# lanca versao nova mantendo o nome - quando isso acontece, o que foi aprendido
+# antes passa a mentir. Havia um botao "Reaprender" para isso, e ele foi
+# removido: obrigar a pessoa a lembrar de apertar um botao para corrigir um
+# dado que so o aplicativo sabe que envelheceu e transferir para ela um
+# trabalho que e nosso. Trinta dias custa, no maximo, uma chamada perdida por
+# modelo por mes.
+_VALIDADE_CAPACIDADE_DIAS = 30
+
+
+def _agora_seg():
+    import time
+    return int(time.time())
+
+
 def _capacidades():
-    """{"nome-do-modelo": True/False} - True = aceita imagem."""
+    """{"nome-do-modelo": True/False} - True = aceita imagem.
+
+    Formato de cada linha: nome=1|<quando foi aprendido>. Registro vencido
+    simplesmente nao entra, e o modelo volta a ser testado na proxima vez."""
     tabela = {}
     try:
         caminho = _caminho_dados(_ARQ_CAPACIDADES)
         if not os.path.exists(caminho):
             return tabela
+        limite = _agora_seg() - _VALIDADE_CAPACIDADE_DIAS * 86400
         with open(caminho, "r", encoding="utf-8") as f:
             for linha in f:
-                if "=" not in linha:
+                if "=" not in linha or linha.lstrip().startswith("#"):
                     continue
                 nome, valor = linha.split("=", 1)
                 nome, valor = nome.strip(), valor.strip()
-                if nome:
-                    tabela[nome] = (valor == "1")
+                if not nome:
+                    continue
+                quando = 0
+                if "|" in valor:
+                    valor, _, carimbo = valor.partition("|")
+                    try:
+                        quando = int(carimbo.strip())
+                    except ValueError:
+                        quando = 0
+                # Sem carimbo (arquivo de uma versao anterior) vale como
+                # recente: descartar tudo na atualizacao faria o usuario pagar
+                # uma chamada por modelo sem motivo nenhum.
+                if quando and quando < limite:
+                    continue
+                tabela[nome.strip()] = (valor.strip() == "1")
     except Exception:
         pass          # saber e otimizacao; nao saber apenas custa uma tentativa
     return tabela
@@ -156,12 +188,15 @@ def _registrar_capacidade(nome, aceita):
     if tabela.get(nome) is aceita:
         return                       # nada mudou, nao mexe no disco
     tabela[nome] = aceita
+    agora = _agora_seg()
     try:
         with open(_caminho_dados(_ARQ_CAPACIDADES), "w", encoding="utf-8") as f:
             f.write("# Aprendido pelo T2M: 1 = o modelo aceita imagem, 0 = nao.\n")
+            f.write(f"# Cada registro vale {_VALIDADE_CAPACIDADE_DIAS} dias; depois "
+                    f"disso o modelo e testado de novo.\n")
             f.write("# Apagar este arquivo faz o aplicativo reaprender do zero.\n")
             for k, v in sorted(tabela.items()):
-                f.write(f"{k}={'1' if v else '0'}\n")
+                f.write(f"{k}={'1' if v else '0'}|{agora}\n")
         log(f">>> aprendido: {nome} "
             + ("aceita imagem." if aceita else "NAO aceita imagem."))
     except Exception:
@@ -607,6 +642,96 @@ MODELO_COMPATIVEL = _CFG.get("modelo_compativel", "").strip()
 _BASE_GROQ = "https://api.groq.com/openai/v1"
 
 
+# --- SERVIDOR LOCAL ENCONTRADO SOZINHO ---------------------------------------
+# Se o aplicativo sabe procurar, nao deveria esperar alguem mandar procurar. O
+# campo de endereco continua existindo - para porta fora do comum, para servidor
+# em outra maquina, e para desligar o recurso -, mas quem roda Ollama ou LM
+# Studio na porta de sempre nao precisa configurar nada: cadastra uma chave
+# qualquer e usa.
+#
+# A busca acontece UMA vez por execucao e so quando faz falta: chave conhecida
+# (Claude, OpenAI, Gemini, Groq) nunca chega aqui. O teste de porta e um connect
+# de 150ms - porta fechada recusa na hora, sem espera -, e so quem aceita
+# conexao leva um GET em /v1/models, que e o que distingue "porta ocupada" de
+# "servidor de IA".
+_PORTAS_LOCAIS = ((11434, "Ollama"), (1234, "LM Studio"), (8000, "vLLM"),
+                  (8080, "llama.cpp"), (5000, "LocalAI"), (1337, "Jan"),
+                  (4891, "GPT4All"))
+_ENDPOINT_DETECTADO = None      # None = ainda nao procurei; "" = procurei e nao achei
+
+
+def _detectar_servidor_local():
+    """Endereco de um servidor compativel rodando nesta maquina, ou ""."""
+    global _ENDPOINT_DETECTADO
+    if _ENDPOINT_DETECTADO is not None:
+        return _ENDPOINT_DETECTADO
+    _ENDPOINT_DETECTADO = ""
+    try:
+        import socket
+        import urllib.request
+    except Exception:
+        return _ENDPOINT_DETECTADO
+    for porta, nome in _PORTAS_LOCAIS:
+        try:
+            s = socket.socket()
+            s.settimeout(0.15)
+            aberta = (s.connect_ex(("127.0.0.1", porta)) == 0)
+            s.close()
+            if not aberta:
+                continue
+            with urllib.request.urlopen(
+                    f"http://localhost:{porta}/v1/models", timeout=2) as r:
+                if getattr(r, "status", 200) != 200:
+                    continue
+                r.read(2048)          # confirma que responde de verdade
+            _ENDPOINT_DETECTADO = f"http://localhost:{porta}/v1"
+            log(f">>> servidor local encontrado sozinho: {nome} em "
+                f"{_ENDPOINT_DETECTADO}")
+            break
+        except Exception:
+            continue                  # porta ocupada por outra coisa
+    return _ENDPOINT_DETECTADO
+
+
+_MODELO_LOCAL_DETECTADO = None
+
+
+def _primeiro_modelo_do_servidor(base):
+    """Primeiro modelo que o servidor local anuncia em /v1/models.
+
+    Sem isto, um Ollama recem-detectado herdava o padrao de outro provedor
+    (llama-3.3-70b-versatile, que e nome do Groq) e a chamada falhava com
+    "model not found" - um erro que nao tem nada a ver com o que a pessoa fez.
+    Perguntar ao servidor custa uma requisicao local, uma vez por execucao."""
+    global _MODELO_LOCAL_DETECTADO
+    if _MODELO_LOCAL_DETECTADO is not None:
+        return _MODELO_LOCAL_DETECTADO
+    _MODELO_LOCAL_DETECTADO = ""
+    if not base:
+        return ""
+    try:
+        import json as _json
+        import urllib.request
+        with urllib.request.urlopen(base.rstrip("/") + "/models", timeout=3) as r:
+            dados = _json.loads(r.read().decode("utf-8", "replace"))
+        for item in (dados.get("data") or []):
+            nome = str(item.get("id") or "").strip()
+            if nome:
+                _MODELO_LOCAL_DETECTADO = nome
+                log(f">>> modelo do servidor local: {nome}")
+                break
+    except Exception:
+        pass
+    return _MODELO_LOCAL_DETECTADO
+
+
+def _endpoint_configurado_ou_detectado():
+    """O que estiver em Configuracoes tem prioridade: e decisao explicita, e o
+    detector nao pode passar por cima dela - inclusive porque o endereco
+    configurado pode apontar para OUTRA maquina da rede."""
+    return ENDPOINT_COMPATIVEL or _detectar_servidor_local()
+
+
 def _base_url_openai(chave):
     """Para onde apontar o SDK da OpenAI. Vazio = OpenAI oficial."""
     c = (chave or "").strip()
@@ -614,7 +739,11 @@ def _base_url_openai(chave):
         return ENDPOINT_COMPATIVEL or _BASE_GROQ
     if c.startswith("sk-"):                  # chave da OpenAI vale a oficial
         return ""
-    return ENDPOINT_COMPATIVEL               # ex.: chave "ollama" + endpoint local
+    if c.startswith("sk-ant-") or c.startswith("AIza") or c.startswith("AQ"):
+        return ""                            # provedor proprio; nao procura nada
+    # Chave que nao e de nenhum provedor conhecido (ex.: "ollama"): o endereco
+    # configurado vale primeiro; sem ele, procura na propria maquina.
+    return _endpoint_configurado_ou_detectado()
 
 
 def _e_rota_openai(chave):
@@ -628,10 +757,14 @@ def _e_rota_openai(chave):
         return True                          # Groq
     if c.startswith("AIza") or c.startswith("AQ"):
         return False                         # Gemini (formato antigo e o novo)
-    # Chave que nao se parece com nenhuma conhecida so vai para o endpoint
-    # compativel se ELE estiver configurado. Sem isso, quem ja usa o aplicativo
-    # veria suas chaves mudarem de rota sozinhas depois de uma atualizacao.
-    return bool(ENDPOINT_COMPATIVEL)
+    # Chave que nao se parece com nenhuma conhecida: vai para o endpoint
+    # compativel se ele estiver configurado OU se houver um servidor rodando
+    # aqui. Antes dava rota de Gemini e falhava com "chave invalida", que
+    # mandava a pessoa investigar a chave em vez do endereco.
+    #
+    # Nenhuma chave de provedor conhecido chega ate aqui, entao o detector nao
+    # tem como sequestrar quem ja funcionava - que era o risco a evitar.
+    return bool(_endpoint_configurado_ou_detectado())
 
 
 def _modelo_openai(chave):
@@ -640,9 +773,16 @@ def _modelo_openai(chave):
     O endpoint compativel tem campo PROPRIO de modelo, e nao e preciosismo: os
     nomes nao se parecem (gpt-4o-mini x llama-3.3-70b-versatile x qwen2.5:7b),
     entao um campo unico faria trocar de servico apagar a escolha do outro."""
-    if _base_url_openai(chave):
-        return MODELO_COMPATIVEL or "llama-3.3-70b-versatile"
-    return MODELO_OPENAI
+    base = _base_url_openai(chave)
+    if not base:
+        return MODELO_OPENAI
+    if MODELO_COMPATIVEL:
+        return MODELO_COMPATIVEL
+    # Sem modelo escolhido: no Groq ha um padrao razoavel; num servidor local
+    # nao ha - depende do que a pessoa baixou. Entao pergunta a ele.
+    if "localhost" in base or "127.0.0.1" in base:
+        return _primeiro_modelo_do_servidor(base) or "llama-3.3-70b-versatile"
+    return "llama-3.3-70b-versatile"
 
 
 def _cliente_openai(chave):

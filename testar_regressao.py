@@ -2206,6 +2206,62 @@ def teste_endpoint_compativel():
         finally:
             M.ENDPOINT_COMPATIVEL, M.MODELO_COMPATIVEL = endp, mod
 
+    # --- SERVIDOR LOCAL ENCONTRADO SOZINHO ---
+    # Se o app sabe procurar, nao deveria esperar alguem mandar procurar: o
+    # campo passa a existir so para porta fora do comum, servidor em outra
+    # maquina, ou para desligar a busca.
+    import http.server, threading, socketserver, json as _js
+    socketserver.TCPServer.allow_reuse_address = True
+
+    class _Fake(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            corpo = _js.dumps({"data": [{"id": "qwen2.5:7b"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(corpo)))
+            self.end_headers()
+            self.wfile.write(corpo)
+
+        def log_message(self, *a):
+            pass
+
+    srv = socketserver.TCPServer(("127.0.0.1", 1234), _Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        for M, nome in ((A, "agente_mcp"), (G, "gerador_ia")):
+            portas, endp, det, mod = (M._PORTAS_LOCAIS, M.ENDPOINT_COMPATIVEL,
+                                      M._ENDPOINT_DETECTADO, M._MODELO_LOCAL_DETECTADO)
+            try:
+                M._PORTAS_LOCAIS = ((1234, "LM Studio"),)
+                M.ENDPOINT_COMPATIVEL = ""
+                M._ENDPOINT_DETECTADO = None
+                M._MODELO_LOCAL_DETECTADO = None
+                checa(f"{nome}: acha o servidor local sem ninguem configurar",
+                      M._base_url_openai("ollama") == "http://localhost:1234/v1")
+                checa(f"{nome}: e a chave desconhecida passa a ter rota",
+                      M._e_rota_openai("ollama") is True)
+                # Herdar o padrao de outro provedor (nome do Groq) daria
+                # "model not found" - erro sem relacao com o que a pessoa fez.
+                checa(f"{nome}: pergunta ao servidor qual modelo usar",
+                      M._modelo_openai("ollama") == "qwen2.5:7b")
+                # O detector nao pode sequestrar quem ja funcionava.
+                for chave in ("sk-ant-x", "sk-proj-x", "AIzaSyX", "AQ.x"):
+                    checa(f"{nome}: {chave[:7]} nao e desviado para o local",
+                          M._base_url_openai(chave) == "")
+                checa(f"{nome}: chave do Groq continua indo para o Groq",
+                      "groq" in M._base_url_openai("gsk_x"))
+                # Decisao explicita vence deteccao: o endereco configurado pode
+                # apontar para OUTRA maquina da rede.
+                M.ENDPOINT_COMPATIVEL = "http://192.168.0.9:8000/v1"
+                M._ENDPOINT_DETECTADO = None
+                checa(f"{nome}: o configurado tem prioridade sobre o detectado",
+                      M._base_url_openai("ollama") == "http://192.168.0.9:8000/v1")
+            finally:
+                (M._PORTAS_LOCAIS, M.ENDPOINT_COMPATIVEL,
+                 M._ENDPOINT_DETECTADO, M._MODELO_LOCAL_DETECTADO) = portas, endp, det, mod
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
     # As duas copias precisam decidir IGUAL. Se divergirem, o chat e a automacao
     # mandam a mesma chave para servicos diferentes - e o sintoma seria "no chat
     # funciona, no MCP nao".
@@ -2259,10 +2315,32 @@ def teste_endpoint_compativel():
               "String^ ModeloDoProvedor(String^ ia)" in fonte)
         checa("e as tres copias antigas sumiram",
               fonte.count("else modelo = cfgModeloGemini;") == 0)
-        checa("ha atalho para preencher o endereco sem digitar",
-              "preencherEndpoint_Handler" in fonte
-              and "http://localhost:11434/v1" in fonte
-              and "http://localhost:1234/v1" in fonte)
+        # Os atalhos "LM Studio" e "Ollama" foram REMOVIDOS: eram piores que o
+        # Detectar em todo cenario. Preenchiam a porta padrao com ar de certeza,
+        # e quem roda com OLLAMA_HOST em outra porta recebia um endereco errado
+        # - com sintoma de "falha de conexao", que nao aponta para a porta.
+        # Nem botao que afirma, nem campo vazio sem pista. Botao parece acao e
+        # AFIRMA a porta; item de lista OFERECE. A conveniencia (nao errar a
+        # digitacao, saber que existe) fica; a falsa certeza sai.
+        checa("nao ha botao que chute a porta",
+              "preencherEndpoint_Handler" not in fonte)
+        checa("mas os enderecos conhecidos continuam a um clique",
+              'txtEndpoint->Items->Add(L"http://localhost:11434/v1")' in fonte
+              and 'txtEndpoint->Items->Add(L"http://localhost:1234/v1")' in fonte)
+        checa("e da para digitar outro por cima",
+              "txtEndpoint->DropDownStyle = ComboBoxStyle::DropDown;" in fonte)
+        checa("a dica diz qual porta e de qual servidor",
+              "11434 Ollama" in fonte and "1234 LM " in fonte)
+        # O campo passou a ser excecao, nao etapa: com ele vazio o app procura
+        # sozinho e ainda pergunta ao servidor qual modelo usar.
+        checa("a dica avisa que com o campo vazio ele procura sozinho",
+              "procura sozinho um servidor" in fonte)
+        # O campo mudou de tipo uma vez; pode mudar de novo. Todo controle tem
+        # ->Text, entao o cast por Control sobrevive a isso.
+        checa("o codigo nao depende do tipo exato do campo",
+              "safe_cast<Control^>(ctl[12])" in fonte)
+        checa("a deteccao cobre mais servidores do que atalhos cobririam",
+              'L"8000|vLLM"' in fonte and 'L"1337|Jan"' in fonte)
         # O botao "Groq" nesta secao mentia por associacao: sugeria que a chave
         # do Groq dependia do campo. Nao depende - ela e reconhecida sozinha
         # pelo prefixo, como as da OpenAI, Claude e Gemini. Os atalhos aqui sao
@@ -2305,11 +2383,10 @@ def teste_endpoint_compativel():
         checa("nao achando nada, ensina a escrever a mao",
               "http://localhost:PORTA/v1" in fonte)
         checa("e comeca dizendo o que ja e automatico",
-              "NAO precisa mexer aqui para usar Groq" in fonte)
-        checa("nomeando os prefixos reconhecidos sozinhos",
-              "gsk_, sk-, sk-ant-" in fonte)
+              "sao reconhecidos pelo inicio da " in fonte
+              and "para eles, nao precisa de nada aqui" in fonte)
         checa("o endereco do servidor e lido ao salvar",
-              "safe_cast<TextBox^>(ctl[12])" in fonte)
+              "safe_cast<Control^>(ctl[12])->Text->Trim()" in fonte)
         checa("o vetor de campos tem o tamanho certo",
               "gcnew cli::array<Object^>(13)" in fonte)
         # Duas telas para a MESMA configuracao e fabrica de bug: um dia as duas
@@ -2337,8 +2414,7 @@ def teste_endpoint_compativel():
               '"modelos_compativel"' in fonte)
         checa("o listador recebe o endereco do servidor",
               'EnvironmentVariables["T2M_ENDPOINT"]' in fonte)
-        checa("a janela cresceu para nao esconder Salvar/Cancelar",
-              "Size(720, 940)" in fonte)
+
         # O tutorial de baloes tem de citar o recurso: quem nao sabe que existe
         # alternativa a cota gratuita conclui que o produto e lento.
         checa("o tour da tela principal ensina o endpoint",
@@ -2742,6 +2818,35 @@ def teste_anexos_e_visao():
     checa("o motivo nao quebra o protocolo",
           "DEVOLVER_PROMPT:motivo com quebra" in buf.getvalue())
 
+    # Validade do aprendizado: provedor lanca versao nova mantendo o nome, e o
+    # registro antigo passa a mentir. Trinta dias custa, no pior caso, uma
+    # chamada perdida por modelo por mes.
+    appdata_antes = os.environ.get("APPDATA")
+    os.environ["APPDATA"] = tempfile.mkdtemp(prefix="t2m_val_")
+    try:
+        import importlib
+        importlib.reload(G)
+        G._registrar_capacidade("modelo-x", False)
+        checa("registro recem-gravado vale", G.modelo_enxerga("modelo-x") is False)
+        caminho = G._caminho_dados(G._ARQ_CAPACIDADES)
+        conteudo = open(caminho, encoding="utf-8").read()
+        checa("o registro leva carimbo de quando foi aprendido",
+              "modelo-x=0|" in conteudo)
+        with open(caminho, "w", encoding="utf-8") as f:
+            f.write(f"modelo-x=0|{G._agora_seg() - 31 * 86400}\n")
+        checa("passados 30 dias, o registro vence e o modelo e testado de novo",
+              G.modelo_enxerga("modelo-x") is None)
+        # Descartar tudo na atualizacao faria o usuario pagar uma chamada por
+        # modelo sem motivo nenhum.
+        with open(caminho, "w", encoding="utf-8") as f:
+            f.write("modelo-y=1\n")
+        checa("arquivo de versao anterior (sem carimbo) continua valendo",
+              G.modelo_enxerga("modelo-y") is True)
+    finally:
+        if appdata_antes is not None:
+            os.environ["APPDATA"] = appdata_antes
+        importlib.reload(G)
+
     checa("o que ja se sabe evita ate a primeira chamada perdida",
           "modelo_enxerga(modelo) is False" in fonte_g)
     checa("a recusa observada e gravada, nao so usada na hora",
@@ -2876,13 +2981,54 @@ def teste_anexos_e_visao():
               "safe_cast<CheckBox^>(ctl[8])->Checked = true;" in fonte)
         checa("e mantem o JavaScript na pagina desligado",
               "safe_cast<CheckBox^>(ctl[10])->Checked = false;" in fonte)
-        checa("da para mandar o app reaprender",
-              "esquecerCapacidades_Click" in fonte
-              and "Reaprender capacidades" in fonte)
-        checa("dizendo quantos modelos serao esquecidos",
-              "modelo(s)?" in fonte)
-        checa("e quanto custa reaprender",
-              "uma chamada por modelo" in fonte)
+        # --- REDEFINIR APLICATIVO (destrutivo) ---
+        # Pedido do operador. Implementado SEPARADO do Reaprender de proposito:
+        # Reaprender e estreito, barato e seguro; fundir os dois obrigaria quem
+        # so quer reaprender a destruir as chaves junto.
+        checa("existe redefinir aplicativo", "redefinirAplicativo_Click" in fonte)
+        # A janela tinha 940px de altura e a barra de botoes ficava ABAIXO da
+        # borda do monitor num notebook: os botoes existiam e nao dava para
+        # clicar. AutoScroll nao resolve, porque quem excede a tela e a JANELA.
+        checa("a janela cabe em tela de notebook",
+              "Size(720, 820)" in fonte)
+        checa("e a barra de botoes fica num rodape fixo",
+              "rodape->Dock = System::Windows::Forms::DockStyle::Bottom;" in fonte)
+        checa("com os quatro botoes dentro dele",
+              fonte.count("rodape->Controls->Add(") == 4)
+        checa("visualmente marcado como destrutivo",
+              "btnZerar->BackColor = System::Drawing::Color::FromArgb(183, 28, 28)" in fonte)
+        for arq in ("configuracoes.txt", "capacidades_modelos.txt",
+                    "memoria_chat.json", "historico_execucoes.jsonl",
+                    "modelo_gemini_ok.txt", "tema.txt", "config.txt"):
+            checa(f"a redefinicao apaga {arq}", f'L"{arq}"' in fonte)
+        checa("e tambem os prints de evidencia", 'apagados->Add(L"prints")' in fonte)
+        # Chave de API nao volta: alguns provedores mostram uma unica vez.
+        checa("as chaves sao perguntadas A PARTE",
+              "Apagar TAMBEM as " in fonte and "chave(s) de API?" in fonte)
+        checa("com NAO como padrao e o motivo dito",
+              "gerar outra em cada um" in fonte)
+        checa("e o resultado diz se as chaves ficaram ou nao",
+              "foram MANTIDAS" in fonte)
+        # "Apaga o historico" assusta menos que "apaga 43 execucoes".
+        checa("o aviso conta o que existe, nao fala em hipotese",
+              "execucoes.ToString() + L\" registro(s)" in fonte)
+        # Historico e trilha de auditoria: quem apagar tem de saber que da para
+        # exportar antes.
+        checa("o aviso lembra que da para exportar o historico antes",
+              "exporte pela tela de Historico" in fonte)
+        checa("os dois avisos tem NAO como padrao",
+              fonte.count("MessageBoxDefaultButton::Button2") >= 8)
+
+        # O botao "Reaprender" foi REMOVIDO: o registro passou a ter validade de
+        # 30 dias no proprio agente, entao versao nova do provedor com o mesmo
+        # nome se corrige sozinha. Exigir que a pessoa lembre de apertar um
+        # botao para consertar um dado que so o aplicativo sabe que envelheceu
+        # era transferir para ela um trabalho nosso.
+        checa("nao ha mais botao de reaprender",
+              "esquecerCapacidades" not in fonte)
+        # O carimbo de data e do agente; o C++ so precisa do 1/0 antes da barra.
+        checa("o C++ entende o registro com carimbo de data",
+              "int barra = valor->IndexOf('|');" in fonte)
 
         # --- devolucao do prompt ---
         checa("o C++ le o sinal de nao-processado",

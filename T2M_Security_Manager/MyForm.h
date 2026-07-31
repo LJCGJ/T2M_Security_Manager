@@ -2777,7 +2777,12 @@ namespace T2MSecurityManager {
 		// Altura acompanha o conteudo: os controles sao posicionados por um "y"
 		// que so cresce, entao uma secao nova sem ajustar isto empurra Salvar e
 		// Cancelar para fora da janela - e a tela fica sem saida a nao ser pelo X.
-		f->Size = System::Drawing::Size(720, 940);   // +78: endpoint compativel
+		// 820, e nao 940: a barra de botoes vive num rodape FIXO (ver abaixo), e
+		// a janela precisa caber em tela de notebook. Com 940 os botoes ficavam
+		// abaixo da borda do monitor - existiam, mas nao dava para clicar, e o
+		// AutoScroll nao resolve isso porque quem excede a tela e a JANELA, nao
+		// o conteudo dela.
+		f->Size = System::Drawing::Size(720, 820);
 		// Rede de seguranca para monitor pequeno ou escala de fonte alta: sem isto
 		// os botoes Salvar/Cancelar podem cair fora da area visivel e a tela fica
 		// sem saida a nao ser pelo X.
@@ -2788,6 +2793,8 @@ namespace T2MSecurityManager {
 		AplicarIcone(f);
 
 		int x1 = 20, larg = 430, y = 18;
+		ToolTip^ dicaCfg = gcnew ToolTip();
+		dicaCfg->AutoPopDelay = 20000;   // texto longo precisa de tempo para ser lido
 
 		Label^ lblSecao1 = gcnew Label();
 		lblSecao1->Text = L"Pastas sugeridas ao salvar";
@@ -2973,10 +2980,19 @@ namespace T2MSecurityManager {
 		btnBuscarModelos->Click += gcnew System::EventHandler(this, &MyForm::btnBuscarModelos_Click);
 		f->Controls->Add(btnBuscarModelos);
 
+		// Havia aqui um botao "Reaprender", que apagava o que o aplicativo
+		// descobriu sobre cada modelo. Foi removido: o registro agora tem
+		// VALIDADE de 30 dias no proprio agente, entao uma versao nova do
+		// provedor com o mesmo nome se corrige sozinha. Exigir que a pessoa
+		// lembre de apertar um botao para consertar um dado que so o aplicativo
+		// sabe que envelheceu era transferir para ela um trabalho nosso.
+
 		Label^ dicaModelo = gcnew Label();
 		dicaModelo->Text = dicaTexto;
+		dicaModelo->Text = dicaTexto
+			+ L"\nBuscar = pergunta ao provedor quais modelos a sua chave tem hoje.";
 		dicaModelo->Location = System::Drawing::Point(x1 + 110, y + 24);
-		dicaModelo->Size = System::Drawing::Size(520, 32);
+		dicaModelo->Size = System::Drawing::Size(560, 44);
 		dicaModelo->ForeColor = System::Drawing::Color::DimGray;
 		dicaModelo->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(dicaModelo);
@@ -2987,7 +3003,10 @@ namespace T2MSecurityManager {
 		// problema real que motivou isto - testar automacao MCP na cota gratuita
 		// do Gemini virava fila de 30 em 30 segundos, porque cada passo gasta
 		// uma requisicao.
-		y += 62;
+		// 78, e nao 62: a dica do modelo tem tres linhas (44px a partir de y+24),
+		// e a secao seguinte comecava por cima dela. Medida com folga para o
+		// texto poder crescer uma linha sem voltar a se sobrepor.
+		y += 78;
 		int yInicioComp = y;          // topo da moldura desta secao
 		Label^ lblSecaoComp = gcnew Label();
 		lblSecaoComp->Text = L"Servidor local ou proprio  (Ollama, LM Studio, vLLM)";
@@ -3000,48 +3019,40 @@ namespace T2MSecurityManager {
 		lblEndp->Text = L"Endereco do servidor:";
 		lblEndp->Location = System::Drawing::Point(x1, y + 3); lblEndp->AutoSize = true;
 		f->Controls->Add(lblEndp);
-		TextBox^ txtEndpoint = gcnew TextBox();
+		// Lista EDITAVEL, e nao botoes. A diferenca nao e de estilo: botao
+		// parece acao e AFIRMA - clicar em "Ollama" preenchia 11434 com ar de
+		// certeza, e quem roda em outra porta so descobria pelo "falha de
+		// conexao". Item de lista OFERECE: esta ali para quem usa a porta
+		// padrao e para nao errar a digitacao, sem prometer que e a sua.
+		// Digitar por cima continua valendo, e o Detectar continua sendo a
+		// unica fonte que consulta a maquina de verdade.
+		ComboBox^ txtEndpoint = gcnew ComboBox();
+		txtEndpoint->DropDownStyle = ComboBoxStyle::DropDown;
 		txtEndpoint->Location = System::Drawing::Point(x1 + 150, y);
-		txtEndpoint->Size = System::Drawing::Size(340, 22);
+		txtEndpoint->Size = System::Drawing::Size(310, 22);
+		txtEndpoint->Items->Add(L"http://localhost:11434/v1");
+		txtEndpoint->Items->Add(L"http://localhost:1234/v1");
+		txtEndpoint->Items->Add(L"http://localhost:8000/v1");
 		txtEndpoint->Text = cfgEndpointCompativel;
 		f->Controls->Add(txtEndpoint);
-		// Só atalhos de SERVIDOR LOCAL. Antes havia um botao "Groq" aqui, e ele
-		// mentia por associacao: dava a entender que a chave do Groq dependia
-		// deste campo. Nao depende - ela e reconhecida sozinha pelo prefixo,
-		// como as da OpenAI, Claude e Gemini.
-		Button^ btnLmStudio = gcnew Button();
-		btnLmStudio->Text = L"LM Studio";
-		btnLmStudio->Location = System::Drawing::Point(x1 + 498, y - 1);
-		btnLmStudio->Size = System::Drawing::Size(78, 24);
-		btnLmStudio->FlatStyle = FlatStyle::Flat;
-		btnLmStudio->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		btnLmStudio->Cursor = Cursors::Hand;
-		btnLmStudio->Tag = txtEndpoint;
-		btnLmStudio->Click += gcnew System::EventHandler(this, &MyForm::preencherEndpoint_Handler);
-		f->Controls->Add(btnLmStudio);
-		Button^ btnOllama = gcnew Button();
-		btnOllama->Text = L"Ollama";
-		btnOllama->Location = System::Drawing::Point(x1 + 580, y - 1);
-		btnOllama->Size = System::Drawing::Size(62, 24);
-		btnOllama->FlatStyle = FlatStyle::Flat;
-		btnOllama->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		btnOllama->Cursor = Cursors::Hand;
-		btnOllama->Tag = txtEndpoint;
-		btnOllama->Click += gcnew System::EventHandler(this, &MyForm::preencherEndpoint_Handler);
-		f->Controls->Add(btnOllama);
-
-		// As portas padrao sao so PADRAO: quem roda Ollama com OLLAMA_HOST
-		// apontando para outra porta, ou muda a porta no LM Studio, ficaria
-		// preso a um botao que preenche o endereco errado. O Detectar pergunta
-		// a maquina em vez de supor.
+		// Um botao so. Havia atalhos "LM Studio" e "Ollama" que preenchiam as
+		// portas padrao, e eles foram removidos por serem piores que o Detectar
+		// em todo cenario: 11434 e 1234 sao PADRAO, nao lei, e quem roda com
+		// OLLAMA_HOST em outra porta recebia um endereco errado preenchido com
+		// ar de certeza - com sintoma de "falha de conexao", que nao aponta para
+		// a porta. O Detectar pergunta a maquina em vez de supor, e cobre
+		// tambem vLLM, llama.cpp, LocalAI, Jan e GPT4All, que nunca teriam
+		// atalho proprio.
 		Button^ btnDetectar = gcnew Button();
 		btnDetectar->Text = L"🔎 Detectar servidor local";
-		btnDetectar->Location = System::Drawing::Point(x1 + 150, y + 26);
-		btnDetectar->Size = System::Drawing::Size(170, 24);
+		// x1+478 + 164 = 662, dentro da moldura que termina em 670. Conferir a
+		// conta antes de mandar evita a terceira rodada de "o botao esta fora".
+		btnDetectar->Location = System::Drawing::Point(x1 + 478, y - 1);
+		btnDetectar->Size = System::Drawing::Size(164, 24);
 		btnDetectar->FlatStyle = FlatStyle::Flat;
 		btnDetectar->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		btnDetectar->Cursor = Cursors::Hand;
-		btnDetectar->Tag = txtEndpoint;
+		btnDetectar->Tag = txtEndpoint;   // ComboBox: o handler usa ->Text
 		btnDetectar->Click += gcnew System::EventHandler(this, &MyForm::detectarServidorLocal_Click);
 		f->Controls->Add(btnDetectar);
 
@@ -3049,39 +3060,22 @@ namespace T2MSecurityManager {
 		// conforme a chave selecionada ("Modelo Groq", "Modelo Local"). Ter dois
 		// lugares para a mesma configuracao e fabrica de bug - um dia os dois
 		// discordam e ninguem sabe qual vale.
-		y += 28;
-
-		// Botao para esquecer o que foi aprendido. Existe porque o aprendizado e
-		// por NOME de modelo: quando o provedor lanca uma versao nova com o
-		// mesmo nome - e isso acontece - o registro antigo passa a mentir, e
-		// sem uma saida a unica alternativa seria achar o arquivo na mao.
-		Button^ btnEsquecer = gcnew Button();
-		btnEsquecer->Text = L"↻ Reaprender capacidades";
-		btnEsquecer->Location = System::Drawing::Point(x1 + 498, y + 26);
-		btnEsquecer->Size = System::Drawing::Size(160, 24);
-		btnEsquecer->FlatStyle = FlatStyle::Flat;
-		btnEsquecer->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		btnEsquecer->Cursor = Cursors::Hand;
-		btnEsquecer->Click += gcnew System::EventHandler(this, &MyForm::esquecerCapacidades_Click);
-		f->Controls->Add(btnEsquecer);
-
-		y += 54;
+		y += 34;
 		Label^ dicaComp = gcnew Label();
 		dicaComp->Text =
-			L"NAO precisa mexer aqui para usar Groq, OpenAI, Claude ou Gemini: o "
-			L"provedor e reconhecido pelo inicio da chave (gsk_, sk-, sk-ant-, "
-			L"AIza/AQ) e o modelo vem do campo la de cima.\n"
-			L"Preencha SO para um servidor que fala o protocolo da OpenAI e nao "
-			L"tem chave que o identifique - Ollama ou LM Studio na sua maquina, "
-			L"vLLM, ou um endpoint interno da empresa. Nesse caso cadastre uma "
-			L"chave qualquer (ex.: ollama) e escolher o modelo no campo la de "
-			L"cima, que passa a se chamar \"Modelo Local\".\n"
-			L"Campo vazio = desligado, e nada muda para as chaves conhecidas.\n"
-			L"Reaprender capacidades: o app descobre sozinho, na primeira "
-			L"tentativa, se cada modelo aceita imagem. Use depois de o provedor "
-			L"atualizar um modelo mantendo o mesmo nome.";
+			L"Groq, OpenAI, Claude e Gemini sao reconhecidos pelo inicio da "
+			L"chave - para eles, nao precisa de nada aqui.\n"
+			L"Use so para um servidor que fala o protocolo da OpenAI e nao tem "
+			L"chave propria: Ollama ou LM Studio na sua maquina, vLLM, ou um "
+			L"endpoint interno da empresa. Cadastre uma chave qualquer (ex.: "
+			L"ollama) e escolha o modelo no campo la de cima.\n"
+			L"Com o campo VAZIO o aplicativo procura sozinho um servidor "
+			L"rodando aqui e ate pergunta a ele qual modelo usar - so preencha "
+			L"para porta fora do comum, servidor em outra maquina, ou para "
+			L"desligar a busca. Portas conhecidas: 11434 Ollama, 1234 LM "
+			L"Studio, 8000 vLLM.";
 		dicaComp->Location = System::Drawing::Point(x1, y);
-		dicaComp->Size = System::Drawing::Size(640, 76);
+		dicaComp->Size = System::Drawing::Size(640, 72);
 		dicaComp->ForeColor = System::Drawing::Color::DimGray;
 		dicaComp->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(dicaComp);
@@ -3109,7 +3103,7 @@ namespace T2MSecurityManager {
 		y += 18;
 
 		// Secao de limites
-		y += 62;
+		y += 74;
 		Label^ lblSecao2 = gcnew Label();
 		lblSecao2->Text = L"Limites de execucao (afetam custo e duracao)";
 		lblSecao2->Location = System::Drawing::Point(x1, y); lblSecao2->AutoSize = true;
@@ -3282,33 +3276,73 @@ namespace T2MSecurityManager {
 
 		// Botoes
 		y += 46;
+		// RODAPE FIXO. Ancorado no fim da janela, fora da area que rola: numa
+		// tela menor, ou com a fonte do Windows aumentada, os botoes tem de
+		// continuar alcancaveis - sao eles que salvam e que fecham.
+		Panel^ rodape = gcnew Panel();
+		rodape->Dock = System::Windows::Forms::DockStyle::Bottom;
+		rodape->Height = 46;
+		rodape->BackColor = System::Drawing::Color::FromArgb(240, 242, 246);
+		f->Controls->Add(rodape);
+		int yb = 8;   // coordenadas relativas ao rodape
+
 		Button^ btnOk = gcnew Button();
 		btnOk->Text = L"Salvar";
-		btnOk->Location = System::Drawing::Point(x1 + 240, y); btnOk->Size = System::Drawing::Size(120, 30);
+		// Empurrados para a direita: com Restaurar (20..170) e Redefinir
+		// (178..338) na esquerda, o Salvar batia em cima do vermelho.
+		btnOk->Location = System::Drawing::Point(408, yb); btnOk->Size = System::Drawing::Size(120, 30);
 		btnOk->BackColor = System::Drawing::Color::MediumSeaGreen;
 		btnOk->ForeColor = System::Drawing::Color::White; btnOk->FlatStyle = FlatStyle::Flat;
-		f->Controls->Add(btnOk);
+		rodape->Controls->Add(btnOk);
 
 		// Restaurar padroes NAO grava nada: so repoe os valores nos campos. Assim
 		// o Cancelar continua sendo saida real - a pessoa pode ver como era o
 		// padrao, mudar de ideia e sair sem ter alterado o arquivo.
 		Button^ btnPadroes = gcnew Button();
 		btnPadroes->Text = L"↺ Restaurar padroes";
-		btnPadroes->Location = System::Drawing::Point(x1, y);
+		btnPadroes->Location = System::Drawing::Point(12, yb);
 		btnPadroes->Size = System::Drawing::Size(150, 30);
 		btnPadroes->FlatStyle = FlatStyle::Flat;
 		btnPadroes->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		btnPadroes->Cursor = Cursors::Hand;
 		btnPadroes->Tag = f;
 		btnPadroes->Click += gcnew System::EventHandler(this, &MyForm::restaurarPadroes_Click);
-		f->Controls->Add(btnPadroes);
+		rodape->Controls->Add(btnPadroes);
+		dicaCfg->SetToolTip(btnPadroes,
+			L"Repoe os CAMPOS desta tela nos valores de fabrica.\n"
+			L"Nada e gravado: voce ainda pode sair por Cancelar.\n"
+			L"Nao apaga chave, historico, conversa nem aprendizado.");
+
+		// Vermelho e separado de proposito. Esta e a unica acao da tela que
+		// destroi coisa que nao volta - chave de API, principalmente: o Groq
+		// mostra a dele UMA vez, e depois so gerando outra.
+		Button^ btnZerar = gcnew Button();
+		btnZerar->Text = L"⚠ Redefinir aplicativo";
+		btnZerar->Location = System::Drawing::Point(170, yb);
+		btnZerar->Size = System::Drawing::Size(160, 30);
+		btnZerar->FlatStyle = FlatStyle::Flat;
+		btnZerar->BackColor = System::Drawing::Color::FromArgb(183, 28, 28);
+		btnZerar->ForeColor = System::Drawing::Color::White;
+		btnZerar->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Bold);
+		btnZerar->Cursor = Cursors::Hand;
+		btnZerar->Tag = f;
+		btnZerar->Click += gcnew System::EventHandler(this, &MyForm::redefinirAplicativo_Click);
+		rodape->Controls->Add(btnZerar);
+		dicaCfg->SetToolTip(btnZerar,
+			L"DEIXA O APLICATIVO COMO RECEM-INSTALADO.\n\n"
+			L"Apaga: todas as configuracoes, as instrucoes permanentes dadas a "
+			L"IA, o que o aplicativo aprendeu sobre os modelos, a conversa em "
+			L"andamento, o historico de execucoes, os prints de evidencia, o "
+			L"tema e a URL/token da tela principal.\n"
+			L"Opcionalmente tambem as chaves de API - e essas NAO tem volta.\n\n"
+			L"Nada disso pode ser desfeito. Voce confirma duas vezes.");
 
 		Button^ btnCancel = gcnew Button();
 		btnCancel->Text = L"Cancelar";
-		btnCancel->Location = System::Drawing::Point(x1 + 370, y); btnCancel->Size = System::Drawing::Size(100, 30);
+		btnCancel->Location = System::Drawing::Point(536, yb); btnCancel->Size = System::Drawing::Size(100, 30);
 		btnCancel->FlatStyle = FlatStyle::Flat;
 		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
-		f->Controls->Add(btnCancel);
+		rodape->Controls->Add(btnCancel);
 
 		cli::array<Object^>^ campos = gcnew cli::array<Object^>(13);
 		campos[0] = txtRel; campos[1] = txtSes; campos[2] = txtScr;
@@ -4116,6 +4150,109 @@ namespace T2MSecurityManager {
 		if (l != nullptr) l->Text = t->Text->Length.ToString() + L" de 2000 caracteres";
 	}
 
+		   // Deixa o aplicativo como recem-instalado.
+		   //
+		   // Duas decisoes de desenho, ambas por causa do que nao volta:
+		   //
+		   // 1) As chaves de API sao perguntadas A PARTE, e o padrao e NAO
+		   //    apagar. Quem quer "resetar as configuracoes" quase nunca quer
+		   //    perder as chaves junto - e o Groq mostra a dele uma unica vez,
+		   //    entao a perda custa uma ida ao console de cada provedor.
+		   // 2) O historico de execucoes e trilha de auditoria. Ele entra na
+		   //    lista com nome e numero, para ninguem apagar sem ver.
+	private: System::Void redefinirAplicativo_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		Form^ f = safe_cast<Form^>(b->Tag);
+
+		// Conta o que existe, para o aviso falar de coisas reais e nao de
+		// hipoteses. "Apaga o historico" assusta menos que "apaga 43 execucoes".
+		int execucoes = 0;
+		try {
+			String^ h = CaminhoDados("historico_execucoes.jsonl");
+			if (File::Exists(h)) execucoes = File::ReadAllLines(h)->Length;
+		}
+		catch (...) {}
+		int chaves = 0;
+		try {
+			String^ k = CaminhoDados("api_keys_ia.txt");
+			if (File::Exists(k)) {
+				for each (String ^ linha in File::ReadAllLines(k))
+					if (!String::IsNullOrWhiteSpace(linha)) chaves++;
+			}
+		}
+		catch (...) {}
+
+		if (MessageBox::Show(
+			L"Isto deixa o aplicativo como recem-instalado.\n\n"
+			L"Sera apagado:\n"
+			L"  - todas as configuracoes desta tela;\n"
+			L"  - as instrucoes permanentes dadas a IA;\n"
+			L"  - o que o aplicativo aprendeu sobre os modelos;\n"
+			L"  - a conversa em andamento do Copilot;\n"
+			L"  - o historico de execucoes ("
+			+ execucoes.ToString() + L" registro(s)) e os prints de evidencia;\n"
+			L"  - o tema, a URL alvo e o token da tela principal.\n\n"
+			L"NADA disso pode ser desfeito. Se quiser guardar o historico, "
+			L"cancele agora e exporte pela tela de Historico.\n\n"
+			L"Continuar?",
+			L"Redefinir aplicativo", MessageBoxButtons::YesNo, MessageBoxIcon::Warning,
+			MessageBoxDefaultButton::Button2) != System::Windows::Forms::DialogResult::Yes)
+			return;
+
+		// Pergunta separada: quem quer zerar configuracao quase nunca quer
+		// perder as chaves junto, e essa perda custa uma ida ao console de
+		// cada provedor.
+		bool apagarChaves = false;
+		if (chaves > 0) {
+			apagarChaves = (MessageBox::Show(
+				L"Apagar TAMBEM as " + chaves.ToString() + L" chave(s) de API?\n\n"
+				L"Elas nao tem volta: alguns provedores mostram a chave uma "
+				L"unica vez, entao voce teria de gerar outra em cada um.\n\n"
+				L"Responda NAO para zerar tudo mantendo as chaves - que e o "
+				L"caso mais comum.",
+				L"Chaves de API", MessageBoxButtons::YesNo, MessageBoxIcon::Warning,
+				MessageBoxDefaultButton::Button2) == System::Windows::Forms::DialogResult::Yes);
+		}
+
+		List<String^>^ apagados = gcnew List<String^>();
+		cli::array<String^>^ arquivos = gcnew cli::array<String^>{
+			L"configuracoes.txt", L"capacidades_modelos.txt", L"memoria_chat.json",
+			L"historico_execucoes.jsonl", L"modelo_gemini_ok.txt", L"tema.txt",
+			L"config.txt"
+		};
+		for each (String ^ nome in arquivos) {
+			try {
+				String^ caminho = CaminhoDados(nome);
+				if (File::Exists(caminho)) { File::Delete(caminho); apagados->Add(nome); }
+			}
+			catch (...) {}
+		}
+		if (apagarChaves) {
+			try {
+				String^ k = CaminhoDados("api_keys_ia.txt");
+				if (File::Exists(k)) { File::Delete(k); apagados->Add(L"api_keys_ia.txt"); }
+			}
+			catch (...) {}
+		}
+		try {
+			String^ pastaPrints = Path::Combine(
+				Path::GetDirectoryName(CaminhoDados("historico_execucoes.jsonl")), L"prints");
+			if (Directory::Exists(pastaPrints)) {
+				Directory::Delete(pastaPrints, true);
+				apagados->Add(L"prints");
+			}
+		}
+		catch (...) {}
+
+		MessageBox::Show(
+			L"Pronto: " + apagados->Count.ToString() + L" item(ns) apagado(s).\n\n"
+			+ (apagarChaves ? L"As chaves de API foram apagadas.\n\n"
+				: (chaves > 0 ? L"As chaves de API foram MANTIDAS.\n\n" : L""))
+			+ L"Feche e abra o aplicativo para ele subir do zero.",
+			L"Redefinir aplicativo", MessageBoxButtons::OK, MessageBoxIcon::Information);
+		f->Close();
+	}
+
 		   // Repoe TODOS os campos desta tela nos valores de fabrica, inclusive as
 		   // instrucoes permanentes. Nada e gravado aqui: quem grava e o Salvar.
 		   //
@@ -4155,7 +4292,7 @@ namespace T2MSecurityManager {
 			safe_cast<TextBox^>(ctl[9])->Text = L"";          // dominios confiaveis
 			safe_cast<CheckBox^>(ctl[10])->Checked = false;   // JS na pagina: DESLIGADO
 			safe_cast<TextBox^>(ctl[11])->Text = L"";         // instrucoes permanentes
-			safe_cast<TextBox^>(ctl[12])->Text = L"";         // servidor proprio
+			safe_cast<Control^>(ctl[12])->Text = L"";         // servidor proprio
 			MessageBox::Show(
 				L"Campos repostos.\n\nClique em Salvar para valer, ou Cancelar "
 				L"para manter o que estava antes.",
@@ -4163,49 +4300,6 @@ namespace T2MSecurityManager {
 		}
 		catch (Exception^ ex) {
 			MessageBox::Show(L"Nao foi possivel repor: " + ex->Message, L"Erro");
-		}
-	}
-
-		   // Apaga o que o aplicativo aprendeu sobre os modelos.
-	private: System::Void esquecerCapacidades_Click(System::Object^ sender, System::EventArgs^ e) {
-		String^ arq = CaminhoDados("capacidades_modelos.txt");
-		int quantos = 0;
-		try {
-			if (File::Exists(arq)) {
-				for each (String ^ linha in File::ReadAllLines(arq))
-					if (!String::IsNullOrWhiteSpace(linha) && !linha->StartsWith("#")
-						&& linha->Contains("=")) quantos++;
-			}
-		}
-		catch (...) {}
-
-		if (quantos == 0) {
-			MessageBox::Show(
-				L"Ainda nao ha nada aprendido.\n\n"
-				L"O aplicativo aprende sozinho: na primeira vez que voce anexa uma "
-				L"imagem com um modelo, ele registra se aquele modelo aceita ou "
-				L"nao, e nao erra de novo.",
-				L"Reaprender", MessageBoxButtons::OK, MessageBoxIcon::Information);
-			return;
-		}
-		if (MessageBox::Show(
-			L"Esquecer o que foi aprendido sobre " + quantos.ToString()
-			+ L" modelo(s)?\n\n"
-			L"Na proxima vez que voce anexar uma imagem, o aplicativo testa de "
-			L"novo cada um deles - o que custa uma chamada por modelo, uma vez.\n\n"
-			L"Vale a pena depois que o provedor lanca uma versao nova com o mesmo "
-			L"nome: o registro antigo passa a mentir.",
-			L"Reaprender", MessageBoxButtons::YesNo, MessageBoxIcon::Question,
-			MessageBoxDefaultButton::Button2) != System::Windows::Forms::DialogResult::Yes)
-			return;
-		try {
-			File::Delete(arq);
-			jaAvisouSemVisao = false;
-			MessageBox::Show(L"Pronto. O aplicativo vai reaprender na proxima tentativa.",
-				L"Reaprender", MessageBoxButtons::OK, MessageBoxIcon::Information);
-		}
-		catch (Exception^ ex) {
-			MessageBox::Show(L"Nao foi possivel apagar: " + ex->Message, L"Erro");
 		}
 	}
 
@@ -4224,7 +4318,9 @@ namespace T2MSecurityManager {
 		   // responde erro ou nao responde, e nao entra na lista.
 	private: System::Void detectarServidorLocal_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
-		TextBox^ alvo = safe_cast<TextBox^>(b->Tag);
+		// Control, e nao TextBox: o campo virou lista editavel, e um dia pode
+		// virar outra coisa. Todo controle tem ->Text.
+		Control^ alvo = safe_cast<Control^>(b->Tag);
 
 		// Portas dos servidores locais mais comuns, na ordem em que costumam
 		// aparecer. O nome ao lado serve so para o relatorio final.
@@ -4318,17 +4414,6 @@ namespace T2MSecurityManager {
 			MessageBoxIcon::Information);
 	}
 
-		   // Preenche o endereco do endpoint com um valor conhecido. Digitar
-		   // "https://api.groq.com/openai/v1" a mao erra em um caractere e o erro
-		   // so aparece como falha de conexao, sem dizer onde foi.
-	private: System::Void preencherEndpoint_Handler(System::Object^ sender, System::EventArgs^ e) {
-		Button^ b = safe_cast<Button^>(sender);
-		TextBox^ alvo = safe_cast<TextBox^>(b->Tag);
-		alvo->Text = (b->Text == L"Ollama")
-			? L"http://localhost:11434/v1"
-			: L"http://localhost:1234/v1";   // LM Studio
-	}
-
 		   // Botao de abrir a pasta indicada no campo (Tag = TextBox).
 	private: System::Void abrirPastaConfig_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
@@ -4387,7 +4472,7 @@ namespace T2MSecurityManager {
 		cfgDominiosConfiaveis = safe_cast<TextBox^>(ctl[9])->Text->Trim();
 		cfgPermitirJsPagina = safe_cast<CheckBox^>(ctl[10])->Checked;
 		cfgInstrucoesExtras = safe_cast<TextBox^>(ctl[11])->Text->Trim();
-		cfgEndpointCompativel = safe_cast<TextBox^>(ctl[12])->Text->Trim();
+		cfgEndpointCompativel = safe_cast<Control^>(ctl[12])->Text->Trim();
 
 		SalvarConfiguracoesApp();
 		// O indicador do Copilot passa a mostrar o modelo novo na hora, se a
@@ -5794,7 +5879,13 @@ namespace T2MSecurityManager {
 					int ig = linha->IndexOf('=');
 					if (ig <= 0) continue;
 					if (String::Compare(linha->Substring(0, ig)->Trim(), m0, true) != 0) continue;
-					return linha->Substring(ig + 1)->Trim() == "1";
+					// Formato "1|<quando foi aprendido>": o carimbo e do agente,
+					// que usa para vencer o registro depois de 30 dias. Aqui so
+					// interessa o 1/0 antes da barra.
+					String^ valor = linha->Substring(ig + 1)->Trim();
+					int barra = valor->IndexOf('|');
+					if (barra >= 0) valor = valor->Substring(0, barra)->Trim();
+					return valor == "1";
 				}
 			}
 		}
