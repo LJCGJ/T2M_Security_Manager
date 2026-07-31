@@ -2538,6 +2538,27 @@ def teste_anexos_e_visao():
         # nao sabe se a imagem foi junto.
         checa("o que esta anexado fica visivel antes do envio",
               "void AtualizarRotuloAnexos()" in fonte)
+        # Visto numa captura de tela: a barra de anexos nascia em cima de
+        # lblChatStatus (a dica de modo, que ocupa a largura toda) e os dois
+        # textos saiam sobrepostos, ilegiveis. Duas coisas na mesma linha nao
+        # dava para resolver com cor nem com fonte.
+        checa("a barra de anexos tem linha propria, longe da dica de modo",
+              "lblAnexos->Location = System::Drawing::Point(20, 426)" in fonte
+              and "lblChatStatus->Location = System::Drawing::Point(20, 452)" in fonte)
+        checa("a conversa cedeu a altura dessa linha",
+              "rtbChat->Size = System::Drawing::Size(694, 328)" in fonte)
+        checa("o rotulo nao estica para fora da janela",
+              "lblAnexos->AutoSize = false;" in fonte
+              and "lblAnexos->AutoEllipsis = true;" in fonte)
+        checa("e nasce na frente, nao atras dos vizinhos",
+              "SetChildIndex(lblAnexos, 0)" in fonte)
+        # O contador no proprio botao sobrevive a qualquer aperto de layout.
+        checa("o botao + mostra quantos anexos ha",
+              'btnAnexo->Text = (anexosPendentes->Count == 0)' in fonte)
+        # Anexo que nao abre nao pode sumir calado: a pessoa fica sem saber se
+        # a imagem foi junto.
+        checa("imagem que nao abre e denunciada na conversa",
+              "nao consegui abrir esta imagem" in fonte)
         checa("e a imagem aparece na conversa do lado de quem mandou",
               'InserirImagemNoChat(caminho, L"anexado por voce")' in fonte)
         checa("anexo de fora e copiado para a pasta controlada",

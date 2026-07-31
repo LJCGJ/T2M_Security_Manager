@@ -1691,7 +1691,17 @@ namespace T2MSecurityManager {
 			// arquivo travado enquanto a imagem viver, e a pasta de prints
 			// precisa poder rotacionar depois.
 			array<System::Byte>^ bytes = ImagemParaExibir(caminho, 520);
-			if (bytes == nullptr || bytes->Length == 0) return;
+			if (bytes == nullptr || bytes->Length == 0) {
+				// Silencio aqui foi um erro: a imagem sumia da conversa sem que
+				// nada dissesse por que, e a pessoa ficava sem saber se o anexo
+				// tinha ido junto ou nao.
+				rtbChat->SelectionColor = System::Drawing::Color::Firebrick;
+				rtbChat->AppendText(L">>> nao consegui abrir esta imagem: "
+					+ Path::GetFileName(caminho)
+					+ L" (movida, ou nao e uma imagem)\n\n");
+				rtbChat->SelectionColor = System::Drawing::Color::Black;
+				return;
+			}
 			int larg = 0, alt = 0;
 			{
 				System::IO::MemoryStream^ ms = gcnew System::IO::MemoryStream(bytes);
@@ -2148,7 +2158,10 @@ namespace T2MSecurityManager {
 
 		rtbChat = gcnew RichTextBox();
 		rtbChat->Location = System::Drawing::Point(20, 94);
-		rtbChat->Size = System::Drawing::Size(694, 350);
+		// 22px a menos que antes: abre uma linha propria para a barra de anexos.
+		// Ela ficava em cima de lblChatStatus (a dica de modo, que ocupa a
+		// largura toda) e os dois textos saiam sobrepostos e ilegiveis.
+		rtbChat->Size = System::Drawing::Size(694, 328);
 		rtbChat->ReadOnly = true;
 		rtbChat->BackColor = System::Drawing::Color::White;
 		rtbChat->Font = gcnew System::Drawing::Font("Segoe UI", 10);
@@ -2214,12 +2227,19 @@ namespace T2MSecurityManager {
 		// Diz o que esta pendurado. Sem isso o anexo vira invisivel: a pessoa
 		// anexa, escreve, envia, e nao sabe se a imagem foi junto.
 		lblAnexos = gcnew Label();
-		lblAnexos->Location = System::Drawing::Point(56, 458);
-		lblAnexos->AutoSize = true;
+		lblAnexos->Location = System::Drawing::Point(20, 426);
+		// Largura FIXA, nao AutoSize: com AutoSize um nome de arquivo comprido
+		// estica o rotulo para fora da janela.
+		lblAnexos->Size = System::Drawing::Size(694, 18);
+		lblAnexos->AutoSize = false;
+		lblAnexos->AutoEllipsis = true;
 		lblAnexos->Font = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Italic);
 		lblAnexos->ForeColor = System::Drawing::Color::SteelBlue;
 		lblAnexos->Text = L"";
 		formIA->Controls->Add(lblAnexos);
+		// Indice 0 = frente. Sem isto o rotulo nasce ATRAS dos controles
+		// adicionados antes dele e some justamente quando tem algo a dizer.
+		formIA->Controls->SetChildIndex(lblAnexos, 0);
 
 		btnSendChat = gcnew Button();
 		btnSendChat->Text = L"➤ Enviar";
@@ -5378,6 +5398,15 @@ namespace T2MSecurityManager {
 	}
 
 	private: void AtualizarRotuloAnexos() {
+		// O proprio botao conta: mesmo com a barra fora de vista, o "+2" fica
+		// a um palmo de onde a pessoa clica para enviar.
+		if (btnAnexo != nullptr) {
+			btnAnexo->Text = (anexosPendentes->Count == 0)
+				? L"+" : (L"+" + anexosPendentes->Count.ToString());
+			btnAnexo->BackColor = (anexosPendentes->Count == 0)
+				? System::Drawing::Color::FromArgb(238, 241, 246)
+				: System::Drawing::Color::FromArgb(214, 231, 245);
+		}
 		if (lblAnexos == nullptr) return;
 		if (anexosPendentes->Count == 0) { lblAnexos->Text = L""; return; }
 		System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
@@ -5387,7 +5416,7 @@ namespace T2MSecurityManager {
 			if (i > 0) sb->Append(L", ");
 			sb->Append(Path::GetFileName(anexosPendentes[i]));
 		}
-		sb->Append(L"   (vai junto na proxima mensagem - limite de "
+		sb->Append(L"  -  vai junto na proxima mensagem (limite de "
 			+ LimiteImagensDoProvedor().ToString() + L")");
 		lblAnexos->Text = sb->ToString();
 	}
