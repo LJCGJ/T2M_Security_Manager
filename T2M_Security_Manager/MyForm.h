@@ -238,6 +238,7 @@ namespace T2MSecurityManager {
 		System::Windows::Forms::ToolTip^ balaoTour;  // baloes do tour guiado
 		int passoTour;               // 0 = parado; 1..N = passo atual
 		int passoTourChat;           // idem, para o tour do Copilot
+		int passoTourConfig;         // idem, para a tela de Configuracoes
 		System::Windows::Forms::ContextMenuStrip^ menuAutomacao;  // menu com as 3 opcoes
 		Button^ btnChatDom;      // Modo Scan DOM (varredura estatica)
 		Button^ btnChatConversa; // Modo Chat (so conversa, padrao)
@@ -802,6 +803,7 @@ namespace T2MSecurityManager {
 			   this->balaoTour->UseFading = true;
 			   this->passoTour = 0;
 			   this->passoTourChat = 0;
+			   this->passoTourConfig = 0;
 		   this->modeloAnunciadoNoChat = nullptr;
 		   this->rotuloModoExecucao = L"";
 		   this->rotuloModeloExecucao = L"";
@@ -2801,6 +2803,26 @@ namespace T2MSecurityManager {
 		AplicarIcone(f);
 
 		int x1 = 20, larg = 430, y = 18;
+
+		// "?" no canto, igual ao da tela principal e ao do Copilot. Esta e a
+		// tela com as decisoes mais caras do aplicativo - passos por tarefa e
+		// JavaScript na pagina, por exemplo - e os textos ao lado dos campos
+		// dizem O QUE cada coisa faz. Os baloes existem para o que nao cabe
+		// ali: por que aquilo importa e o que custa errar.
+		Button^ btnAjudaCfg = gcnew Button();
+		btnAjudaCfg->Text = L"?";
+		btnAjudaCfg->Size = System::Drawing::Size(28, 28);
+		btnAjudaCfg->Location = System::Drawing::Point(650, 12);
+		btnAjudaCfg->FlatStyle = FlatStyle::Flat;
+		btnAjudaCfg->BackColor = System::Drawing::Color::FromArgb(44, 62, 107);
+		btnAjudaCfg->ForeColor = System::Drawing::Color::White;
+		btnAjudaCfg->Font = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		btnAjudaCfg->Cursor = Cursors::Hand;
+		btnAjudaCfg->Tag = f;
+		btnAjudaCfg->Click += gcnew System::EventHandler(this, &MyForm::btnAjudaConfig_Click);
+		f->Controls->Add(btnAjudaCfg);
+		passoTourConfig = 0;   // cada abertura da tela comeca o tour do zero
+
 		// Pendencia de uma abertura anterior nao pode sobreviver: quem cancelou
 		// ontem nao pode ver o aprendizado sumir ao salvar outra coisa hoje.
 		limparAprendizadoAoSalvar = false;
@@ -3777,6 +3799,97 @@ namespace T2MSecurityManager {
 		// sozinho quando nao ha espaco embaixo, entao nao ha risco de sair da
 		// tela nos controles do rodape.
 		balaoTour->Show(texto, alvo, alvo->Width / 2, alvo->Height + 2, 15000);
+	}
+
+		   // Tour da tela de Configuracoes. Os textos ao lado dos campos dizem o
+		   // QUE cada opcao faz; aqui vai o que nao cabe neles - por que importa,
+		   // quanto custa, e o que acontece se estiver errado.
+		   //
+		   // Ancora nos controles pelo vetor guardado em f->Tag, o mesmo que o
+		   // Salvar usa. Sem isso seria preciso promover meia duzia de campos a
+		   // membros da classe so para o tour poder aponta-los.
+	private: System::Void btnAjudaConfig_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		Form^ f = safe_cast<Form^>(b->Tag);
+		cli::array<Object^>^ ctl = safe_cast<cli::array<Object^>^>(f->Tag);
+		if (balaoTour != nullptr) {
+			for each (Object ^ o in ctl) {
+				Control^ c = dynamic_cast<Control^>(o);
+				if (c != nullptr) balaoTour->Hide(c);
+			}
+			balaoTour->Hide(b);
+		}
+		passoTourConfig++;
+		switch (passoTourConfig) {
+		case 1:
+			MostrarBalao(safe_cast<Control^>(ctl[0]), L"1 de 6  -  Onde as coisas sao salvas",
+				L"Sao apenas as pastas SUGERIDAS quando voce salva um relatorio, "
+				L"uma sessao ou um script - a janela de salvar abre nelas.\n\n"
+				L"Nada e gravado nelas sozinho: se voce nunca salvar nada, elas "
+				L"continuam vazias.");
+			break;
+		case 2:
+			MostrarBalao(safe_cast<Control^>(ctl[6]), L"2 de 6  -  O modelo, e o que ele custa",
+				L"Este campo muda de dono conforme a chave selecionada no "
+				L"Copilot: com uma chave do Google ele guarda o modelo Gemini, "
+				L"com uma do Groq guarda o do Groq, e assim por diante.\n\n"
+				L"Por isso, salvar com a chave errada em foco grava o nome no "
+				L"provedor errado. O titulo do campo sempre diz de quem ele e "
+				L"naquele momento.\n\n"
+				L"Buscar pergunta ao provedor quais modelos a SUA chave tem "
+				L"hoje - util porque modelos sao aposentados sem aviso.");
+			break;
+		case 3:
+			MostrarBalao(safe_cast<Control^>(ctl[12]), L"3 de 6  -  Servidor proprio",
+				L"So faz falta para IA rodando na sua maquina (Ollama, LM "
+				L"Studio) ou num servidor da empresa - nesses casos nao existe "
+				L"chave que identifique o provedor.\n\n"
+				L"Deixando vazio, o aplicativo procura sozinho e ate pergunta ao "
+				L"servidor qual modelo usar.\n\n"
+				L"Rodar local significa que nenhum dado do teste sai da maquina - "
+				L"costuma ser a diferenca entre poder e nao poder testar o "
+				L"sistema de um cliente.");
+			break;
+		case 4:
+			MostrarBalao(safe_cast<Control^>(ctl[3]), L"4 de 6  -  Limites = dinheiro",
+				L"Cada PASSO da IA e uma requisicao cobrada. Um teste de 15 "
+				L"passos custa quinze vezes uma pergunta de chat - e num plano "
+				L"gratuito quem estoura primeiro e o limite por minuto.\n\n"
+				L"Poucos passos param o teste no meio (o relatorio avisa quando "
+				L"isso acontece); passos demais deixam a IA insistir no que nao "
+				L"vai dar certo. Quinze cobre a maioria dos casos.\n\n"
+				L"Mensagens no historico tem efeito parecido: tudo o que fica no "
+				L"historico e reenviado a cada pergunta.");
+			break;
+		case 5:
+			MostrarBalao(safe_cast<Control^>(ctl[10]), L"5 de 6  -  Seguranca da automacao",
+				L"Estes interruptores existem porque a IA vai visitar paginas que "
+				L"voce nao controla.\n\n"
+				L"Navegador isolado LIGADO: a automacao nao herda seus cookies "
+				L"nem suas sessoes logadas. Desligar serve para testar tela que "
+				L"exige login feito antes - e nesse modo uma pagina maliciosa "
+				L"pode induzir a IA a usar a SUA sessao.\n\n"
+				L"JavaScript na pagina DESLIGADO: ligado, a IA pode executar "
+				L"codigo dentro do site em teste. Ligue so quando o teste "
+				L"precisar ler algo que nao aparece na tela.\n\n"
+				L"Dominios confiaveis limita onde o navegador pode ir - a "
+				L"protecao mais simples contra a IA sair passeando.");
+			break;
+		case 6:
+			MostrarBalao(b, L"6 de 6  -  Os tres niveis de desfazer",
+				L"Restaurar padroes: repoe os campos desta tela e esquece o que "
+				L"o aplicativo aprendeu sobre os modelos. So vale ao Salvar - "
+				L"ate la, Cancelar desfaz.\n\n"
+				L"Redefinir aplicativo (vermelho): apaga configuracoes, "
+				L"historico, conversa, prints e aprendizado. Nao tem volta, e as "
+				L"chaves de API sao perguntadas a parte.\n\n"
+				L"Cancelar: sai sem gravar nada, sempre.\n\n"
+				L"Fim do tour. Clique no \"?\" para recomecar.");
+			break;
+		default:
+			passoTourConfig = 0;
+			break;
+		}
 	}
 
 	private: System::Void btnAjudaPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {

@@ -3027,6 +3027,33 @@ def teste_anexos_e_visao():
               "safe_cast<CheckBox^>(ctl[8])->Checked = true;" in fonte)
         checa("e mantem o JavaScript na pagina desligado",
               "safe_cast<CheckBox^>(ctl[10])->Checked = false;" in fonte)
+        # --- TUTORIAL DA TELA DE CONFIGURACOES ---
+        # Esta e a tela com as decisoes mais caras do aplicativo (passos por
+        # tarefa, JavaScript na pagina). Os textos ao lado dos campos dizem O
+        # QUE cada coisa faz; os baloes dizem por que importa e o que custa
+        # errar - complementares de proposito, para as duas fontes nao virarem
+        # duas versoes da mesma frase e derivarem com o tempo.
+        checa("existe o tour da tela de Configuracoes",
+              "btnAjudaConfig_Click" in fonte and "passoTourConfig" in fonte)
+        for n in range(1, 7):
+            checa(f"o tour tem o passo {n} de 6", f'L"{n} de 6  -  ' in fonte)
+        checa("o tour reinicia depois do ultimo passo",
+              "passoTourConfig = 0;" in fonte)
+        # Ancorar pelo vetor de campos evita promover meia duzia de controles a
+        # membros da classe so para o tour poder aponta-los.
+        checa("os baloes se ancoram nos campos reais",
+              "MostrarBalao(safe_cast<Control^>(ctl[0])" in fonte
+              and "MostrarBalao(safe_cast<Control^>(ctl[10])" in fonte)
+        # O que os textos da tela NAO dizem:
+        checa("o balao de limites explica o custo por passo",
+              "Cada PASSO da IA e uma requisicao cobrada" in fonte)
+        checa("o de seguranca explica o risco de desligar o isolamento",
+              "induzir a IA a usar a SUA sessao" in fonte)
+        checa("o de servidor proprio explica o ganho de rodar local",
+              "nenhum dado do teste sai da maquina" in fonte)
+        checa("e o ultimo separa os tres niveis de desfazer",
+              "Os tres niveis de desfazer" in fonte)
+
         # --- REDEFINIR APLICATIVO (destrutivo) ---
         # Pedido do operador. Implementado SEPARADO do Reaprender de proposito:
         # Reaprender e estreito, barato e seguro; fundir os dois obrigaria quem
