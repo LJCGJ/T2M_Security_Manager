@@ -455,13 +455,67 @@ def _args_do_gemini(fc):
     return convertido if isinstance(convertido, dict) else {}
 
 
+_CHAVES_SEGREDO = ("senha", "password", "passwd", "pwd", "secret",
+                   "token", "apikey", "api_key", "authorization")
+
+
+def _campo_de_senha(d):
+    """O dicionario descreve um campo de SENHA de formulario?
+
+    O Playwright manda cada campo como {"element": "Password field",
+    "name": "password", "type": "textbox", "value": "<a senha>"}. O segredo
+    esta em "value", que e um nome inocente - quem decide e a vizinhanca."""
+    for chave in ("name", "element", "type", "label", "placeholder", "id",
+                  "target", "ref", "descricao"):
+        v = d.get(chave)
+        if isinstance(v, str) and any(
+                p in v.lower() for p in ("senha", "password", "passwd", "pwd")):
+            return True
+    return False
+
+
+def _mascarar_args(valor):
+    """Mascara segredos DENTRO dos argumentos de ferramenta, antes do log.
+
+    Encontrado num teste real de login: a linha
+    >>> [Gemini] Ferramenta: browser_fill_form {"fields": [... "value": "<senha>"...]}
+    saia com a senha em texto puro no terminal. O mascarador geral nao pegava,
+    e por um bom motivo: ele procura FORMATOS de segredo (chave sk-, URL com
+    credencial, cabecalho Authorization) e uma senha comum nao tem formato
+    nenhum. Aqui a pista nao e o valor, e a ESTRUTURA - um campo chamado
+    "password" ao lado de um "value". So o corte de 120 caracteres impediu que
+    ela aparecesse inteira naquele teste; foi sorte, nao protecao."""
+    if isinstance(valor, dict):
+        senha_por_perto = _campo_de_senha(valor)
+        saida = {}
+        for k, v in valor.items():
+            kl = str(k).lower()
+            if any(p in kl for p in _CHAVES_SEGREDO):
+                saida[k] = "***"
+            elif senha_por_perto and kl in ("value", "text", "valor", "conteudo"):
+                saida[k] = "***"
+            else:
+                saida[k] = _mascarar_args(v)
+        return saida
+    if isinstance(valor, list):
+        return [_mascarar_args(v) for v in valor]
+    if isinstance(valor, str):
+        return _mascarar_credenciais(valor)
+    return valor
+
+
 def _resumo_args(args, limite=120):
     """Argumentos em texto para o log. NUNCA levanta: uma linha de log nao pode
     derrubar um teste que ja custou dinheiro."""
     try:
-        return json.dumps(args, ensure_ascii=False)[:limite]
+        return json.dumps(_mascarar_args(args), ensure_ascii=False)[:limite]
     except Exception:
-        return str(args)[:limite]
+        # Ate no caminho de emergencia o texto passa pelo mascarador: sem isso,
+        # um argumento exotico viraria a unica via de vazamento que sobrou.
+        try:
+            return _mascarar_credenciais(str(args))[:limite]
+        except Exception:
+            return "(argumentos nao exibiveis)"
 
 
 def _texto_do_modelo(resp):
@@ -1236,7 +1290,7 @@ async def loop_anthropic(session, api_key, objetivo, mcp_tools):
         resultados = []
         navegador_morto = False
         for uso in usos:
-            log(f">>> [Claude] Ferramenta: {uso.name} {json.dumps(uso.input)[:120]}")
+            log(f">>> [Claude] Ferramenta: {uso.name} {_resumo_args(uso.input)}")
             conteudo, morreu = await _chamar_ferramenta_mcp(session, uso.name, uso.input)
             if morreu:
                 navegador_morto = True
@@ -1306,7 +1360,7 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
                 args = json.loads(tc.function.arguments or "{}")
             except Exception:
                 args = {}
-            log(f">>> [GPT] Ferramenta: {tc.function.name} {json.dumps(args)[:120]}")
+            log(f">>> [GPT] Ferramenta: {tc.function.name} {_resumo_args(args)}")
             conteudo, morreu = await _chamar_ferramenta_mcp(session, tc.function.name, args)
             if morreu:
                 navegador_morto = True

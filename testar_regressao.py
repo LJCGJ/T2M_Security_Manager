@@ -411,6 +411,50 @@ def teste_mascaramento():
     checa("relatorio gravado na memoria mantem a cerca de dado observado",
           A.MARCA_INICIO in grav and A.MARCA_FIM in grav)
 
+    # ARGUMENTOS DE FERRAMENTA. Encontrado no primeiro teste de tela via MCP: a
+    # linha de log dos argumentos saia crua, e um login preenche a senha por
+    # ali. O mascarador geral nao pega, e nao e falha dele - ele procura
+    # FORMATOS de segredo, e uma senha comum nao tem formato. Aqui a pista e a
+    # estrutura: um campo chamado "password" ao lado de um "value". Naquele
+    # teste so o corte de 120 caracteres escondeu a senha; foi sorte.
+    fill = {"fields": [
+        {"target": "e16", "value": "tomsmith", "type": "textbox",
+         "element": "Username field", "name": "username"},
+        {"target": "e18", "value": "SuperSecretPassword!", "type": "textbox",
+         "element": "Password field", "name": "password"}]}
+    linha = A._resumo_args(fill, 500)
+    checa("a senha digitada no formulario nao vai para o log",
+          "SuperSecretPassword" not in linha, linha)
+    checa("o campo de senha aparece mascarado", '"value": "***"' in linha, linha)
+    # Mascarar tudo seria inutil para diagnostico: o usuario e justamente o que
+    # se precisa ver quando um login falha.
+    checa("o usuario continua visivel para diagnostico",
+          "tomsmith" in linha, linha)
+    checa("campo comum nao vira ***",
+          "notebook" in A._resumo_args(
+              {"element": "Campo de busca", "value": "notebook"}, 500))
+
+    for rotulo, args, proibido in (
+            ("senha em campo com rotulo em portugues",
+             {"element": "Campo Senha", "value": "Abc@123"}, "Abc@123"),
+            ("chave sob nome obvio",
+             {"api_key": "AIzaSyDcoisaqualquer123"}, "AIzaSy"),
+            ("cabecalho de autorizacao",
+             {"headers": {"Authorization": "Bearer abc123xyz"}}, "abc123xyz"),
+            ("credencial dentro da URL",
+             {"url": "https://admin:Senha123@10.0.0.5/painel"}, "Senha123"),
+            ("segredo aninhado em lista",
+             {"passos": [{"name": "password", "value": "P@ss2026"}]}, "P@ss2026")):
+        saida = A._resumo_args(args, 500)
+        checa(f"{rotulo}: nao vaza no log", proibido not in saida, saida)
+
+    # Uma linha de log nao pode derrubar um teste que ja custou dinheiro.
+    class Impossivel:
+        def __repr__(self):
+            return "senha=Segredo123"
+    checa("argumento nao serializavel nao explode e ainda sai mascarado",
+          "Segredo123" not in A._resumo_args({"x": Impossivel()}, 500))
+
     # Guarda contra deriva: a mesma lista de formatos existe em C++, para o
     # relatorio exportado. Duas copias da mesma regra derivam com o tempo, e a
     # que fica para tras e sempre a que ninguem testa.
