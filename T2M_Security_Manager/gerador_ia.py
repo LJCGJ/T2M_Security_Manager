@@ -626,8 +626,16 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                 "\"segundo a varredura feita antes nesta conversa\") "
                 "e NUNCA escreva \"segundo a leitura recebida\", "
                 "\"segundo a leitura fornecida\" ou equivalente, que dariam a "
-                "entender que a pagina foi lida agora. Se o usuario quer o estado "
-                "atual da pagina, diga que ele precisa usar o modo Scan DOM.")
+                "entender que a pagina foi lida agora.\n"
+                "ENCAMINHAMENTO - os dois outros modos NAO sao intercambiaveis, "
+                "e mandar a pessoa para o errado custa uma execucao inteira:\n"
+                "- Se ela quer LER o estado atual da pagina (quais campos "
+                "existem, o que mudou), o modo e Scan DOM.\n"
+                "- Se ela quer EXECUTAR acoes de verdade no navegador (clicar, "
+                "preencher, fazer login, navegar, testar um fluxo), o modo e "
+                "Automacao, que roda via MCP. NUNCA indique Scan DOM para isso: "
+                "o Scan DOM apenas le o HTML, nao age na pagina e nao abre "
+                "navegador nenhum.")
 
         # Roteador por provedor. Ordem importa: prefixos mais especificos primeiro.
         # Gemini fica como padrao porque o Google mudou o formato da chave em 2026

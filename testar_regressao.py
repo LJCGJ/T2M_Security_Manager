@@ -767,7 +767,22 @@ def teste_leitura_da_pagina():
     checa("o dado antigo pode ser usado, desde que datado",
           "varredura feita antes nesta conversa" in fonte)
     checa("e o caminho para o estado atual e indicado",
-          "precisa usar o modo Scan DOM" in fonte)
+          "o modo e Scan DOM" in fonte)
+
+    # Encontrado num teste real: o usuario colou o roteiro de login no modo
+    # Chat por engano. O Chat recusou corretamente ("nao executo no navegador")
+    # e entao mandou ele para o SCAN DOM - que tambem nao executa nada. A regra
+    # anterior so falava de leitura, entao o modelo indicou o unico modo que ela
+    # citava. Erro meu, e caro: a pessoa perde uma execucao inteira ate
+    # descobrir que foi para o lugar errado.
+    checa("executar acoes aponta para Automacao, nao para Scan DOM",
+          "o modo e \nAutomacao" in fonte or "o modo e "
+          "\"\n                \"Automacao" in fonte
+          or "Automacao, que roda via MCP" in fonte)
+    checa("e o Scan DOM e desaconselhado explicitamente para execucao",
+          "NUNCA indique Scan DOM para isso" in fonte)
+    checa("dizendo por que: ele nao age na pagina",
+          "nao age na pagina" in fonte)
     checa("o aviso vai no prompt de sistema, fora da memoria gravada",
           "sistema += (" in fonte)
     checa("o terminal tambem registra que nada foi lido",
