@@ -1119,7 +1119,7 @@ def _sem_marcadores(texto):
     return saida
 
 
-def responder(texto, erro=None):
+def responder(texto, erro=None, devolver=""):
     """Formato que a interface C++ espera no stdout.
 
     erro=True marca a execucao no historico como 'nao chegou a rodar'. E
@@ -1138,6 +1138,12 @@ def responder(texto, erro=None):
     # texto do usuario) e no stdout (nao polui o terminal, que le stderr).
     if _MODELO_USADO:
         print("MODELO_USADO:" + _MODELO_USADO)
+    # A mensagem nao chegou a ser processada: o texto volta para a caixa em vez
+    # de se perder. So quando NENHUM trabalho foi feito - uma automacao que
+    # rodou dez passos e parou por cota produziu relatorio parcial, e devolver
+    # o prompt ali daria a entender que nada aconteceu.
+    if devolver:
+        print("DEVOLVER_PROMPT:" + str(devolver).replace("\n", " ")[:200])
     print("CHAT_MSG_INICIO")
     print(final)
     print("CHAT_MSG_FIM")
@@ -2008,12 +2014,14 @@ async def executar(api_key, url_alvo, objetivo):
                 # quebraria com chaves novas. Ver: prefixos AIza, AQ., AQ_ e afins.
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic.", erro=True)
+                        responder("Biblioteca ausente: anthropic.", erro=True,
+                                  devolver="biblioteca anthropic nao instalada")
                         return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
                 elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai.", erro=True)
+                        responder("Biblioteca ausente: openai.", erro=True,
+                                  devolver="biblioteca openai nao instalada")
                         return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
                 else:
@@ -2123,11 +2131,13 @@ async def executar_banco(api_key, dsn, somente_leitura, objetivo):
                 # Reusa os mesmos loops de IA do modo tela
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic.", erro=True); return
+                        responder("Biblioteca ausente: anthropic.", erro=True,
+                                  devolver="biblioteca anthropic nao instalada"); return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
                 elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai.", erro=True); return
+                        responder("Biblioteca ausente: openai.", erro=True,
+                                  devolver="biblioteca openai nao instalada"); return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
                 else:
                     if not tem_lib("google.generativeai"):
@@ -2239,11 +2249,13 @@ async def executar_api(api_key, req, objetivo):
 
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic.", erro=True); return
+                        responder("Biblioteca ausente: anthropic.", erro=True,
+                                  devolver="biblioteca anthropic nao instalada"); return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
                 elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai.", erro=True); return
+                        responder("Biblioteca ausente: openai.", erro=True,
+                                  devolver="biblioteca openai nao instalada"); return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
                 else:
                     if not tem_lib("google.generativeai"):
@@ -3231,11 +3243,13 @@ async def executar_oracle_mcp(api_key, info, somente_leitura, objetivo):
 
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic.", erro=True); return True
+                        responder("Biblioteca ausente: anthropic.", erro=True,
+                                  devolver="biblioteca anthropic nao instalada"); return True
                     resultado = await loop_anthropic(filtrada, api_key, instrucao, permitidas)
                 elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai.", erro=True); return True
+                        responder("Biblioteca ausente: openai.", erro=True,
+                                  devolver="biblioteca openai nao instalada"); return True
                     resultado = await loop_openai(filtrada, api_key, instrucao, permitidas)
                 else:
                     if not tem_lib("google.generativeai"):
@@ -3331,11 +3345,13 @@ async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
     try:
         if api_key.startswith("sk-ant-"):
             if not tem_lib("anthropic"):
-                responder("Biblioteca ausente: anthropic.", erro=True); return
+                responder("Biblioteca ausente: anthropic.", erro=True,
+                                  devolver="biblioteca anthropic nao instalada"); return
             resultado = await _loop_ferramentas_anthropic(api_key, instrucao, ferramentas, despachar)
         elif _e_rota_openai(api_key):
             if not tem_lib("openai"):
-                responder("Biblioteca ausente: openai.", erro=True); return
+                responder("Biblioteca ausente: openai.", erro=True,
+                                  devolver="biblioteca openai nao instalada"); return
             resultado = await _loop_ferramentas_openai(api_key, instrucao, ferramentas, despachar)
         else:
             if not tem_lib("google.generativeai"):
@@ -3557,11 +3573,13 @@ async def executar_mongo(api_key, conn_string, somente_leitura, objetivo):
 
                 if api_key.startswith("sk-ant-"):
                     if not tem_lib("anthropic"):
-                        responder("Biblioteca ausente: anthropic.", erro=True); return
+                        responder("Biblioteca ausente: anthropic.", erro=True,
+                                  devolver="biblioteca anthropic nao instalada"); return
                     resultado = await loop_anthropic(session, api_key, objetivo_completo, mcp_tools)
                 elif _e_rota_openai(api_key):
                     if not tem_lib("openai"):
-                        responder("Biblioteca ausente: openai.", erro=True); return
+                        responder("Biblioteca ausente: openai.", erro=True,
+                                  devolver="biblioteca openai nao instalada"); return
                     resultado = await loop_openai(session, api_key, objetivo_completo, mcp_tools)
                 else:
                     if not tem_lib("google.generativeai"):

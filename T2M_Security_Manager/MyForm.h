@@ -270,6 +270,14 @@ namespace T2MSecurityManager {
 		bool paradaPedidaPeloOperador;
 		bool jaAvisouSemVisao;   // o aviso de "este modelo enxerga?" ja saiu
 
+		// Copia do que foi enviado, guardada ate a resposta chegar. Se o agente
+		// disser que nao chegou a processar (cota, chave, modelo inexistente),
+		// o texto e os anexos voltam para a caixa - a pessoa nao deve pagar com
+		// digitacao por um problema que nao foi dela.
+		String^ promptDevolvivel;
+		List<String^>^ anexosDevolviveis;
+		String^ motivoDevolucao;
+
 		// Prints de evidencia da execucao atual: cada item e {caminho, rotulo}.
 		List<cli::array<String^>^>^ printsDaExecucao;
 
@@ -792,6 +800,9 @@ namespace T2MSecurityManager {
 		   this->modeloEfetivoRelatado = L"";
 		   this->paradaPedidaPeloOperador = false;
 		   this->jaAvisouSemVisao = false;
+		   this->promptDevolvivel = L"";
+		   this->motivoDevolucao = L"";
+		   this->anexosDevolviveis = gcnew List<String^>();
 		   this->printsDaExecucao = gcnew List<cli::array<String^>^>();
 		   this->anexosPendentes = gcnew List<String^>();
 
@@ -1545,6 +1556,7 @@ namespace T2MSecurityManager {
 			String^ output = LerBufferSeguro(bufSaidaProc);
 			CapturarModeloEfetivo(output);
 			CapturarPrints(output);
+			CapturarDevolucao(output);
 			int startIdx = output->IndexOf("CHAT_MSG_INICIO");
 			int endIdx = output->IndexOf("CHAT_MSG_FIM");
 			if (startIdx != -1 && endIdx != -1) {
@@ -1744,6 +1756,22 @@ namespace T2MSecurityManager {
 		}
 	}
 
+		   // Le DEVOLVER_PROMPT:<motivo>. Presente = o agente nao chegou a
+		   // processar a mensagem, e o texto deve voltar para a caixa.
+	private: void CapturarDevolucao(String^ saida) {
+		motivoDevolucao = L"";
+		if (String::IsNullOrEmpty(saida)) return;
+		int i = saida->IndexOf(L"DEVOLVER_PROMPT:");
+		if (i < 0) return;
+		i += 16;   // tamanho de "DEVOLVER_PROMPT:"
+		int fimN = saida->IndexOf(L'\n', i);
+		int fimR = saida->IndexOf(L'\r', i);
+		int fim = (fimN < 0) ? fimR : ((fimR < 0) ? fimN : Math::Min(fimN, fimR));
+		String^ motivo = (fim < 0) ? saida->Substring(i) : saida->Substring(i, fim - i);
+		motivo = motivo->Trim();
+		if (motivo->Length > 0 && motivo->Length <= 200) motivoDevolucao = motivo;
+	}
+
 	private: void CapturarModeloEfetivo(String^ saida) {
 		modeloEfetivoRelatado = L"";
 		if (String::IsNullOrEmpty(saida)) return;
@@ -1816,6 +1844,7 @@ namespace T2MSecurityManager {
 			String^ output = LerBufferSeguro(bufSaidaProc);
 			CapturarModeloEfetivo(output);
 			CapturarPrints(output);
+			CapturarDevolucao(output);
 			int i = output->IndexOf("CHAT_MSG_INICIO");
 			int f = output->IndexOf("CHAT_MSG_FIM");
 			if (i != -1 && f != -1) return output->Substring(i + 15, f - (i + 15))->Trim();
@@ -2934,14 +2963,14 @@ namespace T2MSecurityManager {
 		// uma requisicao.
 		y += 62;
 		Label^ lblSecaoComp = gcnew Label();
-		lblSecaoComp->Text = L"Endpoint compativel com a OpenAI (opcional)";
+		lblSecaoComp->Text = L"Servidor local ou proprio  -  opcional, quase ninguem precisa";
 		lblSecaoComp->Location = System::Drawing::Point(x1, y); lblSecaoComp->AutoSize = true;
 		lblSecaoComp->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
 		f->Controls->Add(lblSecaoComp);
 
 		y += 26;
 		Label^ lblEndp = gcnew Label();
-		lblEndp->Text = L"Endereco (base URL):";
+		lblEndp->Text = L"Endereco do servidor:";
 		lblEndp->Location = System::Drawing::Point(x1, y + 3); lblEndp->AutoSize = true;
 		f->Controls->Add(lblEndp);
 		TextBox^ txtEndpoint = gcnew TextBox();
@@ -2949,19 +2978,23 @@ namespace T2MSecurityManager {
 		txtEndpoint->Size = System::Drawing::Size(340, 22);
 		txtEndpoint->Text = cfgEndpointCompativel;
 		f->Controls->Add(txtEndpoint);
-		Button^ btnGroq = gcnew Button();
-		btnGroq->Text = L"Groq";
-		btnGroq->Location = System::Drawing::Point(x1 + 498, y - 1);
-		btnGroq->Size = System::Drawing::Size(58, 24);
-		btnGroq->FlatStyle = FlatStyle::Flat;
-		btnGroq->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		btnGroq->Cursor = Cursors::Hand;
-		btnGroq->Tag = txtEndpoint;
-		btnGroq->Click += gcnew System::EventHandler(this, &MyForm::preencherEndpoint_Handler);
-		f->Controls->Add(btnGroq);
+		// Só atalhos de SERVIDOR LOCAL. Antes havia um botao "Groq" aqui, e ele
+		// mentia por associacao: dava a entender que a chave do Groq dependia
+		// deste campo. Nao depende - ela e reconhecida sozinha pelo prefixo,
+		// como as da OpenAI, Claude e Gemini.
+		Button^ btnLmStudio = gcnew Button();
+		btnLmStudio->Text = L"LM Studio";
+		btnLmStudio->Location = System::Drawing::Point(x1 + 498, y - 1);
+		btnLmStudio->Size = System::Drawing::Size(78, 24);
+		btnLmStudio->FlatStyle = FlatStyle::Flat;
+		btnLmStudio->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		btnLmStudio->Cursor = Cursors::Hand;
+		btnLmStudio->Tag = txtEndpoint;
+		btnLmStudio->Click += gcnew System::EventHandler(this, &MyForm::preencherEndpoint_Handler);
+		f->Controls->Add(btnLmStudio);
 		Button^ btnOllama = gcnew Button();
 		btnOllama->Text = L"Ollama";
-		btnOllama->Location = System::Drawing::Point(x1 + 560, y - 1);
+		btnOllama->Location = System::Drawing::Point(x1 + 580, y - 1);
 		btnOllama->Size = System::Drawing::Size(62, 24);
 		btnOllama->FlatStyle = FlatStyle::Flat;
 		btnOllama->Font = gcnew System::Drawing::Font("Segoe UI", 8);
@@ -2981,17 +3014,36 @@ namespace T2MSecurityManager {
 		txtModeloComp->Text = cfgModeloCompativel;
 		f->Controls->Add(txtModeloComp);
 
+		// Botao para esquecer o que foi aprendido. Existe porque o aprendizado e
+		// por NOME de modelo: quando o provedor lanca uma versao nova com o
+		// mesmo nome - e isso acontece - o registro antigo passa a mentir, e
+		// sem uma saida a unica alternativa seria achar o arquivo na mao.
+		Button^ btnEsquecer = gcnew Button();
+		btnEsquecer->Text = L"↻ Reaprender capacidades";
+		btnEsquecer->Location = System::Drawing::Point(x1 + 498, y - 1);
+		btnEsquecer->Size = System::Drawing::Size(160, 24);
+		btnEsquecer->FlatStyle = FlatStyle::Flat;
+		btnEsquecer->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		btnEsquecer->Cursor = Cursors::Hand;
+		btnEsquecer->Click += gcnew System::EventHandler(this, &MyForm::esquecerCapacidades_Click);
+		f->Controls->Add(btnEsquecer);
+
 		y += 26;
 		Label^ dicaComp = gcnew Label();
 		dicaComp->Text =
-			L"Vazio = desligado. Preenchido, atende as chaves que nao sao Claude "
-			L"(sk-ant-), OpenAI (sk-) nem Google (AIza/AQ).\n"
-			L"Chaves do Groq (gsk_...) sao reconhecidas sozinhas, mesmo com o "
-			L"campo vazio.  Com Ollama, use uma chave qualquer (ex.: ollama).\n"
-			L"Serve para testar sem gastar cota: o Groq tem limite por minuto "
-			L"bem mais folgado, e o Ollama roda local, sem internet.";
+			L"NAO precisa mexer aqui para usar Groq, OpenAI, Claude ou Gemini: o "
+			L"provedor e reconhecido pelo inicio da chave (gsk_, sk-, sk-ant-, "
+			L"AIza/AQ) e o modelo vem do campo la de cima.\n"
+			L"Preencha SO para um servidor que fala o protocolo da OpenAI e nao "
+			L"tem chave que o identifique - Ollama ou LM Studio na sua maquina, "
+			L"vLLM, ou um endpoint interno da empresa. Nesse caso cadastre uma "
+			L"chave qualquer (ex.: ollama) e escreva o modelo aqui embaixo.\n"
+			L"Campo vazio = desligado, e nada muda para as chaves conhecidas.\n"
+			L"Reaprender capacidades: o app descobre sozinho, na primeira "
+			L"tentativa, se cada modelo aceita imagem. Use depois de o provedor "
+			L"atualizar um modelo mantendo o mesmo nome.";
 		dicaComp->Location = System::Drawing::Point(x1, y);
-		dicaComp->Size = System::Drawing::Size(640, 48);
+		dicaComp->Size = System::Drawing::Size(640, 76);
 		dicaComp->ForeColor = System::Drawing::Color::DimGray;
 		dicaComp->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(dicaComp);
@@ -3982,6 +4034,49 @@ namespace T2MSecurityManager {
 		if (l != nullptr) l->Text = t->Text->Length.ToString() + L" de 2000 caracteres";
 	}
 
+		   // Apaga o que o aplicativo aprendeu sobre os modelos.
+	private: System::Void esquecerCapacidades_Click(System::Object^ sender, System::EventArgs^ e) {
+		String^ arq = CaminhoDados("capacidades_modelos.txt");
+		int quantos = 0;
+		try {
+			if (File::Exists(arq)) {
+				for each (String ^ linha in File::ReadAllLines(arq))
+					if (!String::IsNullOrWhiteSpace(linha) && !linha->StartsWith("#")
+						&& linha->Contains("=")) quantos++;
+			}
+		}
+		catch (...) {}
+
+		if (quantos == 0) {
+			MessageBox::Show(
+				L"Ainda nao ha nada aprendido.\n\n"
+				L"O aplicativo aprende sozinho: na primeira vez que voce anexa uma "
+				L"imagem com um modelo, ele registra se aquele modelo aceita ou "
+				L"nao, e nao erra de novo.",
+				L"Reaprender", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			return;
+		}
+		if (MessageBox::Show(
+			L"Esquecer o que foi aprendido sobre " + quantos.ToString()
+			+ L" modelo(s)?\n\n"
+			L"Na proxima vez que voce anexar uma imagem, o aplicativo testa de "
+			L"novo cada um deles - o que custa uma chamada por modelo, uma vez.\n\n"
+			L"Vale a pena depois que o provedor lanca uma versao nova com o mesmo "
+			L"nome: o registro antigo passa a mentir.",
+			L"Reaprender", MessageBoxButtons::YesNo, MessageBoxIcon::Question,
+			MessageBoxDefaultButton::Button2) != System::Windows::Forms::DialogResult::Yes)
+			return;
+		try {
+			File::Delete(arq);
+			jaAvisouSemVisao = false;
+			MessageBox::Show(L"Pronto. O aplicativo vai reaprender na proxima tentativa.",
+				L"Reaprender", MessageBoxButtons::OK, MessageBoxIcon::Information);
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Nao foi possivel apagar: " + ex->Message, L"Erro");
+		}
+	}
+
 		   // Preenche o endereco do endpoint com um valor conhecido. Digitar
 		   // "https://api.groq.com/openai/v1" a mao erra em um caractere e o erro
 		   // so aparece como falha de conexao, sem dizer onde foi.
@@ -3990,7 +4085,7 @@ namespace T2MSecurityManager {
 		TextBox^ alvo = safe_cast<TextBox^>(b->Tag);
 		alvo->Text = (b->Text == L"Ollama")
 			? L"http://localhost:11434/v1"
-			: L"https://api.groq.com/openai/v1";
+			: L"http://localhost:1234/v1";   // LM Studio
 	}
 
 		   // Botao de abrir a pasta indicada no campo (Tag = TextBox).
@@ -5148,6 +5243,37 @@ namespace T2MSecurityManager {
 		rtbChat->AppendText(L"\n" + prefixo + resposta + L"\n\n");
 		rtbChat->ScrollToCaret();
 
+		// A mensagem nao chegou a ser processada: o que a pessoa escreveu volta
+		// para a caixa, com os anexos, e a conversa diz POR QUE voltou. Perder o
+		// texto era o pior desfecho possivel - o problema (cota, chave, modelo)
+		// nao foi dela, e ainda assim a digitacao era o que se perdia.
+		if (!String::IsNullOrWhiteSpace(motivoDevolucao)
+			&& !String::IsNullOrWhiteSpace(promptDevolvivel)
+			&& txtChatInput != nullptr && !txtChatInput->IsDisposed
+			&& String::IsNullOrWhiteSpace(txtChatInput->Text)) {
+			txtChatInput->Text = promptDevolvivel;
+			txtChatInput->SelectionStart = txtChatInput->TextLength;
+			for each (String ^ caminho in anexosDevolviveis) {
+				if (anexosPendentes->Count < LimiteImagensDoProvedor())
+					anexosPendentes->Add(caminho);
+			}
+			AtualizarRotuloAnexos();
+
+			rtbChat->SelectionColor = System::Drawing::Color::Firebrick;
+			rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+			rtbChat->AppendText(L">>> Sua mensagem NAO foi processada e voltou para a "
+				L"caixa de texto: " + motivoDevolucao + L".\n");
+			rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 9);
+			rtbChat->AppendText(L"    Resolva o que esta acima e clique em Enviar de novo - "
+				L"nada do que voce escreveu se perdeu.\n\n");
+			rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+			rtbChat->SelectionColor = System::Drawing::Color::Black;
+			rtbChat->ScrollToCaret();
+		}
+		promptDevolvivel = L"";
+		motivoDevolucao = L"";
+		anexosDevolviveis->Clear();
+
 		// Evidencia depois do laudo: o texto explica, a imagem prova.
 		if (printsDaExecucao != nullptr) {
 			for each (cli::array<String^> ^ par in printsDaExecucao)
@@ -5715,6 +5841,12 @@ namespace T2MSecurityManager {
 		// relendo depois, ninguem precisa adivinhar o que a IA estava vendo.
 		for each (String ^ caminho in anexosPendentes)
 			InserirImagemNoChat(caminho, L"anexado por voce");
+		// Guarda para poder devolver se o agente disser que nao processou.
+		promptDevolvivel = txtChatInput->Text->Trim();
+		anexosDevolviveis->Clear();
+		for each (String ^ caminho in anexosPendentes)
+			anexosDevolviveis->Add(caminho);
+
 		anexosPendentes->Clear();
 		AtualizarRotuloAnexos();
 		txtChatInput->Clear();

@@ -753,6 +753,42 @@ def teste_leitura_da_pagina():
           "ele anexou para voce ANALISAR o conteudo" in fonte)
     checa("cobrindo tambem texto escrito dentro de imagem",
           "texto escrito dentro de um print" in fonte)
+    # --- TOM DAS RESPOSTAS ---
+    # Observado pelo operador numa conversa real: TODA resposta terminava com a
+    # mesma lista 1/2/3, inclusive o "ola" e uma pergunta sobre previsao do
+    # tempo. A instrucao antiga mandava oferecer o menu "depois de analisar uma
+    # pagina ou entender o contexto", e o modelo passou a aplicar em tudo.
+    # Repetir a cada mensagem transforma ajuda em formulario, e a pessoa passa a
+    # ignorar o texto inteiro - inclusive quando ele importa.
+    checa("o menu de automacao e condicional, nao um final padrao",
+          "SOMENTE quando ela for o" in fonte)
+    checa("e proibido repetir a lista ja oferecida",
+          "NUNCA repita a lista se ela ja apareceu" in fonte)
+    checa("a resposta acompanha o tamanho da pergunta",
+          "merece uma resposta curta" in fonte)
+    # Recitar "sou um modelo treinado para QA" a cada turno e ruido: o usuario
+    # ja sabe com quem esta falando.
+    checa("assunto fora da area e respondido com naturalidade",
+          "nao recite o que voce e" in fonte)
+    # Recusar por "fora do escopo" quando se sabe a resposta e educacao mal
+    # colocada: irrita e nao protege nada.
+    checa("nao recusa por escopo quando sabe responder",
+          "Nao recuse por ser 'fora do escopo'" in fonte)
+    checa("e o lembrete de tema e leve, uma frase, e do usuario o rumo",
+          "quem decide o rumo da conversa e o usuario" in fonte)
+    checa("o tom e de colega de equipe, nao de manual",
+          "colega de equipe experiente" in fonte)
+    checa("prosa por padrao, lista so quando for lista",
+          "use lista so quando a informacao for mesmo uma lista" in fonte)
+    checa("sem se reapresentar a cada turno",
+          "nao se apresente de novo a cada turno" in fonte)
+    # Visto na mesma conversa: ao ser cobrado, o modelo inventou uma previsao do
+    # tempo "de exemplo" com temperaturas plausiveis. Num produto de QA, dado
+    # inventado com cara de dado real e o defeito mais caro que existe.
+    checa("e proibido inventar exemplo com cara de resposta",
+          "produza um exemplo inventado com cara de resposta real" in fonte)
+    checa("com a razao explicada, para a regra sobreviver a reescritas",
+          "o defeito mais caro que existe" in fonte)
     checa("o prompt manda separar leitura de conhecimento proprio",
           "conhecimento proprio sobre este site" in fonte)
     checa("e explica por que isso importa",
@@ -2226,7 +2262,19 @@ def teste_endpoint_compativel():
         checa("ha atalho para preencher o endereco sem digitar",
               "preencherEndpoint_Handler" in fonte
               and "http://localhost:11434/v1" in fonte
-              and "https://api.groq.com/openai/v1" in fonte)
+              and "http://localhost:1234/v1" in fonte)
+        # O botao "Groq" nesta secao mentia por associacao: sugeria que a chave
+        # do Groq dependia do campo. Nao depende - ela e reconhecida sozinha
+        # pelo prefixo, como as da OpenAI, Claude e Gemini. Os atalhos aqui sao
+        # so de servidor LOCAL, que e o unico caso sem chave identificavel.
+        checa("nao ha atalho de Groq na secao de servidor local",
+              'btnGroq->Text = L"Groq"' not in fonte)
+        checa("a secao diz que quase ninguem precisa dela",
+              "quase ninguem precisa" in fonte)
+        checa("e comeca dizendo o que ja e automatico",
+              "NAO precisa mexer aqui para usar Groq" in fonte)
+        checa("nomeando os prefixos reconhecidos sozinhos",
+              "gsk_, sk-, sk-ant-" in fonte)
         checa("os dois campos novos sao lidos ao salvar",
               "safe_cast<TextBox^>(ctl[12])" in fonte
               and "safe_cast<TextBox^>(ctl[13])" in fonte)
@@ -2602,6 +2650,33 @@ def teste_anexos_e_visao():
             os.environ["APPDATA"] = appdata_antes
         importlib.reload(G)
 
+    # --- A MENSAGEM VOLTA PARA A CAIXA ---
+    # Pedido do operador, comparando com o comportamento do Claude: quando a
+    # mensagem nao pode ser processada, ela volta para o campo de texto em vez
+    # de sumir. O problema (cota, chave, modelo inexistente) nao foi dele, e
+    # ainda assim a digitacao era o que se perdia.
+    import io as _io
+    import contextlib as _cl
+    buf = _io.StringIO()
+    with _cl.redirect_stdout(buf):
+        G.responder("Limite atingido.", devolver="limite de uso atingido")
+    saida = buf.getvalue()
+    checa("o agente sinaliza que nao processou",
+          "DEVOLVER_PROMPT:limite de uso atingido" in saida)
+    checa("o marcador vem antes do texto mostrado",
+          saida.index("DEVOLVER_PROMPT:") < saida.index("CHAT_MSG_INICIO"))
+    buf = _io.StringIO()
+    with _cl.redirect_stdout(buf):
+        G.responder("Resposta normal.")
+    checa("resposta normal NAO devolve o prompt",
+          "DEVOLVER_PROMPT:" not in buf.getvalue())
+    # Quebra de linha no motivo partiria o marcador ao meio.
+    buf = _io.StringIO()
+    with _cl.redirect_stdout(buf):
+        G.responder("x", devolver="motivo\ncom quebra")
+    checa("o motivo nao quebra o protocolo",
+          "DEVOLVER_PROMPT:motivo com quebra" in buf.getvalue())
+
     checa("o que ja se sabe evita ate a primeira chamada perdida",
           "modelo_enxerga(modelo) is False" in fonte_g)
     checa("a recusa observada e gravada, nao so usada na hora",
@@ -2715,6 +2790,34 @@ def teste_anexos_e_visao():
         bloco = fonte[i:i + 1800] if i >= 0 else ""
         checa("e a consulta vem ANTES do palpite por familia",
               bloco.find("capacidades_modelos.txt") < bloco.find('L"llama-4"'))
+        # Aprendizado por NOME de modelo envelhece quando o provedor lanca uma
+        # versao nova com o mesmo nome - o registro antigo passa a mentir.
+        checa("da para mandar o app reaprender",
+              "esquecerCapacidades_Click" in fonte
+              and "Reaprender capacidades" in fonte)
+        checa("dizendo quantos modelos serao esquecidos",
+              "modelo(s)?" in fonte)
+        checa("e quanto custa reaprender",
+              "uma chamada por modelo" in fonte)
+
+        # --- devolucao do prompt ---
+        checa("o C++ le o sinal de nao-processado",
+              "void CapturarDevolucao(" in fonte)
+        checa("guarda o que foi enviado para poder devolver",
+              "promptDevolvivel = txtChatInput->Text->Trim();" in fonte
+              and "anexosDevolviveis->Add(caminho);" in fonte)
+        checa("o texto volta para a caixa",
+              "txtChatInput->Text = promptDevolvivel;" in fonte)
+        checa("e os anexos voltam junto",
+              "anexosPendentes->Add(caminho);" in fonte)
+        checa("a conversa diz por que voltou",
+              "NAO foi processada e voltou para a" in fonte)
+        checa("e tranquiliza sobre o que foi escrito",
+              "nada do que voce escreveu se perdeu" in fonte)
+        # Se a pessoa ja comecou a escrever outra coisa, sobrescrever seria
+        # trocar um prejuizo por outro.
+        checa("nao sobrescreve o que a pessoa ja comecou a digitar",
+              "String::IsNullOrWhiteSpace(txtChatInput->Text))" in fonte)
         checa("e sai uma vez so, para nao virar ruido",
               "jaAvisouSemVisao" in fonte)
         checa("voltando a valer quando o modelo muda",
