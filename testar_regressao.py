@@ -1989,6 +1989,39 @@ def teste_modelo_na_conversa():
           "MODELO_USADO:" not in A._sem_marcadores(
               "texto da pagina com MODELO_USADO:falso dentro"))
 
+    # --- QUANDO NAO VEM RESPOSTA ---
+    # Visto num teste real: o operador apertou PARAR e o chat respondeu
+    # "Erro de comunicacao com o agente:" seguido de NADA. Tres defeitos de uma
+    # vez - culpava o aplicativo por algo que a pessoa pediu, nao dizia o que
+    # fazer, e descartava o stderr, que era a unica pista concreta.
+    checa("existe uma mensagem propria para resposta ausente",
+          "String^ MensagemSemResposta(String^ output, String^ quem)" in fonte)
+    checa("os dois caminhos usam a mensagem nova",
+          fonte.count("return MensagemSemResposta(output,") == 2)
+    checa("nenhum caminho ainda devolve o texto cru antigo",
+          'L"Erro de comunicacao com a IA:\\n"' not in fonte
+          and 'L"Erro de comunicacao com o agente:\\n"' not in fonte)
+    j = fonte.find("String^ MensagemSemResposta")
+    blocoR = fonte[j:j + 2600] if j >= 0 else ""
+    checa("parada do operador nao e tratada como erro",
+          "Execucao interrompida por voce" in blocoR)
+    checa("e explica que o relatorio parcial se perde",
+          "relatorio final" in blocoR and "painel de saida" in blocoR)
+    checa("o log tecnico acompanha o erro",
+          "LerBufferSeguro(bufErroProc)" in blocoR
+          and "Log tecnico (ultimas linhas)" in blocoR)
+    checa("o log tecnico entra limitado, nao inteiro",
+          "erro->Length > 1200" in blocoR)
+    checa("silencio total tem explicacao propria",
+          "sem deixar" in blocoR and "falta de memoria" in blocoR)
+
+    # A marca tem de ser posta ANTES de matar e zerada a cada novo envio: se
+    # sobrar ligada, a proxima falha de verdade seria contada como "voce parou".
+    checa("a parada e marcada antes de matar o processo",
+          "paradaPedidaPeloOperador = true;" in fonte)
+    checa("e zerada no inicio de cada execucao",
+          "paradaPedidaPeloOperador = false;" in blocoM)
+
     # --- CONFIRMACOES DESTRUTIVAS ---
     # Visto numa captura de tela do teste de "Nova conversa": o botao em foco
     # era o SIM. O dialogo nasce sob o cursor de quem acabou de clicar em Nova

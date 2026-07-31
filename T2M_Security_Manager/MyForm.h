@@ -255,6 +255,12 @@ namespace T2MSecurityManager {
 		// logo abaixo, dentro da propria resposta.
 		String^ modeloEfetivoRelatado;
 
+		// O operador mandou parar esta execucao? Matar o processo faz o stdout
+		// chegar vazio, e sem esta marca o aplicativo culpava a si mesmo:
+		// "Erro de comunicacao com o agente:" seguido de nada - a mensagem mais
+		// assustadora possivel para descrever exatamente o que a pessoa pediu.
+		bool paradaPedidaPeloOperador;
+
 		// Modo ativo do chat: 0 = Chat (so conversa), 1 = DOM, 2 = Automacao (dropdown).
 		// So um modo fica ligado por vez; o controle ligado fica em destaque.
 		int modoAtivo;
@@ -764,6 +770,7 @@ namespace T2MSecurityManager {
 		   this->rotuloModoExecucao = L"";
 		   this->rotuloModeloExecucao = L"";
 		   this->modeloEfetivoRelatado = L"";
+		   this->paradaPedidaPeloOperador = false;
 
 			   this->BackColor = System::Drawing::Color::WhiteSmoke;
 			   this->ClientSize = System::Drawing::Size(924, 711);
@@ -1336,6 +1343,9 @@ namespace T2MSecurityManager {
 				L"Interromper a IA", MessageBoxButtons::YesNo,
 				MessageBoxIcon::Warning, MessageBoxDefaultButton::Button2);
 			if (r == System::Windows::Forms::DialogResult::Yes) {
+				// Marca ANTES de matar: o worker pode acordar no instante
+				// seguinte e precisa saber que o silencio foi pedido.
+				paradaPedidaPeloOperador = true;
 				try {
 					// Copia local: o worker pode zerar o campo a qualquer momento.
 					Process^ p = procChatAtual;
@@ -1517,7 +1527,7 @@ namespace T2MSecurityManager {
 				startIdx += 15;
 				return output->Substring(startIdx, endIdx - startIdx)->Trim();
 			}
-			return L"Erro de comunicacao com a IA:\n" + output;
+			return MensagemSemResposta(output, L"a IA");
 		}
 		finally {
 			procChatAtual = nullptr;
@@ -1534,6 +1544,47 @@ namespace T2MSecurityManager {
 		   // e num fallback de cota ele contradizia, na linha seguinte, o proprio
 		   // aviso "[T2M] ... Esta resposta veio de OUTRO modelo" - duas
 		   // afirmacoes opostas coladas uma na outra, e a errada em destaque.
+		   // Mensagem para quando o Python termina SEM os marcadores CHAT_MSG.
+		   //
+		   // Visto num teste real: a resposta que chegou ao chat foi
+		   // "Erro de comunicacao com o agente:" e mais nada - linha vazia. Tres
+		   // defeitos de uma vez: culpava o aplicativo por algo que o operador
+		   // pediu (PARAR), nao dizia o que fazer, e jogava fora o stderr, que
+		   // era justamente onde estava a explicacao.
+	private: String^ MensagemSemResposta(String^ output, String^ quem) {
+		if (paradaPedidaPeloOperador) {
+			return L"Execucao interrompida por voce.\n\n"
+				L"O processo e o navegador foram encerrados, entao nao ha "
+				L"relatorio final - o que ja tinha sido apurado se perde, como "
+				L"o aviso adiantou. O passo a passo ate o ponto da parada "
+				L"continua no painel de saida da tela principal.";
+		}
+
+		// O stderr e o log tecnico que ja aparece no painel. Na hora do erro ele
+		// e a unica pista concreta, e era o unico que nao vinha junto.
+		String^ erro = LerBufferSeguro(bufErroProc);
+		if (erro != nullptr && erro->Length > 1200)
+			erro = L"(...)\n" + erro->Substring(erro->Length - 1200);
+
+		if (String::IsNullOrWhiteSpace(output) && String::IsNullOrWhiteSpace(erro)) {
+			return L"O agente encerrou sem devolver resposta e sem deixar "
+				L"mensagem de erro.\n\n"
+				L"Isso costuma ser o processo Python derrubado por fora: "
+				L"antivirus, falta de memoria, ou o Windows encerrando o "
+				L"aplicativo. Rode de novo; se repetir, exporte o log tecnico "
+				L"pela tela principal.";
+		}
+
+		String^ msg = L"Erro de comunicacao com " + quem + L".\n\n"
+			L"A resposta nao chegou no formato esperado, entao o texto bruto vai "
+			L"abaixo - nele costuma estar a causa.";
+		if (!String::IsNullOrWhiteSpace(output))
+			msg += L"\n\n--- Saida ---\n" + output->Trim();
+		if (!String::IsNullOrWhiteSpace(erro))
+			msg += L"\n\n--- Log tecnico (ultimas linhas) ---\n" + erro->Trim();
+		return msg;
+	}
+
 	private: void CapturarModeloEfetivo(String^ saida) {
 		modeloEfetivoRelatado = L"";
 		if (String::IsNullOrEmpty(saida)) return;
@@ -1608,7 +1659,7 @@ namespace T2MSecurityManager {
 			int i = output->IndexOf("CHAT_MSG_INICIO");
 			int f = output->IndexOf("CHAT_MSG_FIM");
 			if (i != -1 && f != -1) return output->Substring(i + 15, f - (i + 15))->Trim();
-			return L"Erro de comunicacao com o agente:\n" + output;
+			return MensagemSemResposta(output, L"o agente");
 		}
 		finally { procChatAtual = nullptr; p->Close(); }
 	}
@@ -4980,6 +5031,7 @@ namespace T2MSecurityManager {
 		// Zera o relato da execucao anterior: se esta falhar antes de o Python
 		// responder, o cabecalho nao pode herdar o modelo da resposta passada.
 		modeloEfetivoRelatado = L"";
+		paradaPedidaPeloOperador = false;
 		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
 		rtbChat->SelectionColor = (modoAtivo == 2)
 			? System::Drawing::Color::DarkSlateBlue
