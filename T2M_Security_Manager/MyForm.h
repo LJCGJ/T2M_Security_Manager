@@ -269,6 +269,9 @@ namespace T2MSecurityManager {
 		// assustadora possivel para descrever exatamente o que a pessoa pediu.
 		bool paradaPedidaPeloOperador;
 
+		// Prints de evidencia da execucao atual: cada item e {caminho, rotulo}.
+		List<cli::array<String^>^>^ printsDaExecucao;
+
 		// Modo ativo do chat: 0 = Chat (so conversa), 1 = DOM, 2 = Automacao (dropdown).
 		// So um modo fica ligado por vez; o controle ligado fica em destaque.
 		int modoAtivo;
@@ -779,6 +782,7 @@ namespace T2MSecurityManager {
 		   this->rotuloModeloExecucao = L"";
 		   this->modeloEfetivoRelatado = L"";
 		   this->paradaPedidaPeloOperador = false;
+		   this->printsDaExecucao = gcnew List<cli::array<String^>^>();
 
 			   this->BackColor = System::Drawing::Color::WhiteSmoke;
 			   this->ClientSize = System::Drawing::Size(924, 711);
@@ -1529,6 +1533,7 @@ namespace T2MSecurityManager {
 
 			String^ output = LerBufferSeguro(bufSaidaProc);
 			CapturarModeloEfetivo(output);
+			CapturarPrints(output);
 			int startIdx = output->IndexOf("CHAT_MSG_INICIO");
 			int endIdx = output->IndexOf("CHAT_MSG_FIM");
 			if (startIdx != -1 && endIdx != -1) {
@@ -1591,6 +1596,131 @@ namespace T2MSecurityManager {
 		if (!String::IsNullOrWhiteSpace(erro))
 			msg += L"\n\n--- Log tecnico (ultimas linhas) ---\n" + erro->Trim();
 		return msg;
+	}
+
+		   // Prints de evidencia desta execucao: (caminho, rotulo).
+		   // Preenchida ao ler o stdout do Python, consumida ao montar a resposta.
+	private: void CapturarPrints(String^ saida) {
+		printsDaExecucao->Clear();
+		if (String::IsNullOrEmpty(saida)) return;
+		int i = 0;
+		while (true) {
+			i = saida->IndexOf(L"IMAGEM:", i);
+			if (i < 0) break;
+			i += 7;   // tamanho de "IMAGEM:"
+			int fimN = saida->IndexOf(L'\n', i);
+			int fimR = saida->IndexOf(L'\r', i);
+			int fim = (fimN < 0) ? fimR : ((fimR < 0) ? fimN : Math::Min(fimN, fimR));
+			String^ linha = (fim < 0) ? saida->Substring(i) : saida->Substring(i, fim - i);
+			linha = linha->Trim();
+			if (fim > 0) i = fim;
+			if (String::IsNullOrWhiteSpace(linha)) continue;
+			// caminho|rotulo - o rotulo e opcional
+			int barra = linha->LastIndexOf(L'|');
+			String^ caminho = (barra > 0) ? linha->Substring(0, barra) : linha;
+			String^ rotulo = (barra > 0) ? linha->Substring(barra + 1) : L"";
+			// So aceita o que existe de verdade: conteudo de pagina pode plantar
+			// a palavra IMAGEM: no relatorio e apontar para qualquer caminho.
+			// Ainda assim so exibimos arquivos que ESTE aplicativo gravou, na
+			// pasta de prints - nunca um caminho arbitrario do disco.
+			try {
+				if (!File::Exists(caminho)) continue;
+				String^ esperada = Path::GetFullPath(Path::Combine(
+					Path::GetDirectoryName(CaminhoDados("historico_execucoes.jsonl")), L"prints"));
+				String^ real = Path::GetFullPath(caminho);
+				if (!real->StartsWith(esperada, StringComparison::OrdinalIgnoreCase)) continue;
+			}
+			catch (...) { continue; }
+			cli::array<String^>^ par = gcnew cli::array<String^>{ caminho, rotulo };
+			printsDaExecucao->Add(par);
+		}
+	}
+
+		   // Insere um PNG no RichTextBox montando RTF na mao.
+		   //
+		   // O caminho conhecido - Clipboard::SetImage + Paste - destroi o que o
+		   // usuario tinha copiado, e num aplicativo de teste a pessoa costuma
+		   // estar com um seletor ou uma senha na area de transferencia. Aqui o
+		   // RTF vai direto para a selecao, sem tocar no clipboard.
+		   // Le o print e o REDUZ para caber, devolvendo PNG ja no tamanho final.
+		   //
+		   // Reduzir de verdade importa: o RTF carrega a imagem em hexadecimal,
+		   // dois caracteres por byte. Um print de 1920x1080 com 600 KB vira 1,2
+		   // milhao de caracteres na caixa de texto - e o mesmo custo se repete
+		   // no HTML exportado. Escalar so na marcacao (picwgoal) mostra pequeno
+		   // e continua pesando tudo.
+	private: array<System::Byte>^ ImagemParaExibir(String^ caminho, int larguraMax) {
+		try {
+			array<System::Byte>^ bruto = File::ReadAllBytes(caminho);
+			System::IO::MemoryStream^ entrada = gcnew System::IO::MemoryStream(bruto);
+			System::Drawing::Image^ original = System::Drawing::Image::FromStream(entrada);
+			if (original->Width <= larguraMax) { delete original; return bruto; }
+
+			int novaAltura = (int)((double)original->Height * larguraMax
+				/ (double)original->Width);
+			if (novaAltura < 1) novaAltura = 1;
+			System::Drawing::Bitmap^ menor = gcnew System::Drawing::Bitmap(larguraMax, novaAltura);
+			{
+				System::Drawing::Graphics^ g = System::Drawing::Graphics::FromImage(menor);
+				g->InterpolationMode = System::Drawing::Drawing2D::InterpolationMode::HighQualityBicubic;
+				g->DrawImage(original, 0, 0, larguraMax, novaAltura);
+				delete g;
+			}
+			delete original;
+			System::IO::MemoryStream^ saida = gcnew System::IO::MemoryStream();
+			menor->Save(saida, System::Drawing::Imaging::ImageFormat::Png);
+			delete menor;
+			return saida->ToArray();
+		}
+		catch (...) { return nullptr; }
+	}
+
+	private: void InserirImagemNoChat(String^ caminho, String^ rotulo) {
+		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
+		try {
+			// Le para memoria e FECHA o arquivo: Image::FromFile mantem o
+			// arquivo travado enquanto a imagem viver, e a pasta de prints
+			// precisa poder rotacionar depois.
+			array<System::Byte>^ bytes = ImagemParaExibir(caminho, 520);
+			if (bytes == nullptr || bytes->Length == 0) return;
+			int larg = 0, alt = 0;
+			{
+				System::IO::MemoryStream^ ms = gcnew System::IO::MemoryStream(bytes);
+				System::Drawing::Image^ img = System::Drawing::Image::FromStream(ms);
+				larg = img->Width; alt = img->Height;
+				delete img;
+			}
+			// RTF mede em twips: 1 pixel a 96 dpi = 15 twips.
+			int lg = larg * 15, hg = alt * 15;
+
+			System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
+			sb->Append(L"{\\rtf1\\ansi{\\pict\\pngblip");
+			sb->Append(L"\\picw" + larg.ToString() + L"\\pich" + alt.ToString());
+			sb->Append(L"\\picwgoal" + lg.ToString() + L"\\pichgoal" + hg.ToString() + L" ");
+			for (int k = 0; k < bytes->Length; k++)
+				sb->Append(bytes[k].ToString("x2"));
+			sb->Append(L"}}");
+
+			if (!String::IsNullOrWhiteSpace(rotulo)) {
+				rtbChat->SelectionColor = System::Drawing::Color::DimGray;
+				rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 8, System::Drawing::FontStyle::Italic);
+				rtbChat->AppendText(L"Evidencia: " + rotulo + L"\n");
+			}
+			rtbChat->SelectionStart = rtbChat->TextLength;
+			rtbChat->SelectionLength = 0;
+			rtbChat->SelectedRtf = sb->ToString();
+			rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+			rtbChat->SelectionColor = System::Drawing::Color::Black;
+			rtbChat->AppendText(L"\n\n");
+			rtbChat->ScrollToCaret();
+		}
+		catch (Exception^ ex) {
+			// Um print que nao abre nao pode custar o relatorio inteiro.
+			rtbChat->SelectionColor = System::Drawing::Color::Firebrick;
+			rtbChat->AppendText(L">>> nao foi possivel exibir o print ("
+				+ ex->GetType()->Name + L"): " + caminho + L"\n\n");
+			rtbChat->SelectionColor = System::Drawing::Color::Black;
+		}
 	}
 
 	private: void CapturarModeloEfetivo(String^ saida) {
@@ -1664,6 +1794,7 @@ namespace T2MSecurityManager {
 
 			String^ output = LerBufferSeguro(bufSaidaProc);
 			CapturarModeloEfetivo(output);
+			CapturarPrints(output);
 			int i = output->IndexOf("CHAT_MSG_INICIO");
 			int f = output->IndexOf("CHAT_MSG_FIM");
 			if (i != -1 && f != -1) return output->Substring(i + 15, f - (i + 15))->Trim();
@@ -4908,6 +5039,12 @@ namespace T2MSecurityManager {
 		rtbChat->AppendText(L"\n" + prefixo + resposta + L"\n\n");
 		rtbChat->ScrollToCaret();
 
+		// Evidencia depois do laudo: o texto explica, a imagem prova.
+		if (printsDaExecucao != nullptr) {
+			for each (cli::array<String^> ^ par in printsDaExecucao)
+				InserirImagemNoChat(par[0], par[1]);
+		}
+
 		// Fecha o circuito no terminal: quem acompanhou o raciocinio aqui precisa
 		// saber ONDE foi parar a conclusao. Sem esta linha, o console simplesmente
 		// para de escrever e parece que a execucao morreu no meio.
@@ -5169,6 +5306,7 @@ namespace T2MSecurityManager {
 		// responder, o cabecalho nao pode herdar o modelo da resposta passada.
 		modeloEfetivoRelatado = L"";
 		paradaPedidaPeloOperador = false;
+		if (printsDaExecucao != nullptr) printsDaExecucao->Clear();
 		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
 		rtbChat->SelectionColor = (modoAtivo == 2)
 			? System::Drawing::Color::DarkSlateBlue
@@ -5375,6 +5513,10 @@ namespace T2MSecurityManager {
 		html->Append(L".content{padding:24px 32px;}\n");
 		html->Append(L"pre{white-space:pre-wrap;word-wrap:break-word;font-family:'Consolas','Courier New',monospace;font-size:13px;line-height:1.5;background:#fafbfc;border:1px solid #e3e7ec;border-radius:6px;padding:16px;}\n");
 		html->Append(L".footer{padding:16px 32px;font-size:12px;color:#888;border-top:1px solid #eee;text-align:center;}\n");
+		html->Append(L".evid{font-size:15px;color:#2c3e6b;margin:26px 0 10px;padding-bottom:6px;border-bottom:2px solid #dde;}\n");
+		html->Append(L"figure{margin:0 0 22px;}\n");
+		html->Append(L"figure img{max-width:100%;border:1px solid #d6dae2;border-radius:6px;display:block;}\n");
+		html->Append(L"figcaption{font-size:12px;color:#5f6774;margin-top:6px;font-style:italic;}\n");
 		html->Append(L"</style>\n</head>\n<body>\n");
 		html->Append(L"<div class=\"container\">\n");
 		html->Append(L"<div class=\"header\"><h1>" + titulo + L"</h1>");
@@ -5382,7 +5524,25 @@ namespace T2MSecurityManager {
 		html->Append(L"<div class=\"meta\">");
 		html->Append(L"<strong>Data:</strong> " + DateTime::Now.ToString("dd/MM/yyyy HH:mm:ss") + L" &nbsp;|&nbsp; ");
 		html->Append(L"<strong>Operador:</strong> " + NomeUsuarioWindows() + L"</div>\n");
-		html->Append(L"<div class=\"content\">\n<pre>" + corpo + L"</pre>\n</div>\n");
+		html->Append(L"<div class=\"content\">\n<pre>" + corpo + L"</pre>\n");
+
+		// Evidencia visual embutida no proprio arquivo (data URI), e nao
+		// referenciada por caminho: o relatorio vai por e-mail ou anexo de
+		// chamado, longe desta maquina. Um <img src="C:\..."> chegaria quebrado
+		// justamente para quem precisa ver.
+		if (printsDaExecucao != nullptr && printsDaExecucao->Count > 0) {
+			html->Append(L"<h2 class=\"evid\">Evidencia visual</h2>\n");
+			for each (cli::array<String^> ^ par in printsDaExecucao) {
+				array<System::Byte>^ img = ImagemParaExibir(par[0], 900);
+				if (img == nullptr || img->Length == 0) continue;
+				String^ leg = String::IsNullOrWhiteSpace(par[1]) ? L"print da tela" : par[1];
+				leg = leg->Replace("&", "&amp;")->Replace("<", "&lt;")->Replace(">", "&gt;");
+				html->Append(L"<figure><img src=\"data:image/png;base64,"
+					+ Convert::ToBase64String(img) + L"\" alt=\"" + leg + L"\">");
+				html->Append(L"<figcaption>" + leg + L"</figcaption></figure>\n");
+			}
+		}
+		html->Append(L"</div>\n");
 		html->Append(L"<div class=\"footer\">Gerado automaticamente pelo T2M Security Manager</div>\n");
 		html->Append(L"</div>\n</body>\n</html>");
 

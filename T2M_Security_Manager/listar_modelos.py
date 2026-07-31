@@ -37,21 +37,45 @@ def listar_openai(chave):
     modelos = []
     for m in cliente.models.list().data:
         # So os de conversa interessam aqui (ignora embeddings, audio, imagem...)
-        if m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt")):
+        if m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt")) \
+                and _serve_para_conversar(m.id):
             modelos.append((m.id, ""))
     modelos.sort(key=lambda x: x[0], reverse=True)
     return modelos
+
+
+# Modelos que respondem a generateContent mas NAO servem para conversar: os de
+# imagem devolvem pixels e nenhum texto, os de audio devolvem som, os de
+# embedding devolvem vetores. Todos passavam no filtro "generateContent" e
+# apareciam na lista - inclusive o de imagem apelidado "nano banana". Escolher
+# um deles para o chat produzia uma resposta vazia e um erro sem explicacao,
+# porque o codigo procura .text numa resposta que nunca teve texto.
+_NAO_CONVERSAM = ("-image", "image-generation", "-tts", "text-to-speech",
+                  "embedding", "aqa", "-vision-preview-0", "imagen", "veo",
+                  "-audio", "-live-")
+
+
+def _serve_para_conversar(nome):
+    baixo = nome.lower()
+    return not any(marca in baixo for marca in _NAO_CONVERSAM)
 
 
 def listar_gemini(chave):
     import google.generativeai as genai
     genai.configure(api_key=chave)
     modelos = []
+    descartados = 0
     for m in genai.list_models():
         # So os que servem para gerar texto
         if "generateContent" in getattr(m, "supported_generation_methods", []):
             nome = m.name.replace("models/", "")
+            if not _serve_para_conversar(nome):
+                descartados += 1
+                continue
             modelos.append((nome, getattr(m, "display_name", "") or ""))
+    if descartados:
+        log(f">>> {descartados} modelo(s) de imagem/audio/embedding fora da lista: "
+            f"eles nao respondem em texto e quebrariam o chat.")
     modelos.sort(key=lambda x: x[0], reverse=True)
     return modelos
 

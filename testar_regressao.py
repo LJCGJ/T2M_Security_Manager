@@ -2240,6 +2240,160 @@ def teste_endpoint_compativel():
 
 
 # ==================================================================== #
+def teste_prints_de_evidencia():
+    """Print da tela como prova, e nao como enfeite.
+
+    Um laudo que diz "o botao nao aparecia" vale muito menos que o mesmo laudo
+    com a tela anexada - e o print e a unica prova do teste que nao depende de
+    acreditar no modelo: sai do navegador, nao da redacao da IA. Antes disto o
+    servidor MCP ate devolvia a imagem, mas ninguem lia o campo: a evidencia
+    era descartada em silencio."""
+    secao("Prints de evidencia")
+
+    import io
+    import base64
+    import contextlib
+    # PNG 1x1 valido, inflado para passar do piso de 1 KB.
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
+        "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+    grande = base64.b64encode(png + b"\0" * 4096).decode()
+
+    class Bloco:
+        def __init__(self, text=None, data=None, mime=None):
+            if text is not None:
+                self.text = text
+            if data is not None:
+                self.data = data
+                self.mimeType = mime
+
+    class Resultado:
+        def __init__(self, *blocos):
+            self.content = list(blocos)
+
+    pasta_antes = A.ARQUIVO_HISTORICO
+    tmp = tempfile.mkdtemp(prefix="t2m_prints_")
+    A.ARQUIVO_HISTORICO = os.path.join(tmp, "h.jsonl")
+    try:
+        A.iniciar_execucao("Tela", "https://x", "testar login")
+        A._zerar_prints()
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            texto = A.texto_do_resultado_mcp(
+                Resultado(Bloco(data=grande, mime="image/png")), "browser_take_screenshot")
+        saida = buf.getvalue()
+
+        checa("o print e anunciado ao aplicativo", "IMAGEM:" in saida, saida[:80])
+        checa("o marcador leva caminho e rotulo",
+              "|" in saida.split("IMAGEM:")[1].split("\n")[0])
+        checa("o arquivo foi realmente gravado",
+              os.path.exists(saida.split("IMAGEM:")[1].split("|")[0]))
+        # O modelo precisa saber que existe print, sem receber a imagem - isso
+        # e o modo visao, que custa token e e opcional. Sem esta linha ele acha
+        # que a ferramenta falhou e chama de novo, gastando um passo.
+        checa("o modelo recebe aviso de que ha print, nao a imagem",
+              "print da tela capturado" in texto and grande[:40] not in texto)
+        checa("o print entrou na lista da execucao",
+              len(A._PRINTS_DA_EXECUCAO) == 1)
+
+        # Texto e imagem no mesmo resultado: os dois tem de sobreviver.
+        A._zerar_prints()
+        with contextlib.redirect_stdout(io.StringIO()):
+            misto = A.texto_do_resultado_mcp(
+                Resultado(Bloco(text="Login efetuado"),
+                          Bloco(data=grande, mime="image/png")), "browser_click")
+        checa("texto e imagem convivem no mesmo resultado",
+              "Login efetuado" in misto and "print da tela capturado" in misto)
+
+        # Lixo de protocolo nao pode virar "evidencia".
+        A._zerar_prints()
+        with contextlib.redirect_stdout(io.StringIO()):
+            A.texto_do_resultado_mcp(
+                Resultado(Bloco(data=base64.b64encode(b"xx").decode(), mime="image/png")), "x")
+        checa("imagem minuscula nao vira print", len(A._PRINTS_DA_EXECUCAO) == 0)
+
+        # Teto por execucao: um teste de 25 passos nao pode virar album.
+        A._zerar_prints()
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(A._MAX_PRINTS + 5):
+                A.texto_do_resultado_mcp(
+                    Resultado(Bloco(data=grande, mime="image/png")), "browser_take_screenshot")
+        checa("ha teto de prints por execucao",
+              len(A._PRINTS_DA_EXECUCAO) == A._MAX_PRINTS)
+
+        # Vazamento entre execucoes seria o mesmo defeito ja visto com bloqueios
+        # e falhas: evidencia de um teste aparecendo no relatorio do seguinte.
+        A.iniciar_execucao("Tela", "https://y", "outro teste")
+        checa("nova execucao comeca sem prints", len(A._PRINTS_DA_EXECUCAO) == 0)
+
+        checa("o print final so vale quando ha navegador",
+              "browser_take_screenshot" in open(A.__file__, encoding="utf-8").read())
+    finally:
+        A.ARQUIVO_HISTORICO = pasta_antes
+        A._zerar_prints()
+
+    fonte_a = open(A.__file__, encoding="utf-8").read()
+    checa("o print final e tirado pelo codigo, nao pedido ao modelo",
+          "async def _print_final(" in fonte_a)
+    checa("e so quando o modelo nao documentou nada",
+          "if _PRINTS_DA_EXECUCAO:\n        return" in fonte_a)
+    checa("a pasta de prints rotaciona sozinha",
+          "def _rotacionar_prints(" in fonte_a)
+    checa("o prompt orienta a nao inventar o que a imagem mostra",
+          "nao invente o que ela mostra" in fonte_a)
+
+    # Lista de modelos: o que nao conversa nao pode ser oferecido para conversar.
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    lm = os.path.join(raiz, "T2M_Security_Manager", "listar_modelos.py")
+    if not os.path.exists(lm):
+        lm = os.path.join(raiz, "listar_modelos.py")
+    if os.path.exists(lm):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("listar_modelos", lm)
+        LM = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(LM)
+        for nome in ("gemini-2.5-flash-image", "gemini-2.5-flash-preview-tts",
+                     "text-embedding-004", "imagen-3.0-generate", "veo-2.0"):
+            checa(f"{nome} fica FORA da lista de conversa",
+                  LM._serve_para_conversar(nome) is False)
+        for nome in ("gemini-2.5-flash", "gemini-3.6-flash", "gpt-4o-mini",
+                     "claude-haiku-4-5-20251001"):
+            checa(f"{nome} continua na lista", LM._serve_para_conversar(nome) is True)
+
+    # Lado C++.
+    cpp = os.path.join(raiz, "T2M_Security_Manager", "MyForm.h")
+    if not os.path.exists(cpp):
+        cpp = os.path.join(raiz, "MyForm.h")
+    if os.path.exists(cpp):
+        fonte = open(cpp, encoding="utf-8", errors="replace").read()
+        checa("o C++ le os marcadores de imagem", "void CapturarPrints(" in fonte)
+        checa("e sabe desenhar a imagem no chat",
+              "void InserirImagemNoChat(" in fonte)
+        # Clipboard::SetImage + Paste e o caminho conhecido, e destroi o que o
+        # usuario tinha copiado - num app de teste, costuma ser um seletor ou
+        # uma senha. O RTF vai direto para a selecao.
+        # Procura a CHAMADA (com parentese): o comentario que explica por que
+        # esse caminho foi evitado cita o nome, e nao pode derrubar o teste.
+        checa("a area de transferencia do usuario nao e usada",
+              "Clipboard::SetImage(" not in fonte
+              and "rtbChat->Paste()" not in fonte)
+        checa("a imagem entra como RTF na selecao",
+              "SelectedRtf" in fonte and "pngblip" in fonte)
+        checa("a imagem e reduzida de verdade, nao so na marcacao",
+              "array<System::Byte>^ ImagemParaExibir(" in fonte)
+        # Conteudo de pagina pode plantar a palavra IMAGEM: no relatorio; sem a
+        # checagem de pasta, isso viraria um leitor de arquivo arbitrario.
+        checa("so exibe arquivo de dentro da pasta de prints",
+              "real->StartsWith(esperada" in fonte)
+        checa("o relatorio leva a imagem embutida, nao um caminho local",
+              "data:image/png;base64," in fonte)
+        checa("com legenda", "<figcaption>" in fonte)
+        checa("os prints sao zerados a cada envio",
+              "printsDaExecucao->Clear();" in fonte)
+
+
+# ==================================================================== #
 def main():
     print("SUITE DE REGRESSAO DO AGENTE - T2M")
     print("(sem chave de IA, sem internet, sem banco, sem navegador)")
@@ -2256,7 +2410,7 @@ def main():
                   teste_pausa_adaptativa, teste_modelo_do_chat,
                   teste_regra_de_qualidade_do_script,
                   teste_leitura_da_pagina, teste_modelo_na_conversa,
-                  teste_endpoint_compativel):
+                  teste_endpoint_compativel, teste_prints_de_evidencia):
         try:
             teste()
         except Exception as e:

@@ -783,6 +783,7 @@ def iniciar_execucao(modo, alvo, objetivo, somente_leitura=None):
     # aviso sobre um bloqueio que nao aconteceu no teste que ele estava vendo.
     _zerar_bloqueios()
     _zerar_falhas_ferramenta()
+    _zerar_prints()
     _PASSOS_USADOS = 0
     _PROVEDOR_USADO = ""
     _MODELO_USADO = ""
@@ -1306,7 +1307,7 @@ async def _chamar_ferramenta_mcp(session, nome, args):
     try:
         r = await asyncio.wait_for(session.call_tool(nome, args or {}),
                                    timeout=TIMEOUT_OPERACAO)
-        return texto_do_resultado_mcp(r), False
+        return texto_do_resultado_mcp(r, nome), False
     except asyncio.TimeoutError:
         _registrar_falha_ferramenta(nome)
         return (f"ERRO: a ferramenta {nome} nao respondeu em {TIMEOUT_OPERACAO}s "
@@ -1328,13 +1329,129 @@ AVISO_NAVEGADOR = ("[Automacao interrompida: o navegador foi fechado antes do fi
 SEM_CONTEUDO = "(sem conteudo textual)"
 
 
-def texto_do_resultado_mcp(resultado):
-    """Extrai texto legivel do CallToolResult do MCP."""
+# ================================================================== #
+# PRINTS DE EVIDENCIA                                                #
+# ================================================================== #
+# Um laudo de teste que diz "o botao nao aparecia" vale muito menos que o
+# mesmo laudo com a tela anexada. E o print e a unica prova que nao depende
+# de acreditar no modelo: ele sai do navegador, nao da redacao da IA.
+#
+# O caminho e o mesmo ja usado por MODELO_USADO: uma linha marcadora no
+# stdout, fora do bloco CHAT_MSG. O binario da imagem nao passa por aqui -
+# vai para disco, e o marcador leva so o caminho. Mandar base64 pelo stdout
+# inflaria o buffer que o C++ le inteiro na memoria.
+_PRINTS_DA_EXECUCAO = []
+_MAX_PRINTS = 12            # teto por execucao; um teste longo nao vira album
+_LIMITE_PASTA_PRINTS = 400  # arquivos guardados no total, antes de rotacionar
+
+
+def _pasta_prints():
+    """%APPDATA%/T2M Security Manager/prints - fora do diretorio do programa,
+    que pode estar em Program Files e ser somente leitura."""
+    base = os.path.dirname(_caminho_dados("historico_execucoes.jsonl"))
+    destino = os.path.join(base, "prints")
+    os.makedirs(destino, exist_ok=True)
+    return destino
+
+
+def _rotacionar_prints(pasta):
+    """Apaga os mais antigos. Sem isto a pasta cresce para sempre - cada print
+    tem algumas centenas de KB e ninguem lembra de limpar."""
+    try:
+        arquivos = [os.path.join(pasta, n) for n in os.listdir(pasta)
+                    if n.lower().endswith(".png")]
+        if len(arquivos) <= _LIMITE_PASTA_PRINTS:
+            return
+        arquivos.sort(key=lambda c: os.path.getmtime(c))
+        for velho in arquivos[:len(arquivos) - _LIMITE_PASTA_PRINTS]:
+            try:
+                os.remove(velho)
+            except OSError:
+                pass
+    except Exception:
+        pass                       # limpeza e higiene, nao requisito
+
+
+def _guardar_print(dados_b64, origem, mime="image/png"):
+    """Grava a imagem devolvida por uma ferramenta e anuncia o caminho ao C++.
+    Devolve o caminho, ou "" se nao deu para salvar."""
+    if len(_PRINTS_DA_EXECUCAO) >= _MAX_PRINTS:
+        return ""
+    try:
+        import base64
+        bruto = base64.b64decode(dados_b64)
+    except Exception:
+        return ""
+    # Um "print" de 30 bytes nao e print; e resto de protocolo.
+    if len(bruto) < 1024:
+        return ""
+    try:
+        pasta = _pasta_prints()
+        ident = (_EXECUCAO or {}).get("id", "avulso")
+        nome = f"{ident}_{len(_PRINTS_DA_EXECUCAO) + 1:02d}.png"
+        caminho = os.path.join(pasta, nome)
+        with open(caminho, "wb") as f:
+            f.write(bruto)
+        _rotacionar_prints(pasta)
+    except Exception as e:
+        log(f">>> nao foi possivel salvar o print: {type(e).__name__}")
+        return ""
+    rotulo = _sem_marcadores(str(origem or "print"))[:80]
+    _PRINTS_DA_EXECUCAO.append((caminho, rotulo))
+    # Fora do bloco CHAT_MSG (nao entra no texto) e no stdout (nao polui o
+    # terminal, que mostra o stderr).
+    print("IMAGEM:" + caminho + "|" + rotulo, flush=True)
+    log(f">>> print de evidencia guardado ({len(bruto) // 1024} KB): {rotulo}")
+    return caminho
+
+
+def _zerar_prints():
+    _PRINTS_DA_EXECUCAO.clear()
+
+
+async def _print_final(session, ferramentas_disponiveis):
+    """Tira um print no fim do teste, se nenhum foi tirado durante.
+
+    Pedir ao modelo no prompt nao basta: ele esquece, e justamente nos testes
+    que dao errado - que sao os que mais precisam de evidencia. Este print sai
+    do nosso codigo, entao acontece sempre. Falhar aqui nao pode custar o
+    relatorio: o teste ja rodou e o laudo ja existe."""
+    if _PRINTS_DA_EXECUCAO:
+        return                      # o modelo ja documentou; nao duplica
+    if "browser_take_screenshot" not in (ferramentas_disponiveis or ()):
+        return                      # modo sem navegador (banco, API)
+    try:
+        r = await asyncio.wait_for(
+            session.call_tool("browser_take_screenshot", {}),
+            timeout=min(TIMEOUT_OPERACAO, 30))
+        texto_do_resultado_mcp(r, "estado final da tela")
+    except Exception as e:
+        log(f">>> nao foi possivel tirar o print final: {type(e).__name__}")
+
+
+def texto_do_resultado_mcp(resultado, origem=""):
+    """Extrai texto legivel do CallToolResult do MCP.
+
+    Blocos de IMAGEM nao viram texto: sao gravados como evidencia e trocados
+    por uma linha curta. Antes eles simplesmente sumiam - o servidor devolvia
+    o print, ninguem lia o campo, e a unica prova visual do teste era
+    descartada em silencio."""
     partes = []
     for bloco in getattr(resultado, "content", []) or []:
         t = getattr(bloco, "text", None)
         if t:
             partes.append(t)
+            continue
+        dados = getattr(bloco, "data", None)
+        mime = str(getattr(bloco, "mimeType", "") or "")
+        if dados and mime.startswith("image/"):
+            caminho = _guardar_print(dados, origem or "tela", mime)
+            # O modelo precisa saber que o print EXISTE, sem receber a imagem
+            # (isso e o modo visao, que e opcional e custa token). Sem esta
+            # linha ele acha que a ferramenta nao devolveu nada e repete.
+            partes.append("[print da tela capturado e anexado ao relatorio]"
+                          if caminho else
+                          "[a ferramenta devolveu uma imagem, mas nao foi possivel salva-la]")
     texto = "\n".join(partes) if partes else SEM_CONTEUDO
     return texto[:8000]  # teto para nao estourar o contexto do modelo
 
@@ -1743,6 +1860,11 @@ async def executar(api_key, url_alvo, objetivo):
                     f"e ele que devolve os elementos e as referencias [ref=...] "
                     f"que voce precisa usar para clicar e preencher.\n"
                     f"Objetivo do teste: {objetivo}\n\n"
+                    f"EVIDENCIA: use browser_take_screenshot quando encontrar algo que "
+                    f"precise ser visto para ser acreditado - um erro na tela, um layout "
+                    f"quebrado, o estado final de um fluxo. O print e anexado ao relatorio "
+                    f"automaticamente; nao descreva a imagem como se o leitor nao fosse "
+                    f"ve-la, e nao invente o que ela mostra.\n"
                     f"Depois de executar e relatar o que encontrou, PERGUNTE ao usuario qual "
                     f"tipo de automacao ele quer construir a partir disto: (1) navegacao web, "
                     f"(2) API, ou (3) banco de dados/SQL (peca credenciais se necessario). "
@@ -1771,6 +1893,10 @@ async def executar(api_key, url_alvo, objetivo):
                         responder("Biblioteca ausente: google-generativeai. Rode: pip install google-generativeai", erro=True)
                         return
                     resultado = await loop_gemini(session, api_key, objetivo_completo, mcp_tools)
+
+                # Evidencia visual do estado em que a tela ficou. Ainda dentro
+                # do "with" da sessao: um passo depois o navegador ja morreu.
+                await _print_final(session, [t.name for t in mcp_tools])
 
                 # --- INTEGRACAO COM O CHAT: grava o resultado na memoria compartilhada ---
                 # Assim o proximo turno do chat (gerador_ia.py) "lembra" do que o MCP fez.
