@@ -2329,8 +2329,23 @@ def teste_endpoint_compativel():
               and 'txtEndpoint->Items->Add(L"http://localhost:1234/v1")' in fonte)
         checa("e da para digitar outro por cima",
               "txtEndpoint->DropDownStyle = ComboBoxStyle::DropDown;" in fonte)
-        checa("a dica diz qual porta e de qual servidor",
-              "11434 Ollama" in fonte and "1234 LM " in fonte)
+        # O endereco digitado aparecia no campo mas nao entre as opcoes: bastava
+        # abrir a lista e escolher outra por engano para o dele sumir, sem jeito
+        # de recuperar a nao ser lembrar qual era.
+        checa("o endereco proprio entra na lista",
+              "txtEndpoint->Items->Insert(0, cfgEndpointCompativel);" in fonte)
+        checa("e o detectado tambem",
+              "caixaEndereco->Items->Insert(0, primeiro);" in fonte)
+        checa("a dica avisa que o campo aceita digitacao",
+              "o campo aceita " in fonte and "fica guardado na lista" in fonte)
+        # A lista mostra 3 enderecos e o detector conhece 7 - sem dizer isso, a
+        # tela sugere que so os 3 sao suportados.
+        checa("a dica diz que a busca cobre mais que a lista",
+              "7 portas" in fonte)
+        checa("e ensina o formato para endereco proprio",
+              "http://IP-OU-NOME:PORTA/v1" in fonte)
+        checa("avisando do /v1 obrigatorio, que e o erro mais facil de cometer",
+              "/v1 no fim e " in fonte and "obrigatorio" in fonte)
         # O campo passou a ser excecao, nao etapa: com ele vazio o app procura
         # sozinho e ainda pergunta ao servidor qual modelo usar.
         checa("a dica avisa que com o campo vazio ele procura sozinho",
@@ -2972,8 +2987,21 @@ def teste_anexos_e_visao():
         # Repor sem gravar mantem o Cancelar como saida de verdade.
         checa("repor nao grava: quem grava e o Salvar",
               "Nada e gravado agora" in fonte)
+        # A promessa "nada e gravado" tem de valer no codigo, nao so no texto:
+        # escrever direto em cfg* fazia o Cancelar deixar de desfazer.
+        i = fonte.find("restaurarPadroes_Click(System::Object")
+        blocoR = fonte[i:i + 2800] if i >= 0 else ""
+        # A promessa "nada e gravado" tem de valer no codigo, nao so no texto:
+        # qualquer escrita em cfg* aqui faria o Cancelar deixar de desfazer, e o
+        # usuario nao teria como perceber.
+        checa("e nao escreve em configuracao pelas costas do Cancelar",
+              "cfg" not in blocoR.split("MessageBox::Show")[0].replace("cfgs", ""))
+        # Cair no ramo do Claude escrevia claude-sonnet com uma chave do Groq
+        # selecionada - o mesmo defeito ja corrigido na montagem da tela.
+        checa("restaurar respeita o provedor da chave selecionada",
+              ': L"llama-3.3-70b-versatile";' in blocoR)
         checa("e as chaves de API nao sao tocadas",
-              "chaves de API e o que o" in fonte)
+              "Suas chaves de API NAO " in fonte)
         # O padrao seguro tem de voltar seguro: JS na pagina DESLIGADO e
         # navegador isolado LIGADO. Um "restaurar" que afrouxa seguranca seria
         # pior que nao existir.
@@ -3019,13 +3047,27 @@ def teste_anexos_e_visao():
         checa("os dois avisos tem NAO como padrao",
               fonte.count("MessageBoxDefaultButton::Button2") >= 8)
 
-        # O botao "Reaprender" foi REMOVIDO: o registro passou a ter validade de
-        # 30 dias no proprio agente, entao versao nova do provedor com o mesmo
-        # nome se corrige sozinha. Exigir que a pessoa lembre de apertar um
-        # botao para consertar um dado que so o aplicativo sabe que envelheceu
-        # era transferir para ela um trabalho nosso.
+        # O botao "Reaprender" foi REMOVIDO, mas a FUNCAO nao: ela entrou no
+        # "Restaurar padroes". A objecao era que Restaurar promete "nada e
+        # gravado" e apagar arquivo e gravar - resolvido adiando a limpeza para
+        # o Salvar, o que mantem a promessa e entrega a funcao.
         checa("nao ha mais botao de reaprender",
               "esquecerCapacidades" not in fonte)
+        checa("mas restaurar padroes esquece o aprendizado",
+              "bool limparAprendizadoAoSalvar;" in fonte
+              and "limparAprendizadoAoSalvar = true;" in fonte)
+        # Apagar no clique quebraria a promessa sem aviso nenhum.
+        i_sv = fonte.find("salvarConfiguracoes_Click(System::Object")
+        blocoSv = fonte[i_sv:i_sv + 4200] if i_sv >= 0 else ""
+        checa("e a limpeza acontece no Salvar, nao no clique do botao",
+              "if (limparAprendizadoAoSalvar) {" in blocoSv
+              and 'CaminhoDados("capacidades_modelos.txt")' in blocoSv)
+        checa("o aviso diz que so vale ao salvar",
+              "so e apagado quando voce clicar em Salvar" in fonte)
+        # Pendencia de uma abertura anterior nao pode sobreviver: quem cancelou
+        # ontem nao pode ver o aprendizado sumir ao salvar outra coisa hoje.
+        checa("a pendencia e zerada ao abrir a tela",
+              "limparAprendizadoAoSalvar = false;" in fonte)
         # O carimbo de data e do agente; o C++ so precisa do 1/0 antes da barra.
         checa("o C++ entende o registro com carimbo de data",
               "int barra = valor->IndexOf('|');" in fonte)

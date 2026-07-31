@@ -271,6 +271,13 @@ namespace T2MSecurityManager {
 		bool paradaPedidaPeloOperador;
 		bool jaAvisouSemVisao;   // o aviso de "este modelo enxerga?" ja saiu
 
+		// "Restaurar padroes" tambem esquece o que o aplicativo aprendeu sobre
+		// os modelos - mas so no Salvar. Apagar o arquivo na hora do clique
+		// quebraria a promessa do proprio botao ("nada e gravado, voce ainda
+		// pode sair por Cancelar"): o Cancelar deixaria de desfazer, e sem
+		// nenhum aviso. Adiar mantem a promessa e entrega a funcao.
+		bool limparAprendizadoAoSalvar;
+
 		// Copia do que foi enviado, guardada ate a resposta chegar. Se o agente
 		// disser que nao chegou a processar (cota, chave, modelo inexistente),
 		// o texto e os anexos voltam para a caixa - a pessoa nao deve pagar com
@@ -801,6 +808,7 @@ namespace T2MSecurityManager {
 		   this->modeloEfetivoRelatado = L"";
 		   this->paradaPedidaPeloOperador = false;
 		   this->jaAvisouSemVisao = false;
+		   this->limparAprendizadoAoSalvar = false;
 		   this->promptDevolvivel = L"";
 		   this->motivoDevolucao = L"";
 		   this->anexosDevolviveis = gcnew List<String^>();
@@ -2793,6 +2801,9 @@ namespace T2MSecurityManager {
 		AplicarIcone(f);
 
 		int x1 = 20, larg = 430, y = 18;
+		// Pendencia de uma abertura anterior nao pode sobreviver: quem cancelou
+		// ontem nao pode ver o aprendizado sumir ao salvar outra coisa hoje.
+		limparAprendizadoAoSalvar = false;
 		ToolTip^ dicaCfg = gcnew ToolTip();
 		dicaCfg->AutoPopDelay = 20000;   // texto longo precisa de tempo para ser lido
 
@@ -3033,6 +3044,14 @@ namespace T2MSecurityManager {
 		txtEndpoint->Items->Add(L"http://localhost:11434/v1");
 		txtEndpoint->Items->Add(L"http://localhost:1234/v1");
 		txtEndpoint->Items->Add(L"http://localhost:8000/v1");
+		// O endereco que a pessoa escreveu entra na lista tambem. Sem isto ele
+		// aparecia no campo, mas nao entre as opcoes: bastava abrir a lista
+		// para dar uma olhada e escolher outra por engano para o dela sumir,
+		// sem nenhum jeito de recuperar a nao ser lembrar o que era.
+		if (!String::IsNullOrWhiteSpace(cfgEndpointCompativel)
+			&& !txtEndpoint->Items->Contains(cfgEndpointCompativel)) {
+			txtEndpoint->Items->Insert(0, cfgEndpointCompativel);
+		}
 		txtEndpoint->Text = cfgEndpointCompativel;
 		f->Controls->Add(txtEndpoint);
 		// Um botao so. Havia atalhos "LM Studio" e "Ollama" que preenchiam as
@@ -3069,13 +3088,16 @@ namespace T2MSecurityManager {
 			L"chave propria: Ollama ou LM Studio na sua maquina, vLLM, ou um "
 			L"endpoint interno da empresa. Cadastre uma chave qualquer (ex.: "
 			L"ollama) e escolha o modelo no campo la de cima.\n"
-			L"Com o campo VAZIO o aplicativo procura sozinho um servidor "
-			L"rodando aqui e ate pergunta a ele qual modelo usar - so preencha "
-			L"para porta fora do comum, servidor em outra maquina, ou para "
-			L"desligar a busca. Portas conhecidas: 11434 Ollama, 1234 LM "
-			L"Studio, 8000 vLLM.";
+			L"Campo VAZIO ja funciona: o aplicativo procura sozinho um servidor "
+			L"aqui na maquina (7 portas, entre elas Ollama, LM Studio, vLLM, "
+			L"llama.cpp, LocalAI, Jan e GPT4All) e ainda pergunta a ele qual "
+			L"modelo usar.\n"
+			L"A lista e so atalho para os enderecos mais comuns: o campo aceita "
+			L"digitacao. Clique nele e escreva o seu - inclusive de outra "
+			L"maquina: http://IP-OU-NOME:PORTA/v1  (o /v1 no fim e "
+			L"obrigatorio). O que voce escrever fica guardado na lista.";
 		dicaComp->Location = System::Drawing::Point(x1, y);
-		dicaComp->Size = System::Drawing::Size(640, 72);
+		dicaComp->Size = System::Drawing::Size(640, 86);
 		dicaComp->ForeColor = System::Drawing::Color::DimGray;
 		dicaComp->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(dicaComp);
@@ -3309,9 +3331,10 @@ namespace T2MSecurityManager {
 		btnPadroes->Click += gcnew System::EventHandler(this, &MyForm::restaurarPadroes_Click);
 		rodape->Controls->Add(btnPadroes);
 		dicaCfg->SetToolTip(btnPadroes,
-			L"Repoe os CAMPOS desta tela nos valores de fabrica.\n"
-			L"Nada e gravado: voce ainda pode sair por Cancelar.\n"
-			L"Nao apaga chave, historico, conversa nem aprendizado.");
+			L"Repoe os CAMPOS desta tela nos valores de fabrica e esquece o que "
+			L"o aplicativo aprendeu sobre os modelos.\n"
+			L"Nada acontece antes do Salvar: ate la, Cancelar desfaz tudo.\n"
+			L"Nao apaga chave de API, historico nem conversa.");
 
 		// Vermelho e separado de proposito. Esta e a unica acao da tela que
 		// destroi coisa que nao volta - chave de API, principalmente: o Groq
@@ -4268,9 +4291,12 @@ namespace T2MSecurityManager {
 			L"Repor TODOS os campos desta tela nos valores de fabrica?\n\n"
 			L"Isso inclui pastas, limites de execucao, modelo, seguranca da "
 			L"automacao, servidor proprio e as instrucoes permanentes da IA.\n\n"
+			L"Tambem sera esquecido o que o aplicativo aprendeu sobre os modelos "
+			L"(quais aceitam imagem), para ele descobrir de novo.\n\n"
 			L"Nada e gravado agora: os campos voltam ao padrao e voce ainda pode "
-			L"sair por Cancelar sem alterar nada. Suas chaves de API e o que o "
-			L"aplicativo aprendeu sobre os modelos NAO sao tocados.",
+			L"sair por Cancelar sem alterar nada - inclusive o aprendizado, que "
+			L"so e apagado quando voce clicar em Salvar. Suas chaves de API NAO "
+			L"sao tocadas.",
 			L"Restaurar padroes", MessageBoxButtons::YesNo, MessageBoxIcon::Question,
 			MessageBoxDefaultButton::Button2) != System::Windows::Forms::DialogResult::Yes)
 			return;
@@ -4285,17 +4311,28 @@ namespace T2MSecurityManager {
 			// O modelo padrao depende do provedor dono do campo (Tag).
 			ComboBox^ cbMod = safe_cast<ComboBox^>(ctl[6]);
 			String^ prov = (cbMod->Tag == nullptr) ? L"Claude" : cbMod->Tag->ToString();
+			// Groq, servidor local e compativeis tem padrao proprio. Sem este
+			// ramo eles caiam no do Claude, e "restaurar padroes" com uma chave
+			// do Groq selecionada escrevia claude-sonnet no campo.
 			cbMod->Text = (prov == "OpenAI") ? L"gpt-4o-mini"
-				: (prov == "Gemini") ? L"gemini-2.5-flash" : L"claude-sonnet-4-6";
+				: (prov == "Gemini") ? L"gemini-2.5-flash"
+				: (prov == "Claude") ? L"claude-sonnet-4-6"
+				: L"llama-3.3-70b-versatile";
 			safe_cast<NumericUpDown^>(ctl[7])->Value = 20;    // mensagens no historico
 			safe_cast<CheckBox^>(ctl[8])->Checked = true;     // navegador isolado
 			safe_cast<TextBox^>(ctl[9])->Text = L"";          // dominios confiaveis
 			safe_cast<CheckBox^>(ctl[10])->Checked = false;   // JS na pagina: DESLIGADO
 			safe_cast<TextBox^>(ctl[11])->Text = L"";         // instrucoes permanentes
 			safe_cast<Control^>(ctl[12])->Text = L"";         // servidor proprio
+			// Nenhuma escrita em cfg* aqui, de proposito: este botao promete
+			// "nada e gravado, voce ainda pode sair por Cancelar". Mexer na
+			// configuracao direto quebraria a promessa - o Cancelar deixaria de
+			// desfazer, e o usuario nao teria como saber disso.
+			limparAprendizadoAoSalvar = true;
 			MessageBox::Show(
-				L"Campos repostos.\n\nClique em Salvar para valer, ou Cancelar "
-				L"para manter o que estava antes.",
+				L"Campos repostos.\n\nClique em Salvar para valer - e e nesse "
+				L"momento que o aprendizado sobre os modelos tambem e esquecido. "
+				L"Cancelar mantem tudo como estava.",
 				L"Restaurar padroes", MessageBoxButtons::OK, MessageBoxIcon::Information);
 		}
 		catch (Exception^ ex) {
@@ -4403,6 +4440,12 @@ namespace T2MSecurityManager {
 		System::Text::StringBuilder^ lista = gcnew System::Text::StringBuilder();
 		for each (String ^ a in achados) lista->AppendLine(L"   - " + a);
 		alvo->Text = primeiro;
+		// O que foi encontrado tambem vira opcao: achar de novo depois nao
+		// deveria exigir apertar o botao outra vez. Nome diferente de "lista",
+		// que ja e o StringBuilder do relatorio logo acima.
+		ComboBox^ caixaEndereco = dynamic_cast<ComboBox^>(alvo);
+		if (caixaEndereco != nullptr && !caixaEndereco->Items->Contains(primeiro))
+			caixaEndereco->Items->Insert(0, primeiro);
 		MessageBox::Show(
 			L"Encontrado:\n\n" + lista->ToString() + L"\n"
 			+ (achados->Count > 1
@@ -4475,6 +4518,20 @@ namespace T2MSecurityManager {
 		cfgEndpointCompativel = safe_cast<Control^>(ctl[12])->Text->Trim();
 
 		SalvarConfiguracoesApp();
+
+		// Pendencia deixada pelo "Restaurar padroes": e AQUI que o aprendizado
+		// sobre os modelos e esquecido, e nao no clique daquele botao - assim o
+		// Cancelar continua desfazendo tudo, inclusive isto.
+		if (limparAprendizadoAoSalvar) {
+			try {
+				String^ arq = CaminhoDados("capacidades_modelos.txt");
+				if (File::Exists(arq)) File::Delete(arq);
+			}
+			catch (...) {}
+			jaAvisouSemVisao = false;
+			limparAprendizadoAoSalvar = false;
+		}
+
 		// O indicador do Copilot passa a mostrar o modelo novo na hora, se a
 		// janela estiver aberta. Antes so mudava ao reabrir - e era exatamente
 		// isso que dava a impressao de que a configuracao "nao tinha pegado".
