@@ -4235,8 +4235,17 @@ namespace T2MSecurityManager {
 
 		String^ textoOriginal = b->Text;
 		b->Text = L"procurando..."; b->Enabled = false;
-		Cursor^ cursorAntes = this->Cursor;
-		this->Cursor = Cursors::WaitCursor;
+		// Tipo qualificado por inteiro: dentro da classe, "Cursor" sozinho
+		// resolve para a PROPRIEDADE Control::Cursor, nao para o tipo - e a
+		// declaracao nem chega a compilar.
+		//
+		// E a ampulheta vai na JANELA DE CONFIGURACOES, nao em "this": o
+		// dialogo esta modal por cima, entao mudar o cursor da tela principal
+		// nao apareceria para quem esta olhando.
+		Form^ janela = b->FindForm();
+		System::Windows::Forms::Cursor^ cursorAntes =
+			(janela != nullptr) ? janela->Cursor : this->Cursor;
+		if (janela != nullptr) janela->Cursor = Cursors::WaitCursor;
 		Application::DoEvents();   // deixa o botao redesenhar antes de travar
 
 		List<String^>^ achados = gcnew List<String^>();
@@ -4277,7 +4286,7 @@ namespace T2MSecurityManager {
 			}
 		}
 		finally {
-			this->Cursor = cursorAntes;
+			if (janela != nullptr) janela->Cursor = cursorAntes;
 			b->Text = textoOriginal; b->Enabled = true;
 		}
 
