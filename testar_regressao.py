@@ -2269,17 +2269,51 @@ def teste_endpoint_compativel():
         # so de servidor LOCAL, que e o unico caso sem chave identificavel.
         checa("nao ha atalho de Groq na secao de servidor local",
               'btnGroq->Text = L"Groq"' not in fonte)
-        checa("a secao diz que quase ninguem precisa dela",
-              "quase ninguem precisa" in fonte)
+        # "opcional, quase ninguem precisa" no titulo era autodepreciativo e
+        # pouco profissional - o texto explicativo ja da conta do recado.
+        checa("o titulo da secao e sobrio",
+              "quase ninguem precisa" not in fonte
+              and "Servidor local ou proprio" in fonte)
+        # Sem contorno, a unica secao que a maioria nunca usa ficava com o mesmo
+        # peso visual das que todo mundo mexe.
+        checa("a secao especifica fica destacada por uma moldura",
+              "Panel^ molduraComp" in fonte
+              and "BorderStyle::FixedSingle" in fonte)
+        checa("e a moldura fica atras dos campos",
+              "molduraComp->SendToBack();" in fonte)
         checa("e comeca dizendo o que ja e automatico",
               "NAO precisa mexer aqui para usar Groq" in fonte)
         checa("nomeando os prefixos reconhecidos sozinhos",
               "gsk_, sk-, sk-ant-" in fonte)
-        checa("os dois campos novos sao lidos ao salvar",
-              "safe_cast<TextBox^>(ctl[12])" in fonte
-              and "safe_cast<TextBox^>(ctl[13])" in fonte)
-        checa("o vetor de campos cresceu junto",
-              "gcnew cli::array<Object^>(14)" in fonte)
+        checa("o endereco do servidor e lido ao salvar",
+              "safe_cast<TextBox^>(ctl[12])" in fonte)
+        checa("o vetor de campos tem o tamanho certo",
+              "gcnew cli::array<Object^>(13)" in fonte)
+        # Duas telas para a MESMA configuracao e fabrica de bug: um dia as duas
+        # discordam e ninguem sabe qual vale. O modelo mora no campo de cima,
+        # que ja muda de nome conforme a chave.
+        checa("o modelo nao tem dois lugares para ser configurado",
+              "Modelo deste endpoint" not in fonte)
+
+        # --- Groq no campo de modelo (bug encontrado em uso) ---
+        # A tela dizia "Modelo Groq" e oferecia claude-sonnet, com a tabela de
+        # precos da Anthropic; salvar gravava em modelo_claude. O modelo
+        # escolhido nao valia para nada E estragava a config do Claude.
+        checa("Groq/local tem ramo proprio no campo de modelo",
+              'else if (provedorModelo != "Claude") {' in fonte)
+        checa("com modelos que existem naquele provedor",
+              'cbModelo->Items->Add(L"llama-3.3-70b-versatile");' in fonte)
+        checa("e salva no campo certo, nao no do Claude",
+              'else if (provModelo != "Claude") {' in fonte
+              and "cfgModeloCompativel = modeloEscolhido;" in fonte)
+        checa("a lista buscada tambem tem lugar proprio",
+              "cfgModelosCompativel" in fonte
+              and 'sb->AppendLine("modelos_compativel=' in fonte)
+        # Sem entrar na lista de conhecidas, a chave some a cada gravacao.
+        checa("a chave nova entra na lista das conhecidas",
+              '"modelos_compativel"' in fonte)
+        checa("o listador recebe o endereco do servidor",
+              'EnvironmentVariables["T2M_ENDPOINT"]' in fonte)
         checa("a janela cresceu para nao esconder Salvar/Cancelar",
               "Size(720, 940)" in fonte)
         # O tutorial de baloes tem de citar o recurso: quem nao sabe que existe
@@ -2425,6 +2459,14 @@ def teste_prints_de_evidencia():
         spec = importlib.util.spec_from_file_location("listar_modelos", lm)
         LM = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(LM)
+        # Roteamento da BUSCA tem de bater com o da conversa. Divergir produz o
+        # pior tipo de erro: a lista pergunta a um provedor e o chat usa outro.
+        # Foi o que aconteceu - chave gsk_ do Groq era perguntada ao Google, e a
+        # tela dizia "Chave invalida ou revogada", apontando para o lugar errado.
+        checa("a busca reconhece a chave do Groq",
+              LM._base_url("gsk_x") == "https://api.groq.com/openai/v1")
+        checa("e nao desvia a chave da OpenAI", LM._base_url("sk-proj-x") == "")
+        checa("nem a do Google", LM._base_url("AIzaSyX") == "")
         for nome in ("gemini-2.5-flash-image", "gemini-2.5-flash-preview-tts",
                      "text-embedding-004", "imagen-3.0-generate", "veo-2.0"):
             checa(f"{nome} fica FORA da lista de conversa",
@@ -2792,6 +2834,25 @@ def teste_anexos_e_visao():
               bloco.find("capacidades_modelos.txt") < bloco.find('L"llama-4"'))
         # Aprendizado por NOME de modelo envelhece quando o provedor lanca uma
         # versao nova com o mesmo nome - o registro antigo passa a mentir.
+        # --- restaurar padroes ---
+        # Configuracao acumulada e dificil de desfazer na mao: depois de meses
+        # mexendo em passos, timeout, dominios e instrucoes, ninguem lembra o
+        # que era padrao e o que foi decisao.
+        checa("existe restaurar padroes", "restaurarPadroes_Click" in fonte)
+        checa("cobrindo tambem as instrucoes permanentes",
+              "instrucoes permanentes da IA" in fonte)
+        # Repor sem gravar mantem o Cancelar como saida de verdade.
+        checa("repor nao grava: quem grava e o Salvar",
+              "Nada e gravado agora" in fonte)
+        checa("e as chaves de API nao sao tocadas",
+              "chaves de API e o que o" in fonte)
+        # O padrao seguro tem de voltar seguro: JS na pagina DESLIGADO e
+        # navegador isolado LIGADO. Um "restaurar" que afrouxa seguranca seria
+        # pior que nao existir.
+        checa("o padrao restaurado mantem o navegador isolado",
+              "safe_cast<CheckBox^>(ctl[8])->Checked = true;" in fonte)
+        checa("e mantem o JavaScript na pagina desligado",
+              "safe_cast<CheckBox^>(ctl[10])->Checked = false;" in fonte)
         checa("da para mandar o app reaprender",
               "esquecerCapacidades_Click" in fonte
               and "Reaprender capacidades" in fonte)

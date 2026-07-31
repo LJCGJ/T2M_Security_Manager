@@ -223,6 +223,7 @@ namespace T2MSecurityManager {
 		// aparece, modelo velho e aposentado, e ninguem quer esperar uma versao
 		// do programa para ver isso.
 		String^ cfgModelosGemini;
+		String^ cfgModelosCompativel;   // Groq, servidor local, outros compativeis
 		String^ cfgModelosOpenAI;
 		String^ cfgModelosClaude;
 		Button^ btnMapearSite;
@@ -2653,6 +2654,7 @@ namespace T2MSecurityManager {
 		cfgMaxHistorico = 20;
 		cfgInstrucoesExtras = "";
 		cfgModelosGemini = ""; cfgModelosOpenAI = ""; cfgModelosClaude = "";
+		cfgModelosCompativel = "";
 		try {
 			String^ caminho = CaminhoDados("configuracoes.txt");
 			if (!File::Exists(caminho)) return;
@@ -2685,6 +2687,7 @@ namespace T2MSecurityManager {
 				// escreveu. O Salvar normaliza \r\n, \n e \r na volta.
 				else if (chave == "instrucoes_extras") cfgInstrucoesExtras = valor->Replace("\\n", "\r\n");
 				else if (chave == "modelos_gemini") cfgModelosGemini = valor;
+				else if (chave == "modelos_compativel") cfgModelosCompativel = valor;
 				else if (chave == "modelos_openai") cfgModelosOpenAI = valor;
 				else if (chave == "modelos_claude") cfgModelosClaude = valor;
 			}
@@ -2714,7 +2717,7 @@ namespace T2MSecurityManager {
 				"dominios_confiaveis",
 				"max_historico", "instrucoes_extras",
 				"modelos_gemini", "modelos_openai", "modelos_claude",
-				"endpoint_compativel", "modelo_compativel"
+				"endpoint_compativel", "modelo_compativel", "modelos_compativel"
 			};
 			System::Text::StringBuilder^ sb = gcnew System::Text::StringBuilder();
 			sb->AppendLine("pasta_relatorios=" + cfgPastaRelatorios);
@@ -2742,6 +2745,7 @@ namespace T2MSecurityManager {
 			// Uma chave por linha: a quebra tem de virar \n literal, senao a segunda
 			// linha do texto seria lida como uma chave desconhecida e perdida.
 			sb->AppendLine("modelos_gemini=" + cfgModelosGemini);
+			sb->AppendLine("modelos_compativel=" + cfgModelosCompativel);
 			sb->AppendLine("modelos_openai=" + cfgModelosOpenAI);
 			sb->AppendLine("modelos_claude=" + cfgModelosClaude);
 			sb->AppendLine("instrucoes_extras=" + cfgInstrucoesExtras
@@ -2883,7 +2887,8 @@ namespace T2MSecurityManager {
 		// Lista guardada do ultimo Buscar, se houver. A lista escrita no codigo
 		// vira so o ponto de partida de quem nunca buscou.
 		String^ guardados = (provedorModelo == "OpenAI") ? cfgModelosOpenAI
-			: (provedorModelo == "Gemini") ? cfgModelosGemini : cfgModelosClaude;
+			: (provedorModelo == "Gemini") ? cfgModelosGemini
+			: (provedorModelo == "Claude") ? cfgModelosClaude : cfgModelosCompativel;
 		if (!String::IsNullOrWhiteSpace(guardados)) {
 			for each (String ^ m in guardados->Split(';')) {
 				String^ nome = m->Trim();
@@ -2917,6 +2922,26 @@ namespace T2MSecurityManager {
 			dicaTexto =
 				L"Modelo usado quando a chave selecionada e do Google (AIza... / AQ...).\n"
 				L"No plano gratuito o limite por minuto e baixo; os \"flash\" tem mais folga.";
+		}
+		else if (provedorModelo != "Claude") {
+			// Groq, servidor local e outros endpoints compativeis. Antes caiam
+			// no "else" do Claude: a tela dizia "Modelo Groq" e oferecia
+			// claude-sonnet, com a tabela de precos da Anthropic. Pior, salvar
+			// gravava o nome em modelo_claude - o modelo escolhido nao valia
+			// para nada e ainda estragava a configuracao do Claude.
+			if (cbModelo->Items->Count == 0) {
+				cbModelo->Items->Add(L"llama-3.3-70b-versatile");
+				cbModelo->Items->Add(L"llama-3.1-8b-instant");
+				cbModelo->Items->Add(L"meta-llama/llama-4-scout-17b-16e-instruct");
+				cbModelo->Items->Add(L"qwen2.5:7b");
+			}
+			cbModelo->Text = String::IsNullOrWhiteSpace(cfgModeloCompativel)
+				? L"llama-3.3-70b-versatile" : cfgModeloCompativel;
+			dicaTexto =
+				L"Modelo usado pela chave selecionada (Groq, servidor local ou "
+				L"endpoint compativel).\n"
+				L"No Groq: "instant" e mais rapido e tem limite diario maior; "
+				L"os "llama-4" aceitam imagem, os "llama-3.x" nao.";
 		}
 		else {
 			if (cbModelo->Items->Count == 0) {
@@ -2962,8 +2987,9 @@ namespace T2MSecurityManager {
 		// do Gemini virava fila de 30 em 30 segundos, porque cada passo gasta
 		// uma requisicao.
 		y += 62;
+		int yInicioComp = y;          // topo da moldura desta secao
 		Label^ lblSecaoComp = gcnew Label();
-		lblSecaoComp->Text = L"Servidor local ou proprio  -  opcional, quase ninguem precisa";
+		lblSecaoComp->Text = L"Servidor local ou proprio  (Ollama, LM Studio, vLLM)";
 		lblSecaoComp->Location = System::Drawing::Point(x1, y); lblSecaoComp->AutoSize = true;
 		lblSecaoComp->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
 		f->Controls->Add(lblSecaoComp);
@@ -3003,16 +3029,11 @@ namespace T2MSecurityManager {
 		btnOllama->Click += gcnew System::EventHandler(this, &MyForm::preencherEndpoint_Handler);
 		f->Controls->Add(btnOllama);
 
+		// O modelo NAO fica aqui: ele e o campo la de cima, que ja muda de nome
+		// conforme a chave selecionada ("Modelo Groq", "Modelo Local"). Ter dois
+		// lugares para a mesma configuracao e fabrica de bug - um dia os dois
+		// discordam e ninguem sabe qual vale.
 		y += 28;
-		Label^ lblModComp = gcnew Label();
-		lblModComp->Text = L"Modelo deste endpoint:";
-		lblModComp->Location = System::Drawing::Point(x1, y + 3); lblModComp->AutoSize = true;
-		f->Controls->Add(lblModComp);
-		TextBox^ txtModeloComp = gcnew TextBox();
-		txtModeloComp->Location = System::Drawing::Point(x1 + 150, y);
-		txtModeloComp->Size = System::Drawing::Size(340, 22);
-		txtModeloComp->Text = cfgModeloCompativel;
-		f->Controls->Add(txtModeloComp);
 
 		// Botao para esquecer o que foi aprendido. Existe porque o aprendizado e
 		// por NOME de modelo: quando o provedor lanca uma versao nova com o
@@ -3037,7 +3058,8 @@ namespace T2MSecurityManager {
 			L"Preencha SO para um servidor que fala o protocolo da OpenAI e nao "
 			L"tem chave que o identifique - Ollama ou LM Studio na sua maquina, "
 			L"vLLM, ou um endpoint interno da empresa. Nesse caso cadastre uma "
-			L"chave qualquer (ex.: ollama) e escreva o modelo aqui embaixo.\n"
+			L"chave qualquer (ex.: ollama) e escolher o modelo no campo la de "
+			L"cima, que passa a se chamar \"Modelo Local\".\n"
 			L"Campo vazio = desligado, e nada muda para as chaves conhecidas.\n"
 			L"Reaprender capacidades: o app descobre sozinho, na primeira "
 			L"tentativa, se cada modelo aceita imagem. Use depois de o provedor "
@@ -3047,6 +3069,22 @@ namespace T2MSecurityManager {
 		dicaComp->ForeColor = System::Drawing::Color::DimGray;
 		dicaComp->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		f->Controls->Add(dicaComp);
+
+		// Moldura em volta da secao inteira. Ela e a unica parte desta tela que
+		// a maioria nunca vai usar, e sem um contorno os campos ficam com o
+		// mesmo peso visual dos que todo mundo mexe - o que fazia a pessoa parar
+		// para tentar entender se aquilo era obrigatorio.
+		Panel^ molduraComp = gcnew Panel();
+		molduraComp->Location = System::Drawing::Point(x1 - 10, yInicioComp - 6);
+		molduraComp->Size = System::Drawing::Size(660, (y + 62) - yInicioComp);
+		molduraComp->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
+		molduraComp->BackColor = System::Drawing::Color::FromArgb(247, 249, 252);
+		f->Controls->Add(molduraComp);
+		// Controls->Add poe no FIM da colecao, que e o FUNDO da pilha - entao a
+		// moldura ja nasce atras. O SendToBack e cinto e suspensorio: se alguem
+		// mover esta linha para cima um dia, a tela nao some.
+		molduraComp->SendToBack();
+
 		y += 18;
 
 		// Secao de limites
@@ -3230,6 +3268,20 @@ namespace T2MSecurityManager {
 		btnOk->ForeColor = System::Drawing::Color::White; btnOk->FlatStyle = FlatStyle::Flat;
 		f->Controls->Add(btnOk);
 
+		// Restaurar padroes NAO grava nada: so repoe os valores nos campos. Assim
+		// o Cancelar continua sendo saida real - a pessoa pode ver como era o
+		// padrao, mudar de ideia e sair sem ter alterado o arquivo.
+		Button^ btnPadroes = gcnew Button();
+		btnPadroes->Text = L"↺ Restaurar padroes";
+		btnPadroes->Location = System::Drawing::Point(x1, y);
+		btnPadroes->Size = System::Drawing::Size(150, 30);
+		btnPadroes->FlatStyle = FlatStyle::Flat;
+		btnPadroes->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		btnPadroes->Cursor = Cursors::Hand;
+		btnPadroes->Tag = f;
+		btnPadroes->Click += gcnew System::EventHandler(this, &MyForm::restaurarPadroes_Click);
+		f->Controls->Add(btnPadroes);
+
 		Button^ btnCancel = gcnew Button();
 		btnCancel->Text = L"Cancelar";
 		btnCancel->Location = System::Drawing::Point(x1 + 370, y); btnCancel->Size = System::Drawing::Size(100, 30);
@@ -3237,13 +3289,13 @@ namespace T2MSecurityManager {
 		btnCancel->Click += gcnew System::EventHandler(this, &MyForm::fecharDialogo_Handler);
 		f->Controls->Add(btnCancel);
 
-		cli::array<Object^>^ campos = gcnew cli::array<Object^>(14);
+		cli::array<Object^>^ campos = gcnew cli::array<Object^>(13);
 		campos[0] = txtRel; campos[1] = txtSes; campos[2] = txtScr;
 		campos[3] = numPassos; campos[4] = numLinhas; campos[5] = numTimeout;
 		campos[6] = cbModelo; campos[7] = numHist;
 		campos[8] = chkIsolado; campos[9] = txtDominios; campos[10] = chkJs;
 		campos[11] = txtInstrOculto;
-		campos[12] = txtEndpoint; campos[13] = txtModeloComp;
+		campos[12] = txtEndpoint;
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
@@ -3321,6 +3373,12 @@ namespace T2MSecurityManager {
 			psi->FileName = "python";
 			psi->Arguments = "-u \"" + CaminhoApp("listar_modelos.py") + "\"";
 			psi->UseShellExecute = false;
+			// O endereco viaja por variavel de ambiente: sem ele, uma chave de
+			// servidor local nao tem como ser consultada, e uma do Groq cairia
+			// no roteador antigo (que mandava tudo o que nao era sk- para o
+			// Google, e devolvia "chave invalida" apontando para o lugar errado).
+			if (!String::IsNullOrWhiteSpace(cfgEndpointCompativel))
+				psi->EnvironmentVariables["T2M_ENDPOINT"] = cfgEndpointCompativel;
 			psi->RedirectStandardInput = true;
 			psi->RedirectStandardOutput = true;
 			psi->RedirectStandardError = true;
@@ -3470,7 +3528,8 @@ namespace T2MSecurityManager {
 				? L"Claude" : cbModelosAlvo->Tag->ToString();
 			if (prov == "OpenAI") cfgModelosOpenAI = lista->ToString();
 			else if (prov == "Gemini") cfgModelosGemini = lista->ToString();
-			else cfgModelosClaude = lista->ToString();
+			else if (prov == "Claude") cfgModelosClaude = lista->ToString();
+			else cfgModelosCompativel = lista->ToString();
 			SalvarConfiguracoesApp();
 
 			// qtd.ToString() e obrigatorio. "qtd + L\"texto\"" faria o compilador
@@ -3720,10 +3779,12 @@ namespace T2MSecurityManager {
 			// de 30 em 30 segundos. Quem nao sabe que existe alternativa conclui
 			// que o produto e lento.
 			MostrarBalao(btnConfiguracoes, L"9 de 9  -  Sem gastar cota",
-				L"Ainda em Configuracoes: o campo \"Endpoint compativel com a "
-				L"OpenAI\" aceita Groq (nuvem, gratuito e rapido) ou Ollama "
-				L"(na sua maquina, sem internet). Os botoes Groq e Ollama "
-				L"preenchem o endereco.\n\n"
+				L"Ainda em Configuracoes: uma chave do Groq (gsk_...) e "
+				L"reconhecida sozinha e tem limite bem mais folgado que a cota "
+				L"gratuita do Google - basta cadastrar a chave e escolher o "
+				L"modelo. Para rodar na sua propria maquina, sem internet, use "
+				L"a secao \"Servidor local ou proprio\" com Ollama ou LM "
+				L"Studio.\n\n"
 				L"Serve porque cada passo da automacao gasta uma requisicao: "
 				L"num plano gratuito apertado, o teste para no meio esperando "
 				L"cota.\n\n"
@@ -4034,6 +4095,56 @@ namespace T2MSecurityManager {
 		if (l != nullptr) l->Text = t->Text->Length.ToString() + L" de 2000 caracteres";
 	}
 
+		   // Repoe TODOS os campos desta tela nos valores de fabrica, inclusive as
+		   // instrucoes permanentes. Nada e gravado aqui: quem grava e o Salvar.
+		   //
+		   // Existe porque configuracao acumulada e dificil de desfazer na mao -
+		   // depois de meses mexendo em passos, timeout, dominios confiaveis e
+		   // instrucoes, ninguem lembra o que era padrao e o que foi decisao.
+	private: System::Void restaurarPadroes_Click(System::Object^ sender, System::EventArgs^ e) {
+		Button^ b = safe_cast<Button^>(sender);
+		Form^ f = safe_cast<Form^>(b->Tag);
+		cli::array<Object^>^ ctl = safe_cast<cli::array<Object^>^>(f->Tag);
+
+		if (MessageBox::Show(
+			L"Repor TODOS os campos desta tela nos valores de fabrica?\n\n"
+			L"Isso inclui pastas, limites de execucao, modelo, seguranca da "
+			L"automacao, servidor proprio e as instrucoes permanentes da IA.\n\n"
+			L"Nada e gravado agora: os campos voltam ao padrao e voce ainda pode "
+			L"sair por Cancelar sem alterar nada. Suas chaves de API e o que o "
+			L"aplicativo aprendeu sobre os modelos NAO sao tocados.",
+			L"Restaurar padroes", MessageBoxButtons::YesNo, MessageBoxIcon::Question,
+			MessageBoxDefaultButton::Button2) != System::Windows::Forms::DialogResult::Yes)
+			return;
+
+		try {
+			safe_cast<TextBox^>(ctl[0])->Text = PastaPadrao("relatorios T2M");
+			safe_cast<TextBox^>(ctl[1])->Text = PastaPadrao("sessoes T2M");
+			safe_cast<TextBox^>(ctl[2])->Text = PastaPadrao("modelos de teste em IA");
+			safe_cast<NumericUpDown^>(ctl[3])->Value = 15;    // passos maximos
+			safe_cast<NumericUpDown^>(ctl[4])->Value = 100;   // linhas por consulta
+			safe_cast<NumericUpDown^>(ctl[5])->Value = 120;   // timeout, em segundos
+			// O modelo padrao depende do provedor dono do campo (Tag).
+			ComboBox^ cbMod = safe_cast<ComboBox^>(ctl[6]);
+			String^ prov = (cbMod->Tag == nullptr) ? L"Claude" : cbMod->Tag->ToString();
+			cbMod->Text = (prov == "OpenAI") ? L"gpt-4o-mini"
+				: (prov == "Gemini") ? L"gemini-2.5-flash" : L"claude-sonnet-4-6";
+			safe_cast<NumericUpDown^>(ctl[7])->Value = 20;    // mensagens no historico
+			safe_cast<CheckBox^>(ctl[8])->Checked = true;     // navegador isolado
+			safe_cast<TextBox^>(ctl[9])->Text = L"";          // dominios confiaveis
+			safe_cast<CheckBox^>(ctl[10])->Checked = false;   // JS na pagina: DESLIGADO
+			safe_cast<TextBox^>(ctl[11])->Text = L"";         // instrucoes permanentes
+			safe_cast<TextBox^>(ctl[12])->Text = L"";         // servidor proprio
+			MessageBox::Show(
+				L"Campos repostos.\n\nClique em Salvar para valer, ou Cancelar "
+				L"para manter o que estava antes.",
+				L"Restaurar padroes", MessageBoxButtons::OK, MessageBoxIcon::Information);
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Nao foi possivel repor: " + ex->Message, L"Erro");
+		}
+	}
+
 		   // Apaga o que o aplicativo aprendeu sobre os modelos.
 	private: System::Void esquecerCapacidades_Click(System::Object^ sender, System::EventArgs^ e) {
 		String^ arq = CaminhoDados("capacidades_modelos.txt");
@@ -4121,6 +4232,14 @@ namespace T2MSecurityManager {
 			if (String::IsNullOrWhiteSpace(modeloEscolhido)) modeloEscolhido = L"gemini-2.5-flash";
 			cfgModeloGemini = modeloEscolhido;
 		}
+		else if (provModelo != "Claude") {
+			// Groq / servidor local / compativel: campo proprio. Cair no ramo do
+			// Claude gravava o nome em modelo_claude, e o modelo escolhido nao
+			// valia para nada.
+			if (String::IsNullOrWhiteSpace(modeloEscolhido))
+				modeloEscolhido = L"llama-3.3-70b-versatile";
+			cfgModeloCompativel = modeloEscolhido;
+		}
 		else {
 			if (String::IsNullOrWhiteSpace(modeloEscolhido)) modeloEscolhido = L"claude-sonnet-4-6";
 			// Aviso: geracoes antigas do Claude foram aposentadas e retornam erro
@@ -4139,7 +4258,6 @@ namespace T2MSecurityManager {
 		cfgPermitirJsPagina = safe_cast<CheckBox^>(ctl[10])->Checked;
 		cfgInstrucoesExtras = safe_cast<TextBox^>(ctl[11])->Text->Trim();
 		cfgEndpointCompativel = safe_cast<TextBox^>(ctl[12])->Text->Trim();
-		cfgModeloCompativel = safe_cast<TextBox^>(ctl[13])->Text->Trim();
 
 		SalvarConfiguracoesApp();
 		// O indicador do Copilot passa a mostrar o modelo novo na hora, se a

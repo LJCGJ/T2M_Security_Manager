@@ -12,6 +12,7 @@ CONTRATO (igual aos outros scripts):
     stdout : MODELOS_INICIO / um modelo por linha / MODELOS_FIM
     stderr : mensagens de progresso e erro
 """
+import os
 import sys
 
 
@@ -31,14 +32,35 @@ def listar_anthropic(chave):
     return modelos
 
 
+def _base_url(chave):
+    """Endereco do endpoint quando a chave NAO e da OpenAI oficial.
+
+    Espelha _base_url_openai do agente e do gerador. Sem isto, uma chave do
+    Groq caia no "else" do roteador e era perguntada ao GOOGLE - o erro que
+    chegava a tela era "Chave invalida ou revogada", apontando para o lugar
+    errado. Quem visse isso trocaria a chave boa por outra."""
+    c = (chave or "").strip()
+    if c.startswith("gsk_"):
+        return os.environ.get("T2M_ENDPOINT", "") or "https://api.groq.com/openai/v1"
+    if c.startswith("sk-"):
+        return ""
+    return os.environ.get("T2M_ENDPOINT", "")
+
+
 def listar_openai(chave):
     from openai import OpenAI
-    cliente = OpenAI(api_key=chave)
+    base = _base_url(chave)
+    cliente = OpenAI(api_key=chave, base_url=base) if base else OpenAI(api_key=chave)
     modelos = []
     for m in cliente.models.list().data:
         # So os de conversa interessam aqui (ignora embeddings, audio, imagem...)
-        if m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt")) \
-                and _serve_para_conversar(m.id):
+        # O filtro por prefixo so vale para a OpenAI oficial: num endpoint
+        # compativel os nomes sao outros (llama, qwen, mixtral, gemma) e ele
+        # devolveria uma lista VAZIA - com a mensagem "nenhum modelo retornado",
+        # que sugere problema de conta quando o problema era o filtro.
+        oficial = not base
+        if _serve_para_conversar(m.id) and (
+                not oficial or m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt"))):
             modelos.append((m.id, ""))
     modelos.sort(key=lambda x: x[0], reverse=True)
     return modelos
@@ -90,10 +112,16 @@ def main():
         log("Nenhuma chave informada.")
         return 1
 
+    # Mesma ordem de prefixos do agente e do gerador. Divergir aqui produz o
+    # pior tipo de erro: a lista consulta um provedor e a conversa usa outro.
+    base = _base_url(chave)
     if chave.startswith("sk-ant-"):
         provedor, funcao = "Claude", listar_anthropic
-    elif chave.startswith("sk-"):
-        provedor, funcao = "OpenAI", listar_openai
+    elif chave.startswith("sk-") or chave.startswith("gsk_") or base:
+        provedor = ("Groq" if "groq" in base
+                    else "servidor local" if ("localhost" in base or "127.0.0.1" in base)
+                    else "OpenAI" if not base else "endpoint compativel")
+        funcao = listar_openai
     else:
         provedor, funcao = "Gemini", listar_gemini
 
