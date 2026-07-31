@@ -991,8 +991,19 @@ def teste_falhas_de_ferramenta():
     r = A._resumo_falhas()
     checa("o rodape conta quantas falharam", "2 chamada(s)" in r and "(2x)" in r)
     checa("o rodape nomeia a ferramenta", "browser_type" in r)
-    checa("o rodape manda desconfiar do relatorio",
-          "esta errado" in r and "confira voce mesmo" in r)
+    checa("o rodape manda conferir os passos afetados",
+          "Confira os passos afetados" in r)
+    # Visto num teste real: fill_form falhou, a IA refez com browser_type e o
+    # laudo estava CERTO - mas o rodape afirmava "o relatorio esta errado". Um
+    # aviso que exagera vira aviso ignorado, e no dia da falha de verdade
+    # ninguem olha. O rodape passou a declarar o proprio limite.
+    checa("o rodape admite as duas leituras possiveis",
+          "contornou a falha com outra ferramenta" in r
+          and "deu a acao por feita" in r)
+    checa("o rodape nao afirma que o relatorio esta errado",
+          "esta errado" not in r, r)
+    checa("e deixa claro que nao reprova o teste sozinho",
+          "nao reprova o teste" in r)
 
     # E o mais importante: sai junto do relatorio que o operador le.
     original = A.ARQUIVO_HISTORICO

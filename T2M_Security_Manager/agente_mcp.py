@@ -616,10 +616,18 @@ def _resumo_falhas():
     total = sum(_FALHAS_FERRAMENTA.values())
     itens = ", ".join(f"{n} ({v}x)" if v > 1 else n
                       for n, v in sorted(_FALHAS_FERRAMENTA.items()))
+    # O rodape declara o que NAO sabe. Visto num teste real: browser_fill_form
+    # falhou, a IA refez o preenchimento com browser_type e o resultado final
+    # estava certo - mas o texto antigo dizia "o relatorio esta errado", e quem
+    # leu foi levado a duvidar de um laudo correto. Um aviso que exagera vira
+    # aviso ignorado, e no dia da falha de verdade ninguem olha.
     return (f"\n\n[T2M] ATENCAO: {total} chamada(s) de ferramenta FALHARAM "
             f"durante este teste: {itens}.\n"
-            f"Se o relatorio acima afirma que essas acoes funcionaram, ele esta "
-            f"errado - confira voce mesmo antes de dar o teste por concluido. "
+            f"Duas leituras sao possiveis: a IA contornou a falha com outra "
+            f"ferramenta e o resultado vale, OU ela deu a acao por feita sem "
+            f"que tivesse acontecido. Este rodape e automatico e nao distingue "
+            f"os dois casos - por isso ele pede conferencia, e nao reprova o "
+            f"teste. Confira os passos afetados antes de dar por concluido. "
             f"Falha repetida na mesma ferramenta costuma ser a IA insistindo em "
             f"um parametro que nao existe.")
 
