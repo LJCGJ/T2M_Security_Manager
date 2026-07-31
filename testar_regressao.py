@@ -1893,6 +1893,16 @@ def teste_modelo_na_conversa():
           "AnunciarModeloNoChat(true);" in fonte)
     checa("reconfere o modelo a cada envio",
           "AnunciarModeloNoChat(false);" in fonte)
+    # Visto na tela ao trocar para a chave do Groq: o indicador do topo dizia
+    # "Groq" e a conversa continuava afirmando "Gemini", ate a mensagem
+    # seguinte. Duas informacoes se contradizendo na mesma tela e pior que
+    # nenhuma, e a linha existe justamente para tirar essa duvida.
+    checa("trocar de chave anuncia na hora, sem esperar o proximo envio",
+          fonte.count("AnunciarModeloNoChat(false);") == 2)
+    # CarregarDropdownAPI dispara o evento durante a montagem da janela; sem a
+    # guarda, a linha sairia antes da mensagem de abertura.
+    checa("mas nao antes da mensagem de abertura existir",
+          "if (!String::IsNullOrWhiteSpace(modeloAnunciadoNoChat))" in fonte)
 
     # Sem o campo de memoria, ou nao ha linha nenhuma, ou ela se repete a cada
     # mensagem e vira ruido que a pessoa aprende a ignorar.

@@ -2000,6 +2000,22 @@ namespace T2MSecurityManager {
 			CarregarDropdownAPI(comboModeloChat);
 		}
 		AtualizarIndicadorIA();  // atualiza a bolinha/nome da IA conforme a chave
+
+		// Trocar de CHAVE tambem troca de provedor e de modelo, e e um ato
+		// explicito - merece a linha na hora, nao so no proximo envio.
+		//
+		// Visto na tela: a janela abre com a primeira chave da lista, anuncia
+		// "Gemini | gemini-2.0-flash", e ao escolher a chave do Groq o indicador
+		// do topo passava a dizer "Groq" enquanto a conversa continuava
+		// afirmando "Gemini". Duas informacoes se contradizendo na mesma tela e
+		// pior que nenhuma - e a contradicao so sumia depois de gastar uma
+		// mensagem.
+		//
+		// A condicao evita escrever antes da hora: CarregarDropdownAPI dispara
+		// este evento durante a montagem da janela, antes da mensagem de
+		// abertura. Com o campo ainda vazio, nao ha o que corrigir.
+		if (!String::IsNullOrWhiteSpace(modeloAnunciadoNoChat))
+			AnunciarModeloNoChat(false);
 	}
 
 	private: System::Void btnRemoverChave_Click(System::Object^ sender, System::EventArgs^ e) {
