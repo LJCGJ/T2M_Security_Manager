@@ -2564,6 +2564,69 @@ def teste_anexos_e_visao():
           "_tem_imagem(memoria) and _e_erro_de_imagem(erro_img)" in fonte_g)
     checa("o aviso vai colado na resposta",
           "responder(aviso_visao + resposta_ia)" in fonte_g)
+
+    # --- O APLICATIVO APRENDE O QUE CADA MODELO ACEITA ---
+    # Pedido do operador: "ajustando automaticamente as limitacoes de cada IA
+    # adicionada". Lista de nomes no codigo e promessa que nao da para cumprir -
+    # um endpoint compativel serve QUALQUER modelo, o Ollama serve o que a
+    # pessoa baixou, e todo mes nasce modelo novo. Entao observa-se e guarda-se.
+    appdata_antes = os.environ.get("APPDATA")
+    os.environ["APPDATA"] = tempfile.mkdtemp(prefix="t2m_cap_")
+    try:
+        import importlib
+        importlib.reload(G)
+        checa("modelo nunca testado nao tem veredito",
+              G.modelo_enxerga("modelo-novissimo") is None)
+        G._registrar_capacidade("llama-3.3-70b-versatile", False)
+        G._registrar_capacidade("meta-llama/llama-4-scout-17b-16e-instruct", True)
+        checa("o que recusou fica sabido como sem visao",
+              G.modelo_enxerga("llama-3.3-70b-versatile") is False)
+        checa("o que aceitou fica sabido como com visao",
+              G.modelo_enxerga("meta-llama/llama-4-scout-17b-16e-instruct") is True)
+        checa("nome com barra e ponto sobrevive ao formato do arquivo",
+              G.modelo_enxerga("meta-llama/llama-4-scout-17b-16e-instruct") is True)
+        # O C++ le o MESMO arquivo para avisar antes do envio; JSON exigiria um
+        # parser que ele nao tem.
+        arq = G._caminho_dados(G._ARQ_CAPACIDADES)
+        conteudo = open(arq, encoding="utf-8").read()
+        checa("o formato e uma linha por modelo, legivel pelo C++",
+              "llama-3.3-70b-versatile=0" in conteudo
+              and "meta-llama/llama-4-scout-17b-16e-instruct=1" in conteudo)
+        checa("com cabecalho explicando como reaprender",
+              "reaprender do zero" in conteudo)
+        G._registrar_capacidade("llama-3.3-70b-versatile", True)
+        checa("um modelo pode mudar de veredito (ganhou visao numa versao nova)",
+              G.modelo_enxerga("llama-3.3-70b-versatile") is True)
+    finally:
+        if appdata_antes is not None:
+            os.environ["APPDATA"] = appdata_antes
+        importlib.reload(G)
+
+    checa("o que ja se sabe evita ate a primeira chamada perdida",
+          "modelo_enxerga(modelo) is False" in fonte_g)
+    checa("a recusa observada e gravada, nao so usada na hora",
+          "_registrar_capacidade(modelo, False)" in fonte_g)
+    checa("e o sucesso tambem, para o aviso parar de aparecer",
+          "_registrar_capacidade(modelo, True)" in fonte_g)
+
+    # Sem desanexar da MEMORIA, toda mensagem seguinte tentaria mandar as
+    # mesmas imagens, tomaria o mesmo 400 e gastaria duas chamadas em vez de
+    # uma - para sempre, ate alguem comecar uma conversa nova.
+    mem = [{"role": "user", "content": "analisa", "_imagens": ["/a.png", "/b.png"]},
+           {"role": "assistant", "content": "ok"}]
+    G._desanexar_imagens(mem, "llama-3.3-70b-versatile")
+    checa("as imagens saem da memoria depois da recusa",
+          not any("_imagens" in m for m in mem))
+    # Apagar em silencio faria a conversa mentir por omissao: quem reabrisse
+    # depois nao saberia que houve print nenhum.
+    checa("mas fica registrado que existiram e nao foram vistas",
+          "2 imagem(ns) foram anexadas" in mem[0]["content"]
+          and "nao aceita imagem" in mem[0]["content"])
+    checa("o texto original do operador e preservado",
+          mem[0]["content"].startswith("analisa"))
+    G._desanexar_imagens(mem, "llama-3.3-70b-versatile")
+    checa("e a nota nao se repete a cada passagem",
+          mem[0]["content"].count("[T2M]") == 1)
     checa("o tamanho medido e o de base64, nao o do arquivo",
           "len(dados)" in fonte_g and "~33% maior" in fonte_g)
     checa("na falta de espaco, a imagem antiga e que sai",
@@ -2643,8 +2706,15 @@ def teste_anexos_e_visao():
               'L"llama-4"' in fonte and 'L"scout"' in fonte)
         # Nao da para SABER: um endpoint compativel serve qualquer modelo. O
         # aviso admite isso em vez de afirmar com falsa confianca.
-        checa("o aviso admite que pode ser desconhecimento nosso",
-              "talvez eu simplesmente nao conheca" in fonte)
+        checa("o aviso admite que e falta de observacao, nao veredito",
+              "ainda nao vi este modelo em acao" in fonte)
+        # Fato medido nao se discute com lista de nomes.
+        checa("o C++ consulta o aprendido antes de palpitar pelo nome",
+              'CaminhoDados("capacidades_modelos.txt")' in fonte)
+        i = fonte.find("bool ModeloProvavelmenteEnxerga")
+        bloco = fonte[i:i + 1800] if i >= 0 else ""
+        checa("e a consulta vem ANTES do palpite por familia",
+              bloco.find("capacidades_modelos.txt") < bloco.find('L"llama-4"'))
         checa("e sai uma vez so, para nao virar ruido",
               "jaAvisouSemVisao" in fonte)
         checa("voltando a valer quando o modelo muda",

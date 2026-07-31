@@ -107,6 +107,67 @@ def _e_erro_de_modelo(e):
             or "model_not_found" in msg or "deprecated" in msg)
 
 
+# --- O QUE CADA MODELO ACEITA, APRENDIDO NA PRATICA -------------------------
+# Manter uma lista de "modelos com visao" no codigo e uma promessa que nao da
+# para cumprir: um endpoint compativel serve QUALQUER modelo, o Ollama serve o
+# que a pessoa baixou, e todo mes nasce modelo novo. Qualquer lista nasce
+# desatualizada e erra em silencio.
+#
+# Entao o aplicativo aprende: na primeira vez que um modelo aceita (ou recusa)
+# imagem, isso fica gravado por NOME de modelo. Da segunda em diante ele ja
+# sabe, e nem chega a gastar a chamada. E o mesmo principio dos rodapes de
+# recusa e de falha - preferir o fato observado ao palpite.
+#
+# Formato deliberadamente simples (uma linha "modelo=0|1"), e nao JSON, porque
+# o C++ le o mesmo arquivo para avisar ANTES do envio e ja tem esse parser.
+_ARQ_CAPACIDADES = "capacidades_modelos.txt"
+
+
+def _capacidades():
+    """{"nome-do-modelo": True/False} - True = aceita imagem."""
+    tabela = {}
+    try:
+        caminho = _caminho_dados(_ARQ_CAPACIDADES)
+        if not os.path.exists(caminho):
+            return tabela
+        with open(caminho, "r", encoding="utf-8") as f:
+            for linha in f:
+                if "=" not in linha:
+                    continue
+                nome, valor = linha.split("=", 1)
+                nome, valor = nome.strip(), valor.strip()
+                if nome:
+                    tabela[nome] = (valor == "1")
+    except Exception:
+        pass          # saber e otimizacao; nao saber apenas custa uma tentativa
+    return tabela
+
+
+def modelo_enxerga(nome):
+    """True / False / None (nunca testado)."""
+    return _capacidades().get((nome or "").strip())
+
+
+def _registrar_capacidade(nome, aceita):
+    nome = (nome or "").strip()
+    if not nome:
+        return
+    tabela = _capacidades()
+    if tabela.get(nome) is aceita:
+        return                       # nada mudou, nao mexe no disco
+    tabela[nome] = aceita
+    try:
+        with open(_caminho_dados(_ARQ_CAPACIDADES), "w", encoding="utf-8") as f:
+            f.write("# Aprendido pelo T2M: 1 = o modelo aceita imagem, 0 = nao.\n")
+            f.write("# Apagar este arquivo faz o aplicativo reaprender do zero.\n")
+            for k, v in sorted(tabela.items()):
+                f.write(f"{k}={'1' if v else '0'}\n")
+        log(f">>> aprendido: {nome} "
+            + ("aceita imagem." if aceita else "NAO aceita imagem."))
+    except Exception:
+        pass
+
+
 def _e_erro_de_imagem(e):
     """O modelo recusou a IMAGEM, e nao a pergunta.
 
@@ -399,6 +460,24 @@ class _OrcamentoImagens:
 
 def _tem_imagem(memoria):
     return any(m.get("_imagens") for m in memoria)
+
+
+def _desanexar_imagens(memoria, modelo):
+    """Tira as imagens da memoria e deixa dito, no proprio texto, que elas
+    existiram e nao foram vistas.
+
+    O registro importa tanto quanto a economia: quem reabrir esta conversa
+    depois precisa saber que havia um print ali, e que a resposta foi dada sem
+    ele. Apagar em silencio faria a conversa mentir por omissao."""
+    for m in memoria:
+        if not m.get("_imagens"):
+            continue
+        quantas = len(m["_imagens"])
+        m.pop("_imagens", None)
+        nota = (f"\n[T2M] {quantas} imagem(ns) foram anexadas aqui, mas o modelo "
+                f"{modelo} nao aceita imagem e respondeu sem ve-las.")
+        if nota not in m.get("content", ""):
+            m["content"] = (m.get("content") or "") + nota
 
 
 def _sem_imagens(memoria):
@@ -1094,6 +1173,15 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
             _MODELO_EFETIVO = modelo
             client = _cliente_openai(api_key)
             base = [{"role": "system", "content": sistema}]
+
+            # Ja sabemos que este modelo nao enxerga? Entao nem tenta: a
+            # chamada perdida de hoje seria identica a de ontem.
+            if _tem_imagem(memoria) and modelo_enxerga(modelo) is False:
+                log(f">>> {modelo} ja e conhecido por nao aceitar imagem; "
+                    f"enviando so o texto.")
+                aviso_visao = AVISO_SEM_VISAO.format(modelo=modelo)
+                _desanexar_imagens(memoria, modelo)
+
             try:
                 response = client.chat.completions.create(
                     model=modelo,
@@ -1110,6 +1198,19 @@ Sempre que for gerar codigo (nas proximas mensagens), coloque-o em blocos
                     model=modelo,
                     messages=base + _sem_imagens(memoria),
                 )
+                # Desanexa na MEMORIA, nao so nesta chamada. Sem isto, cada
+                # mensagem seguinte tentaria mandar as mesmas imagens, tomaria
+                # o mesmo 400 e gastaria duas chamadas em vez de uma - para
+                # sempre, ate alguem comecar uma conversa nova. O registro fica
+                # honesto: a imagem foi anexada, e nao foi vista.
+                _desanexar_imagens(memoria, modelo)
+                # E fica sabido para SEMPRE, nao so para esta conversa.
+                _registrar_capacidade(modelo, False)
+            else:
+                # Deu certo com imagem: este modelo enxerga, e o aviso
+                # preventivo nao deve mais aparecer para ele.
+                if _tem_imagem(memoria):
+                    _registrar_capacidade(modelo, True)
             # content vem None em recusas e quando o modelo devolve tool_calls;
             # o .strip() direto dava AttributeError em NoneType.
             resposta_ia = (response.choices[0].message.content or "").strip()

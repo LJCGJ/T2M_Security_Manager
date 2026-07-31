@@ -5405,10 +5405,32 @@ namespace T2MSecurityManager {
 		   // mensagem inteira e um erro que nao menciona imagem
 		   // ("content must be a string").
 	private: bool ModeloProvavelmenteEnxerga() {
+		String^ m0 = ModeloAtualCurto();
+
+		// 1) O QUE JA FOI OBSERVADO vence qualquer palpite. O agente Python
+		//    grava neste arquivo o resultado real da primeira tentativa de cada
+		//    modelo, e um fato medido nao se discute com uma lista de nomes.
+		//    Vale principalmente para Ollama e endpoints compativeis, onde o
+		//    nome do modelo nao diz nada sobre o que ele faz.
+		try {
+			String^ arq = CaminhoDados("capacidades_modelos.txt");
+			if (File::Exists(arq) && !String::IsNullOrWhiteSpace(m0)) {
+				for each (String ^ linha in File::ReadAllLines(arq)) {
+					if (String::IsNullOrWhiteSpace(linha) || linha->StartsWith("#")) continue;
+					int ig = linha->IndexOf('=');
+					if (ig <= 0) continue;
+					if (String::Compare(linha->Substring(0, ig)->Trim(), m0, true) != 0) continue;
+					return linha->Substring(ig + 1)->Trim() == "1";
+				}
+			}
+		}
+		catch (...) {}   // nao saber so custa uma tentativa; travar custa a tela
+
+		// 2) Sem observacao ainda: palpite por familia, so para o primeiro uso.
 		String^ ia = DetectarIA(ObterChaveReal());
 		// Claude e Gemini aceitam imagem em todos os modelos atuais.
 		if (ia == L"Claude" || ia == L"Gemini") return true;
-		String^ m = ModeloAtualCurto();
+		String^ m = m0;
 		if (String::IsNullOrWhiteSpace(m)) return true;   // sem modelo, nao palpita
 		m = m->ToLowerInvariant();
 		cli::array<String^>^ comVisao = gcnew cli::array<String^>{
@@ -5453,8 +5475,9 @@ namespace T2MSecurityManager {
 				L"Modelos que enxergam: no Groq, a familia Llama 4 (ex.: "
 				L"meta-llama/llama-4-scout-17b-16e-instruct); na OpenAI, gpt-4o "
 				L"e gpt-4.1 em diante; Claude e Gemini, qualquer modelo atual.\n\n"
-				L"Pode continuar se quiser - talvez eu simplesmente nao conheca "
-				L"este modelo.",
+				L"Pode continuar se quiser: eu ainda nao vi este modelo em acao. "
+				L"Na primeira tentativa o aplicativo aprende o que ele aceita e "
+				L"nao pergunta mais.",
 				L"Este modelo enxerga?", MessageBoxButtons::OK,
 				MessageBoxIcon::Information);
 		}
