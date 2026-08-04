@@ -3039,40 +3039,56 @@ def teste_anexos_e_visao():
             checa(f"o tour tem o passo {n} de 6", f'L"{n} de 6  -  ' in fonte)
         checa("o tour reinicia depois do ultimo passo",
               "passoTourConfig = 0;" in fonte)
-        # Um unico ToolTip criado na tela principal posiciona errado quando o
-        # alvo esta em OUTRA janela: o Windows mede a partir da janela dona, e o
-        # balao ia parar longe do controle - as vezes fora do aplicativo. Valia
-        # para os tres tutoriais.
-        checa("cada janela tem seu proprio balao",
-              "Dictionary<Object^, System::Windows::Forms::ToolTip^>^ baloesPorJanela;" in fonte
-              and "ToolTip^ BalaoDaJanela(Form^ dono)" in fonte)
-        checa("a posicao e calculada pela tela, nao herdada",
+        # O balao do tour NAO e mais um ToolTip do Windows. Duas tentativas
+        # com ToolTip falharam por razoes diferentes - trocar a janela dona
+        # (origem das coordenadas) e quebrar o texto (largura) - e a segunda
+        # ainda deixava dois defeitos que nenhum ajuste resolveria: o ToolTip
+        # e uma janela SOLTA do sistema, entao ficava parado no ar quando o
+        # operador arrastava o aplicativo, e o bico apontava para o nada
+        # depois de o balao ser empurrado para caber. Agora e um painel FILHO
+        # da janela: anda junto, nao passa da borda e some junto.
+        checa("o balao do tour e um painel filho, nao um ToolTip solto",
+              "Dictionary<Object^, Panel^>^ caixasPorJanela;" in fonte
+              and "Panel^ CaixaDaJanela(Form^ dono)" in fonte
+              and "dono->Controls->Add(c);" in fonte)
+        checa("nao sobrou ToolTip de tour no codigo",
+              "balaoTour" not in fonte and "baloesPorJanela" not in fonte)
+        checa("a posicao sai da tela e volta para dentro da janela",
               "alvo->PointToScreen(" in fonte and "dono->PointToClient(" in fonte)
-        # Trocar a janela dona resolveu a ORIGEM das coordenadas, e mesmo assim
-        # os baloes continuavam saindo pela direita. A causa restante era outra:
-        # o balao do Windows nao quebra paragrafo sozinho - ele fica tao largo
-        # quanto a maior linha do texto. Paragrafo de 300 caracteres = balao de
-        # dois mil pixels, largo demais para qualquer janela.
-        checa("o texto do balao e quebrado antes de exibir",
-              "String^ QuebrarTexto(String^ texto, int colunas)" in fonte
-              and "QuebrarTexto(texto," in fonte)
-        checa("a quebra respeita as quebras de linha ja escritas",
-              'texto->Replace(L"\\r\\n", L"\\n")->Split(\'\\n\')' in fonte)
-        checa("a largura do balao vem da largura da janela",
-              "(area.Width - 90) / larguraChar" in fonte)
-        # Numero fixo de pixels por caractere erraria com a fonte grande do
-        # Windows, justamente em quem mais precisa do tutorial.
-        checa("a largura do caractere e medida, nao chutada",
-              "int LarguraDeCaractere()" in fonte
-              and "TextRenderer::MeasureText(" in fonte)
-        # Ultimo passo: com o tamanho estimado, empurrar a ancora para dentro.
-        # Bico levemente deslocado e melhor que metade do balao fora da janela.
-        checa("a ancora e empurrada para dentro da janela",
+        checa("a caixa e empurrada para dentro dos quatro lados",
               "if (x + largura > area.Right - 8) x = area.Right - 8 - largura;" in fonte
-              and "if (y + altura > area.Bottom - 8) y = area.Bottom - 8 - altura;" in fonte)
-        checa("a ancora tambem nao passa da borda de cima nem da esquerda",
-              "if (x < area.Left + 8) x = area.Left + 8;" in fonte
-              and "if (y < area.Top + 8) y = area.Top + 8;" in fonte)
+              and "if (x < area.Left + 8) x = area.Left + 8;" in fonte
+              and "if (y + alturaTotal > area.Bottom - 8)" in fonte)
+        # O defeito que o operador viu na segunda tentativa: a caixa andava
+        # para caber e o bico continuava no lugar antigo, apontando para
+        # espaco vazio. O bico e calculado DEPOIS do empurrao.
+        checa("o bico aponta para o alvo mesmo depois do empurrao",
+              "int bicoX = Math::Max(16, Math::Min(largura - 16, centro - x));" in fonte)
+        checa("o bico vira para cima ou para baixo conforme o espaco",
+              "bool bicoEmCima = true;" in fonte
+              and "{ bicoEmCima = false; y = acima; }" in fonte)
+        # Sem recorte, o bico seria um triangulo desenhado dentro de um
+        # retangulo branco - e o retangulo apareceria.
+        checa("o painel e recortado no formato do balao",
+              "void AplicarRecorte(Panel^ caixa" in fonte
+              and "caixa->Region = gcnew System::Drawing::Region(caminho);" in fonte)
+        # Largura e altura medidas com o texto ja quebrado pela largura
+        # disponivel: em notebook o balao encolhe junto com a janela.
+        checa("a largura do balao vem da largura da janela",
+              "Math::Max(200, Math::Min(420, area.Width - 32))" in fonte)
+        checa("a altura e medida com o texto ja quebrado",
+              "TextFormatFlags::WordBreak" in fonte
+              and "int alturaTotal = BALAO_MARGEM + mTit.Height" in fonte)
+        # Numa janela com rolagem (a de Configuracoes tem), a origem do
+        # conteudo nao e a da area visivel - sem isto o balao nasce deslocado
+        # exatamente pelo tanto que a tela estiver rolada.
+        checa("a rolagem da janela e descontada",
+              "x - dono->DisplayRectangle.X, y - dono->DisplayRectangle.Y" in fonte)
+        # Redimensionar mudava o que cabe e o balao ficava meio fora.
+        checa("o balao se recoloca quando a janela muda de tamanho",
+              "janelaDoBalao_Resize" in fonte)
+        checa("clicar no balao fecha o balao",
+              "caixaBalao_Click" in fonte)
         # Cada tour listava seus controles para esconder um por um, e a lista
         # envelhecia a cada renomeacao.
         checa("esconder o balao anterior nao depende de lista fixa",

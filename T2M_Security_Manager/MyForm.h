@@ -235,12 +235,13 @@ namespace T2MSecurityManager {
 		Button^ btnAutomacao;    // Botao "Automacao MCP" que abre menu (Tela/API/Banco)
 		Button^ btnAjudaChat;    // "?" redondo: abre o tutorial
 		Button^ btnAjudaPrincipal;   // "?" redondo da tela inicial
-		System::Windows::Forms::ToolTip^ balaoTour;  // baloes do tour guiado
-		// Um ToolTip POR JANELA. Um unico ToolTip criado na tela principal
-		// posiciona errado quando o alvo esta em outra janela: o Windows calcula
-		// a partir da janela DONA do ToolTip, e o balao ia parar longe do
-		// controle - as vezes fora do aplicativo. Valia para os tres tutoriais.
-		Dictionary<Object^, System::Windows::Forms::ToolTip^>^ baloesPorJanela;
+		// O balao do tour e um PAINEL FILHO da janela, nao um ToolTip do
+		// Windows. Um ToolTip e uma janela solta do sistema: ele nasce em
+		// coordenadas de TELA, fica tao largo quanto o texto pedir e nao sabe
+		// que a janela existe - por isso ele saia pela borda, e por isso
+		// continuava parado no ar quando o operador arrastava a janela.
+		// Sendo filho, ele anda junto, nunca passa da borda e some junto.
+		Dictionary<Object^, Panel^>^ caixasPorJanela;
 		Control^ ultimoAlvoBalao;   // para esconder o anterior sem lista fixa
 		int passoTour;               // 0 = parado; 1..N = passo atual
 		int passoTourChat;           // idem, para o tour do Copilot
@@ -798,16 +799,11 @@ namespace T2MSecurityManager {
 			   this->btnAjudaPrincipal->Click += gcnew System::EventHandler(this, &MyForm::btnAjudaPrincipal_Click);
 			   this->Controls->Add(this->btnAjudaPrincipal);
 
-			   // Balao (IsBalloon) em vez de retangulo: e a forma que o Windows
-			   // usa para "isto aqui esta te explicando algo", nao para "isto e o
-			   // nome do botao". A distincao importa porque a tela ja tem dicas
-			   // de passar o mouse, e as duas coisas nao podem parecer iguais.
-			   this->balaoTour = (gcnew System::Windows::Forms::ToolTip());
-			   this->balaoTour->IsBalloon = true;
-			   this->balaoTour->ToolTipIcon = System::Windows::Forms::ToolTipIcon::Info;
-			   this->balaoTour->UseAnimation = true;
-			   this->balaoTour->UseFading = true;
-			   this->baloesPorJanela = gcnew Dictionary<Object^, System::Windows::Forms::ToolTip^>();
+			   // Um balao (painel) por janela, criado na primeira vez que aquela
+			   // janela mostra um passo do tour. Formato de balao com bico, para
+			   // nao confundir com as dicas de passar o mouse que a tela ja tem:
+			   // dica diz o nome do campo, balao diz por que ele importa.
+			   this->caixasPorJanela = gcnew Dictionary<Object^, Panel^>();
 			   this->ultimoAlvoBalao = nullptr;
 			   this->passoTour = 0;
 			   this->passoTourChat = 0;
@@ -3861,131 +3857,233 @@ namespace T2MSecurityManager {
 		   // apontando para o lugar certo ensina; paragrafo solto so ocupa tela.
 		   // Depois do ultimo, o tour reinicia - ninguem fica preso.
 		   // ==========================================================================
-		   // ToolTip da janela onde o controle vive, criando na primeira vez.
-	private: System::Windows::Forms::ToolTip^ BalaoDaJanela(Form^ dono) {
-		if (dono == nullptr) return balaoTour;
-		System::Windows::Forms::ToolTip^ t = nullptr;
-		if (baloesPorJanela->TryGetValue(dono, t) && t != nullptr) return t;
-		t = gcnew System::Windows::Forms::ToolTip();
-		t->IsBalloon = true;
-		t->ToolTipIcon = System::Windows::Forms::ToolTipIcon::Info;
-		t->UseAnimation = true;
-		t->UseFading = true;
-		baloesPorJanela[dono] = t;
-		return t;
+		   // Medidas do balao. Em um lugar so porque desenho, tamanho e
+		   // posicao precisam concordar - se divergirem, o bico aponta para
+		   // um lado e o texto sai pelo outro.
+	private: literal int BALAO_BICO = 12;      // altura do bico
+	private: literal int BALAO_MARGEM = 12;    // respiro interno
+	private: literal int BALAO_ICONE = 26;     // faixa do sinal de informacao
+
+		   // O contorno do balao: retangulo mais o bico apontando para o
+		   // controle. Serve para duas coisas - pintar, e recortar o painel
+		   // (Region), que e o que faz o bico existir de verdade em vez de
+		   // ser um triangulo desenhado sobre um retangulo branco.
+	private: System::Drawing::Drawing2D::GraphicsPath^ CaminhoBalao(
+		System::Drawing::Rectangle r, bool bicoEmCima, int bicoX) {
+		System::Drawing::Drawing2D::GraphicsPath^ p =
+			gcnew System::Drawing::Drawing2D::GraphicsPath();
+		int esq = r.Left;
+		int dir = r.Right - 1;
+		int cima = bicoEmCima ? (r.Top + BALAO_BICO) : r.Top;
+		int baixo = bicoEmCima ? (r.Bottom - 1) : (r.Bottom - 1 - BALAO_BICO);
+		int px = Math::Max(esq + 16, Math::Min(dir - 16, r.Left + bicoX));
+		if (bicoEmCima) {
+			p->AddLine(esq, cima, px - 9, cima);
+			p->AddLine(px - 9, cima, px, r.Top);
+			p->AddLine(px, r.Top, px + 9, cima);
+			p->AddLine(px + 9, cima, dir, cima);
+			p->AddLine(dir, cima, dir, baixo);
+			p->AddLine(dir, baixo, esq, baixo);
+		}
+		else {
+			p->AddLine(esq, cima, dir, cima);
+			p->AddLine(dir, cima, dir, baixo);
+			p->AddLine(dir, baixo, px + 9, baixo);
+			p->AddLine(px + 9, baixo, px, r.Bottom - 1);
+			p->AddLine(px, r.Bottom - 1, px - 9, baixo);
+			p->AddLine(px - 9, baixo, esq, baixo);
+		}
+		p->CloseFigure();
+		return p;
+	}
+
+		   // Recorta o painel no formato do balao. Sem isto o bico seria um
+		   // desenho dentro de um retangulo branco - e apareceria o retangulo.
+	private: void AplicarRecorte(Panel^ caixa, bool bicoEmCima, int bicoX) {
+		try {
+			System::Drawing::Drawing2D::GraphicsPath^ caminho = CaminhoBalao(
+				System::Drawing::Rectangle(0, 0, caixa->Width, caixa->Height),
+				bicoEmCima, bicoX);
+			System::Drawing::Region^ antiga = caixa->Region;
+			caixa->Region = gcnew System::Drawing::Region(caminho);
+			if (antiga != nullptr) delete antiga;
+		}
+		catch (...) {}
+	}
+
+		   // O painel-balao da janela, criado na primeira vez que ela mostra um
+		   // passo do tour. A de Configuracoes abre e fecha varias vezes por
+		   // sessao, entao restos de janelas mortas saem do caminho aqui.
+	private: Panel^ CaixaDaJanela(Form^ dono) {
+		List<Object^>^ mortas = gcnew List<Object^>();
+		for each (KeyValuePair<Object^, Panel^> par in caixasPorJanela) {
+			if (par.Value == nullptr || par.Value->IsDisposed) mortas->Add(par.Key);
+		}
+		for each (Object^ k in mortas) caixasPorJanela->Remove(k);
+
+		Panel^ c = nullptr;
+		if (caixasPorJanela->TryGetValue(dono, c) && c != nullptr && !c->IsDisposed)
+			return c;
+
+		c = gcnew Panel();
+		c->Visible = false;
+		c->BackColor = Color::White;
+		c->Cursor = System::Windows::Forms::Cursors::Hand;
+		c->Paint += gcnew System::Windows::Forms::PaintEventHandler(this, &MyForm::caixaBalao_Paint);
+		c->Click += gcnew System::EventHandler(this, &MyForm::caixaBalao_Click);
+		dono->Controls->Add(c);
+		c->BringToFront();
+		// Redimensionar a janela muda o que cabe: o balao se recoloca em vez
+		// de ficar meio fora, que era a reclamacao.
+		dono->Resize += gcnew System::EventHandler(this, &MyForm::janelaDoBalao_Resize);
+		caixasPorJanela[dono] = c;
+		return c;
+	}
+
+	private: System::Void caixaBalao_Click(System::Object^ sender, System::EventArgs^ e) {
+		EsconderBalaoAtual();
+	}
+
+	private: System::Void janelaDoBalao_Resize(System::Object^ sender, System::EventArgs^ e) {
+		if (ultimoAlvoBalao == nullptr || ultimoAlvoBalao->IsDisposed) return;
+		Form^ dono = ultimoAlvoBalao->FindForm();
+		if (dono == nullptr || dono != sender) return;
+		Panel^ c = nullptr;
+		if (!caixasPorJanela->TryGetValue(dono, c)) return;
+		if (c == nullptr || c->IsDisposed || !c->Visible) return;
+		cli::array<Object^>^ d = dynamic_cast<cli::array<Object^>^>(c->Tag);
+		if (d == nullptr || d->Length < 4) return;
+		Control^ alvo = ultimoAlvoBalao;
+		MostrarBalao(alvo, safe_cast<String^>(d[0]), safe_cast<String^>(d[1]));
+	}
+
+		   // Desenha o balao: fundo, borda, o circulo azul de informacao (o
+		   // mesmo sinal do balao do Windows, para nao parecer outra coisa),
+		   // o titulo em negrito e o texto quebrado pela largura disponivel.
+	private: System::Void caixaBalao_Paint(System::Object^ sender,
+		System::Windows::Forms::PaintEventArgs^ e) {
+		Panel^ c = safe_cast<Panel^>(sender);
+		cli::array<Object^>^ d = dynamic_cast<cli::array<Object^>^>(c->Tag);
+		if (d == nullptr || d->Length < 4) return;
+		String^ titulo = safe_cast<String^>(d[0]);
+		String^ texto = safe_cast<String^>(d[1]);
+		bool bicoEmCima = safe_cast<bool>(d[2]);
+		int bicoX = safe_cast<int>(d[3]);
+
+		System::Drawing::Rectangle r = c->ClientRectangle;
+		e->Graphics->SmoothingMode = System::Drawing::Drawing2D::SmoothingMode::AntiAlias;
+		System::Drawing::Drawing2D::GraphicsPath^ caminho = CaminhoBalao(r, bicoEmCima, bicoX);
+		SolidBrush^ fundo = gcnew SolidBrush(Color::White);
+		Pen^ borda = gcnew Pen(Color::FromArgb(120, 120, 120));
+		e->Graphics->FillPath(fundo, caminho);
+		e->Graphics->DrawPath(borda, caminho);
+		delete fundo;
+		delete borda;
+
+		int topo = bicoEmCima ? BALAO_BICO : 0;
+		System::Drawing::Rectangle rIcone(BALAO_MARGEM, topo + BALAO_MARGEM + 1, 16, 16);
+		SolidBrush^ azul = gcnew SolidBrush(Color::FromArgb(0, 120, 215));
+		e->Graphics->FillEllipse(azul, rIcone);
+		delete azul;
+		System::Drawing::Font^ fIcone = gcnew System::Drawing::Font(L"Segoe UI", 9.0f, FontStyle::Bold);
+		String^ letra = L"i";
+		TextRenderer::DrawText(e->Graphics, letra, fIcone, rIcone, Color::White,
+			static_cast<TextFormatFlags>(TextFormatFlags::HorizontalCenter | TextFormatFlags::VerticalCenter));
+		delete fIcone;
+
+		int esqTexto = BALAO_MARGEM + BALAO_ICONE;
+		int larguraTexto = r.Width - esqTexto - BALAO_MARGEM;
+		if (larguraTexto < 40) return;
+		System::Drawing::Font^ fTitulo = gcnew System::Drawing::Font(SystemFonts::DefaultFont, FontStyle::Bold);
+		System::Drawing::Size mTit = TextRenderer::MeasureText(titulo, fTitulo,
+			System::Drawing::Size(larguraTexto, 0), TextFormatFlags::WordBreak);
+		TextRenderer::DrawText(e->Graphics, titulo, fTitulo,
+			System::Drawing::Rectangle(esqTexto, topo + BALAO_MARGEM, larguraTexto, mTit.Height),
+			Color::FromArgb(0, 80, 140), TextFormatFlags::WordBreak);
+		delete fTitulo;
+
+		int yTexto = topo + BALAO_MARGEM + mTit.Height + 6;
+		TextRenderer::DrawText(e->Graphics, texto, SystemFonts::DefaultFont,
+			System::Drawing::Rectangle(esqTexto, yTexto, larguraTexto,
+				Math::Max(10, r.Bottom - yTexto - BALAO_MARGEM)),
+			Color::FromArgb(32, 32, 32), TextFormatFlags::WordBreak);
 	}
 
 		   // Esconde o balao que estiver aberto, seja de que janela for. Antes
 		   // cada tour listava seus proprios controles para esconder um por um -
 		   // e a lista envelhecia toda vez que um controle era renomeado.
 	private: void EsconderBalaoAtual() {
-		if (ultimoAlvoBalao == nullptr || ultimoAlvoBalao->IsDisposed) {
-			ultimoAlvoBalao = nullptr;
-			return;
-		}
-		Form^ dono = ultimoAlvoBalao->FindForm();
-		System::Windows::Forms::ToolTip^ t = BalaoDaJanela(dono);
-		try {
-			t->Hide(ultimoAlvoBalao);
-			if (dono != nullptr) t->Hide(dono);
-		}
-		catch (...) {}
-		ultimoAlvoBalao = nullptr;
-	}
-
-		   // Quebra o texto em linhas curtas. Um balao do Windows NAO quebra
-		   // paragrafo sozinho: ele mede o texto inteiro e fica tao largo
-		   // quanto a maior linha. Um paragrafo de 300 caracteres virava um
-		   // balao de dois mil pixels - por isso ele saia da janela mesmo com
-		   // a ancora certa. Quebrando aqui, a largura passa a ser nossa.
-	private: String^ QuebrarTexto(String^ texto, int colunas) {
-		if (String::IsNullOrEmpty(texto)) return texto;
-		if (colunas < 20) colunas = 20;
-		StringBuilder^ saida = gcnew StringBuilder();
-		cli::array<String^>^ linhas = texto->Replace(L"\r\n", L"\n")->Split('\n');
-		for (int i = 0; i < linhas->Length; i++) {
-			if (i > 0) saida->Append(L"\n");
-			String^ linha = linhas[i];
-			if (linha->Length <= colunas) { saida->Append(linha); continue; }
-			int usado = 0;
-			cli::array<String^>^ palavras = linha->Split(' ');
-			for (int p = 0; p < palavras->Length; p++) {
-				String^ palavra = palavras[p];
-				if (palavra->Length == 0) continue;
-				if (usado > 0 && usado + 1 + palavra->Length > colunas) {
-					saida->Append(L"\n");
-					usado = 0;
-				}
-				else if (usado > 0) {
-					saida->Append(L" ");
-					usado++;
-				}
-				saida->Append(palavra);
-				usado += palavra->Length;
+		for each (KeyValuePair<Object^, Panel^> par in caixasPorJanela) {
+			try {
+				if (par.Value != nullptr && !par.Value->IsDisposed) par.Value->Visible = false;
 			}
+			catch (...) {}
 		}
-		return saida->ToString();
-	}
-
-		   // Largura media de um caractere na fonte do balao. Medir e melhor
-		   // que chutar 7 pixels: o usuario pode estar com fonte grande do
-		   // Windows, e ai a conta feita com numero fixo erraria feio.
-	private: int LarguraDeCaractere() {
-		try {
-			String^ amostra = L"aaaaaaaaaaaaaaaaaaaa";
-			System::Drawing::Size m = TextRenderer::MeasureText(amostra, SystemFonts::DefaultFont);
-			return Math::Max(6, m.Width / 20);
-		}
-		catch (...) { return 7; }
+		ultimoAlvoBalao = nullptr;
 	}
 
 	private: void MostrarBalao(Control^ alvo, String^ titulo, String^ texto) {
 		if (alvo == nullptr || alvo->IsDisposed) return;
 		EsconderBalaoAtual();
-
 		Form^ dono = alvo->FindForm();
-		System::Windows::Forms::ToolTip^ t = BalaoDaJanela(dono);
-		if (t == nullptr) return;
-		t->ToolTipTitle = titulo;
+		if (dono == nullptr) return;
 
-		if (dono == nullptr) {
-			t->Show(QuebrarTexto(texto, 52), alvo,
-				alvo->Width / 2, alvo->Height + 2, 15000);
-			ultimoAlvoBalao = alvo;
-			return;
-		}
-
-		// 1) Largura do texto decidida pela largura da JANELA, nao por um
-		//    numero fixo: em tela pequena o balao encolhe junto.
+		Panel^ caixa = CaixaDaJanela(dono);
 		System::Drawing::Rectangle area = dono->ClientRectangle;
-		int larguraChar = LarguraDeCaractere();
-		int cabem = (area.Width - 90) / larguraChar;
-		String^ corpo = QuebrarTexto(texto, Math::Max(26, Math::Min(56, cabem)));
 
-		// 2) Tamanho estimado do balao ja quebrado (com folga para o icone,
-		//    o titulo, as bordas e o bico).
-		String^ tituloMedido = String::IsNullOrEmpty(titulo) ? String::Empty : titulo;
-		System::Drawing::Size medida = TextRenderer::MeasureText(corpo, SystemFonts::DefaultFont);
-		System::Drawing::Size medidaTit = TextRenderer::MeasureText(tituloMedido, SystemFonts::DefaultFont);
-		int largura = Math::Max(medida.Width, medidaTit.Width) + 70;
-		int altura = medida.Height + medidaTit.Height + 46;
+		// 1) Largura. Teto de 420 para a linha nao ficar cansativa de ler,
+		//    mas quem manda e a janela: em notebook o balao encolhe junto.
+		int largura = Math::Max(200, Math::Min(420, area.Width - 32));
+		int esqTexto = BALAO_MARGEM + BALAO_ICONE;
+		int larguraTexto = Math::Max(60, largura - esqTexto - BALAO_MARGEM);
 
-		// 3) Ancora em coordenadas da janela, empurrada para dentro. O balao
-		//    cresce para a direita e para baixo a partir do bico; se nao
-		//    couber, o bico anda ate caber. Preferir um bico levemente
-		//    deslocado a um balao metade fora do aplicativo.
+		// 2) Altura medida com o texto ja quebrado nessa largura.
+		System::Drawing::Font^ fTitulo = gcnew System::Drawing::Font(SystemFonts::DefaultFont, FontStyle::Bold);
+		System::Drawing::Size mTit = TextRenderer::MeasureText(titulo, fTitulo,
+			System::Drawing::Size(larguraTexto, 0), TextFormatFlags::WordBreak);
+		System::Drawing::Size mTxt = TextRenderer::MeasureText(texto, SystemFonts::DefaultFont,
+			System::Drawing::Size(larguraTexto, 0), TextFormatFlags::WordBreak);
+		delete fTitulo;
+		int alturaTotal = BALAO_MARGEM + mTit.Height + 6 + mTxt.Height + BALAO_MARGEM + BALAO_BICO;
+		if (alturaTotal > area.Height - 16) alturaTotal = Math::Max(80, area.Height - 16);
+
+		// 3) Onde o alvo esta, em coordenadas da area visivel da janela.
 		System::Drawing::Point canto = dono->PointToClient(
 			alvo->PointToScreen(System::Drawing::Point(0, 0)));
-		int x = canto.X + alvo->Width / 2;
-		int y = canto.Y + alvo->Height + 2;
 
+		bool bicoEmCima = true;
+		int y = canto.Y + alvo->Height + 4;
+		if (y + alturaTotal > area.Bottom - 8) {
+			int acima = canto.Y - 4 - alturaTotal;
+			if (acima >= area.Top + 8) { bicoEmCima = false; y = acima; }
+			else y = Math::Max(area.Top + 8, area.Bottom - 8 - alturaTotal);
+		}
+
+		int centro = canto.X + alvo->Width / 2;
+		int x = centro - largura / 3;
 		if (x + largura > area.Right - 8) x = area.Right - 8 - largura;
 		if (x < area.Left + 8) x = area.Left + 8;
 
-		if (y + altura > area.Bottom - 8) y = area.Bottom - 8 - altura;
-		if (y < area.Top + 8) y = area.Top + 8;
+		// 4) O bico aponta para o centro do controle MESMO depois de a caixa
+		//    ter sido empurrada para dentro. Era isto que faltava: a caixa
+		//    andava para caber e o bico ficava apontando para o nada.
+		int bicoX = Math::Max(16, Math::Min(largura - 16, centro - x));
 
-		t->Show(corpo, dono, x, y, 15000);
+		cli::array<Object^>^ dados = gcnew cli::array<Object^>(4);
+		dados[0] = titulo;
+		dados[1] = texto;
+		dados[2] = safe_cast<Object^>(bicoEmCima);
+		dados[3] = safe_cast<Object^>(bicoX);
+		caixa->Tag = dados;
+		// Coordenadas de FILHO: numa janela com rolagem a origem do conteudo
+		// nao e a mesma da area visivel.
+		caixa->Bounds = System::Drawing::Rectangle(
+			x - dono->DisplayRectangle.X, y - dono->DisplayRectangle.Y,
+			largura, alturaTotal);
+		AplicarRecorte(caixa, bicoEmCima, bicoX);
+		caixa->Visible = true;
+		caixa->BringToFront();
+		caixa->Invalidate();
 		ultimoAlvoBalao = alvo;
 	}
 
