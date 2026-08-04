@@ -3893,6 +3893,52 @@ namespace T2MSecurityManager {
 		ultimoAlvoBalao = nullptr;
 	}
 
+		   // Quebra o texto em linhas curtas. Um balao do Windows NAO quebra
+		   // paragrafo sozinho: ele mede o texto inteiro e fica tao largo
+		   // quanto a maior linha. Um paragrafo de 300 caracteres virava um
+		   // balao de dois mil pixels - por isso ele saia da janela mesmo com
+		   // a ancora certa. Quebrando aqui, a largura passa a ser nossa.
+	private: String^ QuebrarTexto(String^ texto, int colunas) {
+		if (String::IsNullOrEmpty(texto)) return texto;
+		if (colunas < 20) colunas = 20;
+		StringBuilder^ saida = gcnew StringBuilder();
+		cli::array<String^>^ linhas = texto->Replace(L"\r\n", L"\n")->Split('\n');
+		for (int i = 0; i < linhas->Length; i++) {
+			if (i > 0) saida->Append(L"\n");
+			String^ linha = linhas[i];
+			if (linha->Length <= colunas) { saida->Append(linha); continue; }
+			int usado = 0;
+			cli::array<String^>^ palavras = linha->Split(' ');
+			for (int p = 0; p < palavras->Length; p++) {
+				String^ palavra = palavras[p];
+				if (palavra->Length == 0) continue;
+				if (usado > 0 && usado + 1 + palavra->Length > colunas) {
+					saida->Append(L"\n");
+					usado = 0;
+				}
+				else if (usado > 0) {
+					saida->Append(L" ");
+					usado++;
+				}
+				saida->Append(palavra);
+				usado += palavra->Length;
+			}
+		}
+		return saida->ToString();
+	}
+
+		   // Largura media de um caractere na fonte do balao. Medir e melhor
+		   // que chutar 7 pixels: o usuario pode estar com fonte grande do
+		   // Windows, e ai a conta feita com numero fixo erraria feio.
+	private: int LarguraDeCaractere() {
+		try {
+			String^ amostra = L"aaaaaaaaaaaaaaaaaaaa";
+			System::Drawing::Size m = TextRenderer::MeasureText(amostra, SystemFonts::DefaultFont);
+			return Math::Max(6, m.Width / 20);
+		}
+		catch (...) { return 7; }
+	}
+
 	private: void MostrarBalao(Control^ alvo, String^ titulo, String^ texto) {
 		if (alvo == nullptr || alvo->IsDisposed) return;
 		EsconderBalaoAtual();
@@ -3902,20 +3948,44 @@ namespace T2MSecurityManager {
 		if (t == nullptr) return;
 		t->ToolTipTitle = titulo;
 
-		// Coordenadas relativas a JANELA do alvo, calculadas a partir da tela.
-		// Passar o proprio controle parecia mais simples e era a origem do bug:
-		// com o ToolTip pertencendo a outra janela, o Windows media a partir
-		// dela e o balao aparecia longe - as vezes fora do aplicativo. Assim
-		// funciona com a janela em qualquer canto, maximizada ou reduzida.
 		if (dono == nullptr) {
-			t->Show(texto, alvo, alvo->Width / 2, alvo->Height + 2, 15000);
+			t->Show(QuebrarTexto(texto, 52), alvo,
+				alvo->Width / 2, alvo->Height + 2, 15000);
+			ultimoAlvoBalao = alvo;
+			return;
 		}
-		else {
-			System::Drawing::Point naTela = alvo->PointToScreen(
-				System::Drawing::Point(alvo->Width / 2, alvo->Height + 2));
-			System::Drawing::Point naJanela = dono->PointToClient(naTela);
-			t->Show(texto, dono, naJanela, 15000);
-		}
+
+		// 1) Largura do texto decidida pela largura da JANELA, nao por um
+		//    numero fixo: em tela pequena o balao encolhe junto.
+		System::Drawing::Rectangle area = dono->ClientRectangle;
+		int larguraChar = LarguraDeCaractere();
+		int cabem = (area.Width - 90) / larguraChar;
+		String^ corpo = QuebrarTexto(texto, Math::Max(26, Math::Min(56, cabem)));
+
+		// 2) Tamanho estimado do balao ja quebrado (com folga para o icone,
+		//    o titulo, as bordas e o bico).
+		String^ tituloMedido = String::IsNullOrEmpty(titulo) ? String::Empty : titulo;
+		System::Drawing::Size medida = TextRenderer::MeasureText(corpo, SystemFonts::DefaultFont);
+		System::Drawing::Size medidaTit = TextRenderer::MeasureText(tituloMedido, SystemFonts::DefaultFont);
+		int largura = Math::Max(medida.Width, medidaTit.Width) + 70;
+		int altura = medida.Height + medidaTit.Height + 46;
+
+		// 3) Ancora em coordenadas da janela, empurrada para dentro. O balao
+		//    cresce para a direita e para baixo a partir do bico; se nao
+		//    couber, o bico anda ate caber. Preferir um bico levemente
+		//    deslocado a um balao metade fora do aplicativo.
+		System::Drawing::Point canto = dono->PointToClient(
+			alvo->PointToScreen(System::Drawing::Point(0, 0)));
+		int x = canto.X + alvo->Width / 2;
+		int y = canto.Y + alvo->Height + 2;
+
+		if (x + largura > area.Right - 8) x = area.Right - 8 - largura;
+		if (x < area.Left + 8) x = area.Left + 8;
+
+		if (y + altura > area.Bottom - 8) y = area.Bottom - 8 - altura;
+		if (y < area.Top + 8) y = area.Top + 8;
+
+		t->Show(corpo, dono, x, y, 15000);
 		ultimoAlvoBalao = alvo;
 	}
 

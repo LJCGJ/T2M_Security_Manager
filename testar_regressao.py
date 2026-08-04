@@ -3047,7 +3047,32 @@ def teste_anexos_e_visao():
               "Dictionary<Object^, System::Windows::Forms::ToolTip^>^ baloesPorJanela;" in fonte
               and "ToolTip^ BalaoDaJanela(Form^ dono)" in fonte)
         checa("a posicao e calculada pela tela, nao herdada",
-              "alvo->PointToScreen(" in fonte and "dono->PointToClient(naTela)" in fonte)
+              "alvo->PointToScreen(" in fonte and "dono->PointToClient(" in fonte)
+        # Trocar a janela dona resolveu a ORIGEM das coordenadas, e mesmo assim
+        # os baloes continuavam saindo pela direita. A causa restante era outra:
+        # o balao do Windows nao quebra paragrafo sozinho - ele fica tao largo
+        # quanto a maior linha do texto. Paragrafo de 300 caracteres = balao de
+        # dois mil pixels, largo demais para qualquer janela.
+        checa("o texto do balao e quebrado antes de exibir",
+              "String^ QuebrarTexto(String^ texto, int colunas)" in fonte
+              and "QuebrarTexto(texto," in fonte)
+        checa("a quebra respeita as quebras de linha ja escritas",
+              'texto->Replace(L"\\r\\n", L"\\n")->Split(\'\\n\')' in fonte)
+        checa("a largura do balao vem da largura da janela",
+              "(area.Width - 90) / larguraChar" in fonte)
+        # Numero fixo de pixels por caractere erraria com a fonte grande do
+        # Windows, justamente em quem mais precisa do tutorial.
+        checa("a largura do caractere e medida, nao chutada",
+              "int LarguraDeCaractere()" in fonte
+              and "TextRenderer::MeasureText(" in fonte)
+        # Ultimo passo: com o tamanho estimado, empurrar a ancora para dentro.
+        # Bico levemente deslocado e melhor que metade do balao fora da janela.
+        checa("a ancora e empurrada para dentro da janela",
+              "if (x + largura > area.Right - 8) x = area.Right - 8 - largura;" in fonte
+              and "if (y + altura > area.Bottom - 8) y = area.Bottom - 8 - altura;" in fonte)
+        checa("a ancora tambem nao passa da borda de cima nem da esquerda",
+              "if (x < area.Left + 8) x = area.Left + 8;" in fonte
+              and "if (y < area.Top + 8) y = area.Top + 8;" in fonte)
         # Cada tour listava seus controles para esconder um por um, e a lista
         # envelhecia a cada renomeacao.
         checa("esconder o balao anterior nao depende de lista fixa",
