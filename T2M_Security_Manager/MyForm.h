@@ -2844,10 +2844,50 @@ namespace T2MSecurityManager {
 					Math::Min(f->MinimumSize.Width, largura),
 					Math::Min(f->MinimumSize.Height, altura));
 			}
+			// Caber ao ABRIR nao basta: quem trabalha com dois monitores abre a
+			// janela no monitor grande e arrasta para o do notebook. O tamanho
+			// certo la nao e o tamanho certo aqui. Ao soltar a janela, ela se
+			// reencaixa no monitor onde parou. Delegado igual removido antes de
+			// somar: AjustarAoMonitor pode ser chamado duas vezes na mesma tela.
+			f->ResizeEnd -= gcnew System::EventHandler(this, &MyForm::janelaMudouDeLugar);
+			f->ResizeEnd += gcnew System::EventHandler(this, &MyForm::janelaMudouDeLugar);
 		}
 		catch (...) {
 			f->Size = System::Drawing::Size(larguraDesejada, alturaDesejada);
 		}
+	}
+
+		   // Chamado quando a pessoa termina de arrastar ou redimensionar a
+		   // janela. So ENCOLHE: se ela mesma diminuiu a janela, crescer de
+		   // volta seria o aplicativo discutindo com quem esta usando.
+	private: System::Void janelaMudouDeLugar(System::Object^ sender, System::EventArgs^ e) {
+		Form^ f = dynamic_cast<Form^>(sender);
+		if (f == nullptr || f->IsDisposed) return;
+		if (f->WindowState != System::Windows::Forms::FormWindowState::Normal) return;
+		try {
+			// O monitor onde a janela ESTA agora - nao o da tela principal.
+			System::Drawing::Rectangle area = Screen::FromControl(f)->WorkingArea;
+			int largura = Math::Min(f->Width, Math::Max(420, area.Width - 40));
+			int altura = Math::Min(f->Height, Math::Max(360, area.Height - 60));
+			if (largura != f->Width || altura != f->Height) {
+				// Primeiro o minimo, depois o tamanho: com o minimo maior, o
+				// Windows recusa o encolhimento e nada acontece.
+				if (f->MinimumSize.Height > altura || f->MinimumSize.Width > largura) {
+					f->MinimumSize = System::Drawing::Size(
+						Math::Min(f->MinimumSize.Width, largura),
+						Math::Min(f->MinimumSize.Height, altura));
+				}
+				f->Size = System::Drawing::Size(largura, altura);
+				// Encolhida, a janela vive de rolagem: precisa poder crescer.
+				f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::Sizable;
+				f->MaximizeBox = true;
+			}
+			int x = Math::Max(area.Left, Math::Min(f->Left, area.Right - f->Width));
+			int y = Math::Max(area.Top, Math::Min(f->Top, area.Bottom - f->Height));
+			if (x != f->Left || y != f->Top) f->Location = System::Drawing::Point(x, y);
+		}
+		catch (...) {}
+		RecolocarBalao();
 	}
 
 	private: System::Void btnConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
@@ -4688,16 +4728,165 @@ namespace T2MSecurityManager {
 		if (l != nullptr) l->Text = t->Text->Length.ToString() + L" de 2000 caracteres";
 	}
 
+		   // Manda para a Lixeira do Windows em vez de apagar de vez.
+		   //
+		   // A diferenca importa mais do que parece: "redefinir o aplicativo" e
+		   // uma acao que a pessoa toma achando que sabe o que vai perder, e
+		   // quase sempre descobre depois que perdeu junto uma coisa que nao
+		   // tinha pensado. Indo para a Lixeira, o erro custa um clique de
+		   // "Restaurar" em vez de um dia de trabalho.
+	private: bool MoverParaLixeira(String^ caminho) {
+		try {
+			if (File::Exists(caminho)) {
+				Microsoft::VisualBasic::FileIO::FileSystem::DeleteFile(caminho,
+					Microsoft::VisualBasic::FileIO::UIOption::OnlyErrorDialogs,
+					Microsoft::VisualBasic::FileIO::RecycleOption::SendToRecycleBin);
+				return true;
+			}
+			if (Directory::Exists(caminho)) {
+				Microsoft::VisualBasic::FileIO::FileSystem::DeleteDirectory(caminho,
+					Microsoft::VisualBasic::FileIO::UIOption::OnlyErrorDialogs,
+					Microsoft::VisualBasic::FileIO::RecycleOption::SendToRecycleBin);
+				return true;
+			}
+		}
+		catch (...) {}
+		return false;
+	}
+
+		   // A pergunta do "Redefinir aplicativo", numa janela so.
+		   //
+		   // Antes eram duas caixas em sequencia, e a segunda perguntava "apagar
+		   // TAMBEM as chaves?" - responder NAO ali apagava tudo menos as
+		   // chaves, e responder SIM apagava tudo. Quem lia rapido entendia
+		   // "nao" como "nao apagar nada". Pergunta negativa com Sim/Nao e uma
+		   // armadilha conhecida, e numa tela destrutiva ela custa caro.
+		   //
+		   // Tres botoes dizendo o que cada um FAZ resolvem sem depender de
+		   // interpretacao. Devolve Yes (tudo, com as chaves), No (tudo, menos
+		   // as chaves) ou Cancel.
+	private: System::Windows::Forms::DialogResult PerguntarComoRedefinir(
+		int execucoes, int chaves, int scripts) {
+		Form^ d = gcnew Form();
+		d->Text = L"Redefinir aplicativo";
+		d->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
+		d->MaximizeBox = false; d->MinimizeBox = false;
+		d->ShowInTaskbar = false;
+		AplicarIcone(d);
+
+		Label^ lblTopo = gcnew Label();
+		lblTopo->Text = L"Isto deixa o aplicativo como recem-instalado.";
+		lblTopo->Font = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		lblTopo->Location = System::Drawing::Point(18, 16);
+		lblTopo->AutoSize = true;
+		d->Controls->Add(lblTopo);
+
+		Label^ lblLista = gcnew Label();
+		lblLista->Text =
+			L"Vai para a Lixeira do Windows:\n"
+			L"    - todas as configuracoes desta tela;\n"
+			L"    - as instrucoes permanentes dadas a IA;\n"
+			L"    - o que o aplicativo aprendeu sobre os modelos;\n"
+			L"    - a conversa em andamento do Copilot;\n"
+			L"    - o historico de execucoes (" + execucoes.ToString() + L" registro(s))"
+			L" e os prints de evidencia;\n"
+			L"    - o tema, a URL alvo e o token da tela principal;\n"
+			L"    - os " + scripts.ToString() + L" script(s) da lista da tela inicial"
+			L" (os arquivos, nao so a lista).";
+		lblLista->Location = System::Drawing::Point(18, lblTopo->Bottom + 12);
+		lblLista->AutoSize = true;
+		d->Controls->Add(lblLista);
+
+		Label^ lblLixeira = gcnew Label();
+		lblLixeira->Text =
+			L"Nada e destruido agora: tudo vai para a Lixeira, e de la da para "
+			L"restaurar\nenquanto voce nao esvazia-la.\n"
+			L"O historico e trilha de auditoria: para guarda-lo em forma de "
+			L"relatorio,\ncancele e exporte pela tela de Historico antes.";
+		lblLixeira->Location = System::Drawing::Point(18, lblLista->Bottom + 12);
+		lblLixeira->AutoSize = true;
+		lblLixeira->ForeColor = System::Drawing::Color::FromArgb(0, 100, 60);
+		d->Controls->Add(lblLixeira);
+
+		Label^ lblChaves = gcnew Label();
+		lblChaves->Text = (chaves > 0)
+			? (L"Voce tem " + chaves.ToString() + L" chave(s) de API guardada(s). "
+				L"Alguns provedores mostram a chave\numa unica vez: se a Lixeira for "
+				L"esvaziada, so gerando outra em cada provedor.")
+			: L"Nao ha chave de API guardada neste computador.";
+		lblChaves->Location = System::Drawing::Point(18, lblLixeira->Bottom + 10);
+		lblChaves->AutoSize = true;
+		lblChaves->ForeColor = System::Drawing::Color::FromArgb(150, 60, 0);
+		d->Controls->Add(lblChaves);
+
+		Panel^ rodapeD = gcnew Panel();
+		rodapeD->Dock = System::Windows::Forms::DockStyle::Bottom;
+		rodapeD->Height = 56;
+		rodapeD->BackColor = System::Drawing::Color::FromArgb(240, 242, 246);
+		d->Controls->Add(rodapeD);
+
+		Button^ btnTudo = gcnew Button();
+		btnTudo->Text = (chaves > 0)
+			? (L"Apagar TUDO (inclui as " + chaves.ToString() + L" chave(s))")
+			: L"Apagar TUDO";
+		btnTudo->Size = System::Drawing::Size(230, 30);
+		btnTudo->Location = System::Drawing::Point(14, 13);
+		btnTudo->BackColor = System::Drawing::Color::FromArgb(192, 32, 32);
+		btnTudo->ForeColor = System::Drawing::Color::White;
+		btnTudo->FlatStyle = FlatStyle::Flat;
+		btnTudo->Cursor = Cursors::Hand;
+		btnTudo->DialogResult = System::Windows::Forms::DialogResult::Yes;
+		rodapeD->Controls->Add(btnTudo);
+
+		Button^ btnSemChaves = gcnew Button();
+		btnSemChaves->Text = L"Apagar tudo, menos as chaves";
+		btnSemChaves->Size = System::Drawing::Size(220, 30);
+		btnSemChaves->Location = System::Drawing::Point(btnTudo->Right + 10, 13);
+		btnSemChaves->Cursor = Cursors::Hand;
+		btnSemChaves->DialogResult = System::Windows::Forms::DialogResult::No;
+		// Sem chave guardada, os dois botoes fariam a mesma coisa - e dois
+		// botoes iguais so servem para a pessoa desconfiar que errou.
+		btnSemChaves->Visible = (chaves > 0);
+		rodapeD->Controls->Add(btnSemChaves);
+
+		Button^ btnNao = gcnew Button();
+		btnNao->Text = L"Cancelar";
+		btnNao->Size = System::Drawing::Size(110, 30);
+		btnNao->Cursor = Cursors::Hand;
+		btnNao->DialogResult = System::Windows::Forms::DialogResult::Cancel;
+		rodapeD->Controls->Add(btnNao);
+
+		// Largura pelo texto mais largo; os botoes cabem no que sobrar.
+		int largura = 0;
+		for each (Control ^ filho in d->Controls) {
+			if (filho != rodapeD) largura = Math::Max(largura, filho->Right);
+		}
+		largura = Math::Max(largura + 24, btnSemChaves->Right + 150);
+		d->ClientSize = System::Drawing::Size(largura, lblChaves->Bottom + 16 + rodapeD->Height);
+		btnNao->Location = System::Drawing::Point(largura - btnNao->Width - 14, 13);
+
+		// Cancelar e o botao do Enter e do Esc: numa tela destrutiva, o caminho
+		// que a distracao percorre tem de ser o que nao apaga nada.
+		d->AcceptButton = btnNao;
+		d->CancelButton = btnNao;
+		AjustarAoMonitor(d, d->Width, d->Height);
+		AplicarTemaRecursivo(d, temaEscuro);
+
+		System::Windows::Forms::DialogResult resposta =
+			System::Windows::Forms::DialogResult::Cancel;
+		try { resposta = d->ShowDialog(); }
+		finally { delete d; }
+		return resposta;
+	}
+
 		   // Deixa o aplicativo como recem-instalado.
 		   //
 		   // Duas decisoes de desenho, ambas por causa do que nao volta:
 		   //
-		   // 1) As chaves de API sao perguntadas A PARTE, e o padrao e NAO
-		   //    apagar. Quem quer "resetar as configuracoes" quase nunca quer
-		   //    perder as chaves junto - e o Groq mostra a dele uma unica vez,
-		   //    entao a perda custa uma ida ao console de cada provedor.
-		   // 2) O historico de execucoes e trilha de auditoria. Ele entra na
-		   //    lista com nome e numero, para ninguem apagar sem ver.
+		   // 1) As chaves de API tem um botao proprio, e o botao neutro e o que
+		   //    as MANTEM. Quem quer "resetar as configuracoes" quase nunca quer
+		   //    perder as chaves junto - o Groq mostra a dele uma unica vez.
+		   // 2) Nada e apagado de vez: tudo vai para a Lixeira do Windows.
 	private: System::Void redefinirAplicativo_Click(System::Object^ sender, System::EventArgs^ e) {
 		Button^ b = safe_cast<Button^>(sender);
 		Form^ f = safe_cast<Form^>(b->Tag);
@@ -4720,37 +4909,11 @@ namespace T2MSecurityManager {
 		}
 		catch (...) {}
 
-		if (MessageBox::Show(
-			L"Isto deixa o aplicativo como recem-instalado.\n\n"
-			L"Sera apagado:\n"
-			L"  - todas as configuracoes desta tela;\n"
-			L"  - as instrucoes permanentes dadas a IA;\n"
-			L"  - o que o aplicativo aprendeu sobre os modelos;\n"
-			L"  - a conversa em andamento do Copilot;\n"
-			L"  - o historico de execucoes ("
-			+ execucoes.ToString() + L" registro(s)) e os prints de evidencia;\n"
-			L"  - o tema, a URL alvo e o token da tela principal.\n\n"
-			L"NADA disso pode ser desfeito. Se quiser guardar o historico, "
-			L"cancele agora e exporte pela tela de Historico.\n\n"
-			L"Continuar?",
-			L"Redefinir aplicativo", MessageBoxButtons::YesNo, MessageBoxIcon::Warning,
-			MessageBoxDefaultButton::Button2) != System::Windows::Forms::DialogResult::Yes)
-			return;
-
-		// Pergunta separada: quem quer zerar configuracao quase nunca quer
-		// perder as chaves junto, e essa perda custa uma ida ao console de
-		// cada provedor.
-		bool apagarChaves = false;
-		if (chaves > 0) {
-			apagarChaves = (MessageBox::Show(
-				L"Apagar TAMBEM as " + chaves.ToString() + L" chave(s) de API?\n\n"
-				L"Elas nao tem volta: alguns provedores mostram a chave uma "
-				L"unica vez, entao voce teria de gerar outra em cada um.\n\n"
-				L"Responda NAO para zerar tudo mantendo as chaves - que e o "
-				L"caso mais comum.",
-				L"Chaves de API", MessageBoxButtons::YesNo, MessageBoxIcon::Warning,
-				MessageBoxDefaultButton::Button2) == System::Windows::Forms::DialogResult::Yes);
-		}
+		System::Windows::Forms::DialogResult escolha =
+			PerguntarComoRedefinir(execucoes, chaves, scriptPaths->Count);
+		if (escolha != System::Windows::Forms::DialogResult::Yes
+			&& escolha != System::Windows::Forms::DialogResult::No) return;
+		bool apagarChaves = (escolha == System::Windows::Forms::DialogResult::Yes);
 
 		List<String^>^ apagados = gcnew List<String^>();
 		cli::array<String^>^ arquivos = gcnew cli::array<String^>{
@@ -4759,31 +4922,49 @@ namespace T2MSecurityManager {
 			L"config.txt"
 		};
 		for each (String ^ nome in arquivos) {
-			try {
-				String^ caminho = CaminhoDados(nome);
-				if (File::Exists(caminho)) { File::Delete(caminho); apagados->Add(nome); }
-			}
-			catch (...) {}
+			if (MoverParaLixeira(CaminhoDados(nome))) apagados->Add(nome);
 		}
 		if (apagarChaves) {
-			try {
-				String^ k = CaminhoDados("api_keys_ia.txt");
-				if (File::Exists(k)) { File::Delete(k); apagados->Add(L"api_keys_ia.txt"); }
-			}
-			catch (...) {}
+			if (MoverParaLixeira(CaminhoDados("api_keys_ia.txt")))
+				apagados->Add(L"api_keys_ia.txt");
 		}
 		try {
 			String^ pastaPrints = Path::Combine(
 				Path::GetDirectoryName(CaminhoDados("historico_execucoes.jsonl")), L"prints");
-			if (Directory::Exists(pastaPrints)) {
-				Directory::Delete(pastaPrints, true);
-				apagados->Add(L"prints");
+			if (MoverParaLixeira(pastaPrints)) apagados->Add(L"prints");
+		}
+		catch (...) {}
+
+		// Os scripts da lista da tela inicial. "Apagar tudo" que deixa os
+		// arquivos para tras nao e apagar tudo - e o proximo teste comecaria
+		// com a lista cheia num aplicativo supostamente zerado.
+		int scriptsApagados = 0;
+		try {
+			for each (KeyValuePair<String^, String^> par in scriptPaths) {
+				if (MoverParaLixeira(par.Value)) scriptsApagados++;
 			}
 		}
 		catch (...) {}
 
+		// Limpar os arquivos nao basta: ao fechar, o aplicativo grava de novo o
+		// que estiver NA TELA - e o config.txt voltava do zero com a URL, o
+		// token e a lista de scripts de antes. Zerar a tela junto e o que faz o
+		// "recem-instalado" ser verdade.
+		try {
+			scriptPaths->Clear();
+			lstScripts->Items->Clear();
+			txtUrl->Text = L"";
+			txtToken->Text = L"";
+		}
+		catch (...) {}
+
 		MessageBox::Show(
-			L"Pronto: " + apagados->Count.ToString() + L" item(ns) apagado(s).\n\n"
+			L"Pronto: " + (apagados->Count + scriptsApagados).ToString()
+			+ L" item(ns) movido(s) para a Lixeira"
+			+ (scriptsApagados > 0
+				? (L", sendo " + scriptsApagados.ToString() + L" script(s)")
+				: L"")
+			+ L".\n\n"
 			+ (apagarChaves ? L"As chaves de API foram apagadas.\n\n"
 				: (chaves > 0 ? L"As chaves de API foram MANTIDAS.\n\n" : L""))
 			+ L"Feche e abra o aplicativo para ele subir do zero.",
@@ -4805,13 +4986,12 @@ namespace T2MSecurityManager {
 		if (MessageBox::Show(
 			L"Repor TODOS os campos desta tela nos valores de fabrica?\n\n"
 			L"Isso inclui pastas, limites de execucao, modelo, seguranca da "
-			L"automacao, servidor proprio e as instrucoes permanentes da IA.\n\n"
-			L"Tambem sera esquecido o que o aplicativo aprendeu sobre os modelos "
-			L"(quais aceitam imagem), para ele descobrir de novo.\n\n"
-			L"Nada e gravado agora: os campos voltam ao padrao e voce ainda pode "
-			L"sair por Cancelar sem alterar nada - inclusive o aprendizado, que "
-			L"so e apagado quando voce clicar em Salvar. Suas chaves de API NAO "
-			L"sao tocadas.",
+			L"automacao, servidor proprio e as instrucoes permanentes da IA. O "
+			L"aplicativo tambem esquece o que aprendeu sobre os modelos (quais "
+			L"aceitam imagem), para descobrir de novo.\n\n"
+			L"Nada e gravado agora. Os campos mudam na tela; vale mesmo quando "
+			L"voce clicar em Salvar. Cancelar mantem tudo como estava.\n\n"
+			L"Suas chaves de API nao sao tocadas.",
 			L"Restaurar padroes", MessageBoxButtons::YesNo, MessageBoxIcon::Question,
 			MessageBoxDefaultButton::Button2) != System::Windows::Forms::DialogResult::Yes)
 			return;
@@ -4844,11 +5024,12 @@ namespace T2MSecurityManager {
 			// configuracao direto quebraria a promessa - o Cancelar deixaria de
 			// desfazer, e o usuario nao teria como saber disso.
 			limparAprendizadoAoSalvar = true;
-			MessageBox::Show(
-				L"Campos repostos.\n\nClique em Salvar para valer - e e nesse "
-				L"momento que o aprendizado sobre os modelos tambem e esquecido. "
-				L"Cancelar mantem tudo como estava.",
-				L"Restaurar padroes", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			// Sem aviso de "pronto" aqui. A confirmacao anterior ja disse o que
+			// ia acontecer, e os campos mudando na tela sao a prova de que
+			// aconteceu. Um segundo clique para ler de novo o que ja foi lido
+			// nao informa nada - so treina a pessoa a fechar aviso sem ler, o
+			// que e exatamente o habito que os avisos perigosos desta tela
+			// dependem que ela NAO tenha.
 		}
 		catch (Exception^ ex) {
 			MessageBox::Show(L"Nao foi possivel repor: " + ex->Message, L"Erro");

@@ -3005,6 +3005,12 @@ def teste_anexos_e_visao():
         # Repor sem gravar mantem o Cancelar como saida de verdade.
         checa("repor nao grava: quem grava e o Salvar",
               "Nada e gravado agora" in fonte)
+        # Um segundo aviso repetindo o que a confirmacao ja disse nao informa:
+        # treina a pessoa a fechar aviso sem ler, que e o habito do qual os
+        # avisos perigosos desta tela dependem que ela NAO tenha.
+        checa("nao ha aviso de 'pronto' repetindo a confirmacao",
+              "Campos repostos" not in fonte
+              and "Clique em Salvar para valer" not in fonte)
         # A promessa "nada e gravado" tem de valer no codigo, nao so no texto:
         # escrever direto em cfg* fazia o Cancelar deixar de desfazer.
         i = fonte.find("restaurarPadroes_Click(System::Object")
@@ -3019,7 +3025,7 @@ def teste_anexos_e_visao():
         checa("restaurar respeita o provedor da chave selecionada",
               ': L"llama-3.3-70b-versatile";' in blocoR)
         checa("e as chaves de API nao sao tocadas",
-              "Suas chaves de API NAO " in fonte)
+              "Suas chaves de API nao sao tocadas." in fonte)
         # O padrao seguro tem de voltar seguro: JS na pagina DESLIGADO e
         # navegador isolado LIGADO. Um "restaurar" que afrouxa seguranca seria
         # pior que nao existir.
@@ -3127,6 +3133,21 @@ def teste_anexos_e_visao():
               and "fundo = Math::Max(fundo, filho->Bottom);" in fonte)
         checa("a faixa vazia do meio virou distancia da moldura",
               "y = molduraComp->Bottom + 22;" in fonte)
+        # Caber ao ABRIR nao basta: com dois monitores, a janela abre no grande
+        # e e arrastada para o do notebook. O tamanho certo la nao e o certo aqui.
+        checa("a janela se reencaixa no monitor onde foi solta",
+              "f->ResizeEnd += gcnew System::EventHandler(this, &MyForm::janelaMudouDeLugar);" in fonte
+              and "Screen::FromControl(f)->WorkingArea" in fonte)
+        checa("ao reencaixar ela so encolhe, nunca cresce sozinha",
+              "int largura = Math::Min(f->Width, Math::Max(420, area.Width - 40));" in fonte
+              and "int altura = Math::Min(f->Height, Math::Max(360, area.Height - 60));" in fonte)
+        # Com o minimo maior que o novo tamanho, o Windows recusa o encolhimento
+        # e a correcao nao acontece - foi assim que a primeira tentativa falhou.
+        checa("o minimo cede antes do tamanho",
+              fonte.index("f->MinimumSize = System::Drawing::Size(\n\t\t\t\t\t\tMath::Min(f->MinimumSize.Width, largura)")
+              < fonte.index("f->Size = System::Drawing::Size(largura, altura);\n\t\t\t\t// Encolhida"))
+        checa("o delegado nao e somado duas vezes",
+              "f->ResizeEnd -= gcnew System::EventHandler(this, &MyForm::janelaMudouDeLugar);" in fonte)
         # O balao nao pode cobrir Salvar/Cancelar - seria o mesmo defeito, so
         # que causado por nos.
         checa("o balao respeita o rodape preso embaixo",
@@ -3208,11 +3229,51 @@ def teste_anexos_e_visao():
                     "modelo_gemini_ok.txt", "tema.txt", "config.txt"):
             checa(f"a redefinicao apaga {arq}", f'L"{arq}"' in fonte)
         checa("e tambem os prints de evidencia", 'apagados->Add(L"prints")' in fonte)
-        # Chave de API nao volta: alguns provedores mostram uma unica vez.
-        checa("as chaves sao perguntadas A PARTE",
-              "Apagar TAMBEM as " in fonte and "chave(s) de API?" in fonte)
-        checa("com NAO como padrao e o motivo dito",
-              "gerar outra em cada um" in fonte)
+        # Antes eram DUAS caixas em sequencia, e a segunda perguntava "apagar
+        # TAMBEM as chaves?": responder NAO apagava tudo menos as chaves, e SIM
+        # apagava tudo. Quem lia rapido entendia "nao" como "nao apagar nada".
+        # Pergunta negativa com Sim/Nao e armadilha conhecida, e numa tela
+        # destrutiva ela custa caro. Tres botoes dizendo o que cada um FAZ
+        # nao dependem de interpretacao.
+        checa("a escolha cabe numa janela so, com tres botoes",
+              "DialogResult PerguntarComoRedefinir(" in fonte
+              and "Apagar tudo, menos as chaves" in fonte)
+        checa("e a pergunta negativa de Sim/Nao sumiu",
+              "Apagar TAMBEM as " not in fonte
+              and "Responda NAO para zerar tudo" not in fonte)
+        checa("o botao que apaga as chaves diz que as inclui",
+              'L"Apagar TUDO (inclui as " + chaves.ToString()' in fonte)
+        checa("com o motivo dito: provedor mostra a chave uma vez so",
+              "uma unica vez: se a Lixeira for " in fonte)
+        # Numa tela destrutiva, o caminho que a distracao percorre (Enter, Esc)
+        # tem de ser o que nao apaga nada.
+        checa("Enter e Esc caem no Cancelar",
+              "d->AcceptButton = btnNao;" in fonte
+              and "d->CancelButton = btnNao;" in fonte)
+        # Sem chave guardada os dois botoes fariam a mesma coisa, e dois botoes
+        # iguais so servem para a pessoa desconfiar que errou.
+        checa("sem chave guardada, o segundo botao nao aparece",
+              "btnSemChaves->Visible = (chaves > 0);" in fonte)
+        # Apagar de vez transforma um clique errado em um dia de trabalho
+        # perdido. Indo para a Lixeira, custa um "Restaurar".
+        checa("nada e apagado de vez: vai para a Lixeira",
+              "bool MoverParaLixeira(String^ caminho)" in fonte
+              and "RecycleOption::SendToRecycleBin" in fonte)
+        checa("pastas tambem vao para a Lixeira, nao para o vazio",
+              "FileSystem::DeleteDirectory(caminho," in fonte
+              and "Directory::Delete(pastaPrints, true)" not in fonte)
+        # "Apagar tudo" que deixa os arquivos de teste para tras nao e apagar
+        # tudo: o proximo teste comecaria com a lista cheia num aplicativo
+        # supostamente zerado.
+        checa("os scripts da tela inicial tambem sao apagados",
+              "for each (KeyValuePair<String^, String^> par in scriptPaths) {" in fonte
+              and "if (MoverParaLixeira(par.Value)) scriptsApagados++;" in fonte)
+        # Limpar os arquivos nao bastava: ao fechar, o aplicativo gravava de
+        # novo o que estivesse NA TELA, e o config.txt voltava com a URL, o
+        # token e a lista de antes.
+        checa("a tela e zerada junto, senao o config volta ao fechar",
+              "lstScripts->Items->Clear();" in fonte
+              and "txtToken->Text = L\"\";" in fonte)
         checa("e o resultado diz se as chaves ficaram ou nao",
               "foram MANTIDAS" in fonte)
         # "Apaga o historico" assusta menos que "apaga 43 execucoes".
@@ -3222,8 +3283,11 @@ def teste_anexos_e_visao():
         # exportar antes.
         checa("o aviso lembra que da para exportar o historico antes",
               "exporte pela tela de Historico" in fonte)
-        checa("os dois avisos tem NAO como padrao",
-              fonte.count("MessageBoxDefaultButton::Button2") >= 8)
+        # Nas caixas Sim/Nao que sobraram, o botao pre-selecionado continua
+        # sendo o que nao faz nada. (A escolha do Redefinir nao usa mais
+        # Sim/Nao: virou uma janela de tres botoes.)
+        checa("as caixas de Sim/Nao seguem com o NAO pre-selecionado",
+              fonte.count("MessageBoxDefaultButton::Button2") >= 6)
 
         # O botao "Reaprender" foi REMOVIDO, mas a FUNCAO nao: ela entrou no
         # "Restaurar padroes". A objecao era que Restaurar promete "nada e
@@ -3241,7 +3305,8 @@ def teste_anexos_e_visao():
               "if (limparAprendizadoAoSalvar) {" in blocoSv
               and 'CaminhoDados("capacidades_modelos.txt")' in blocoSv)
         checa("o aviso diz que so vale ao salvar",
-              "so e apagado quando voce clicar em Salvar" in fonte)
+              "Os campos mudam na tela; vale mesmo quando " in fonte
+              and "voce clicar em Salvar. Cancelar mantem tudo como estava." in fonte)
         # Pendencia de uma abertura anterior nao pode sobreviver: quem cancelou
         # ontem nao pode ver o aprendizado sumir ao salvar outra coisa hoje.
         checa("a pendencia e zerada ao abrir a tela",
