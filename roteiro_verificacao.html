@@ -46,7 +46,9 @@
 <div class="wrap">
 
 <h1>Roteiro de verificacao &mdash; T2M Security Manager</h1>
-<p class="lead">Trinta e dois itens, cerca de uma hora. Atualizado ate 31/07: endpoint compativel
+<p class="lead">Trinta e seis itens, cerca de uma hora. Atualizado ate 04/08: janela que se
+reencaixa ao mudar de monitor, rodape fixo, baloes de tutorial desenhados pelo aplicativo, e o
+Redefinir com tres botoes mandando tudo para a Lixeira. Antes disso: endpoint compativel
 (Groq, Ollama), prints de evidencia, anexos e visao, aprendizado automatico das capacidades dos
 modelos e a tela de Configuracoes reorganizada.</p>
 
@@ -60,7 +62,7 @@ modelos e a tela de Configuracoes reorganizada.</p>
 </div>
 
 <div class="barra">
-  <span><span id="feitos">0</span> de <span id="total">32</span> conferidos</span>
+  <span><span id="feitos">0</span> de <span id="total">36</span> conferidos</span>
   <b id="pct">0%</b>
 </div>
 
@@ -68,7 +70,7 @@ modelos e a tela de Configuracoes reorganizada.</p>
 
 <div class="item"><input type="checkbox">
   <p class="faca"><span class="n">1.</span> No repositorio: <code>python testar_regressao.py</code></p>
-  <p class="esp"><b>Esperado:</b> <code>801 verificacoes, todas OK</code>.</p>
+  <p class="esp"><b>Esperado:</b> <code>845 verificacoes, todas OK</code>.</p>
   <p class="falha">Falhou: me mande as linhas de FALHOU. Elas dizem exatamente qual contrato quebrou, sem precisar de mais nada.</p>
 </div>
 
@@ -280,14 +282,15 @@ modelos e a tela de Configuracoes reorganizada.</p>
   <p class="falha">Cabecalho dizendo OpenAI = o rotulo da rota nao acompanhou o endereco. Erro de modelo inexistente = o nome do modelo pertence a outro provedor.</p>
 </div>
 
-<h2>Configuracoes: tela nova <small>4 itens &mdash; nao gasta token</small></h2>
+<h2>Configuracoes: tela nova <small>8 itens &mdash; nao gasta token</small></h2>
 
 <div class="item"><input type="checkbox">
   <p class="faca"><span class="n">26.</span> Abra <b>Configuracoes</b> e olhe a tela inteira, de cima a baixo.</p>
   <p class="esp"><b>Esperado:</b> a secao <i>Servidor local ou proprio</i> dentro de uma moldura; nenhum
   texto cortado ou por cima de outro; a barra com <b>Restaurar padroes</b>, <b>Redefinir aplicativo</b>
-  (vermelho), <b>Salvar</b> e <b>Cancelar</b> visivel no rodape, sem precisar rolar.</p>
-  <p class="falha">Botao fora da tela = a janela voltou a ser mais alta que o monitor. Texto cortado = algum rotulo com altura fixa que envelheceu.</p>
+  (vermelho), <b>Salvar</b> e <b>Cancelar</b> visivel no rodape <b>ja com a tela no topo</b>, sem
+  precisar rolar. Se houver rolagem, o rodape continua parado enquanto o conteudo rola.</p>
+  <p class="falha">Botao fora da tela = a janela voltou a ser mais alta que o monitor. Rodape que so aparece rolando ate o fim = o painel voltou a ser filho da area que rola. Texto cortado = algum rotulo com altura fixa que envelheceu.</p>
 </div>
 
 <div class="item"><input type="checkbox">
@@ -310,6 +313,44 @@ modelos e a tela de Configuracoes reorganizada.</p>
   <p class="esp"><b>Esperado:</b> com endereco escrito ele <i>confere</i> e avisa que nao respondeu,
   oferecendo procurar; com o campo vazio ele <i>procura</i> nas sete portas. O que voce digitou fica
   guardado na lista.</p>
+</div>
+
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">33.</span> Com dois monitores: abra <b>Configuracoes</b> no monitor
+  <b>maior</b> e arraste a janela para o do <b>notebook</b>. Solte. Depois arraste-a ate encostar num
+  canto da tela.</p>
+  <p class="esp"><b>Esperado:</b> ao soltar, a janela se reencaixa no monitor onde parou &mdash; nada
+  fica fora da area util, e o rodape continua visivel. Encolhendo, ela vira redimensionavel.</p>
+  <p class="falha">Cortada depois do arrasto = a janela mediu o monitor so na abertura. Crescendo sozinha depois de voce diminui-la = o reencaixe deixou de so encolher.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">34.</span> Abra um balao do tutorial (qualquer um dos tres <code>?</code>)
+  e, com ele aberto: <b>arraste a janela</b>, <b>role o conteudo</b> e clique no <b>x</b> do balao.</p>
+  <p class="esp"><b>Esperado:</b> o balao anda junto com a janela, se recoloca ao rolar, nunca passa da
+  borda nem cobre o rodape, e o bico aponta para o campo de que ele fala mesmo quando a caixa precisa
+  ser empurrada para caber. O <code>x</code> fica vermelho ao passar o mouse e fecha.</p>
+  <p class="falha">Balao parado no ar depois de arrastar = ele voltou a ser uma janela solta do sistema. Bico apontando para o vazio = o bico esta sendo calculado antes do empurrao.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">35.</span> Clique em <b>Restaurar padroes</b> e confirme. Depois clique
+  em <b>Cancelar</b>, reabra Configuracoes e confira os campos.</p>
+  <p class="esp"><b>Esperado:</b> <b>uma</b> caixa de confirmacao, sem um segundo aviso de "pronto"; os
+  campos voltam ao padrao na tela; e como voce saiu por Cancelar, ao reabrir <b>tudo esta como estava</b>
+  &mdash; inclusive o aprendizado sobre os modelos.</p>
+  <p class="falha">Configuracao alterada mesmo com Cancelar = alguem passou a escrever em cfg* direto no botao, e o Cancelar virou mentira.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">36.</span> Clique em <b>Redefinir aplicativo</b>. Leia a janela, escolha
+  <b>Apagar tudo, menos as chaves</b>. Depois abra a <b>Lixeira do Windows</b> e reabra o aplicativo.</p>
+  <p class="esp"><b>Esperado:</b> <b>uma</b> janela com tres botoes (Apagar TUDO em vermelho, Apagar tudo
+  menos as chaves, Cancelar) &mdash; Esc e Enter caem no Cancelar. Os arquivos aparecem na Lixeira,
+  <b>inclusive os scripts</b> da lista. Ao reabrir, a tela inicial esta vazia (sem URL, sem token, sem
+  scripts) e as chaves de API continuam la.</p>
+  <p class="falha">Arquivo sumido sem passar pela Lixeira = a exclusao voltou a ser definitiva. Lista de scripts cheia ao reabrir = a tela nao foi zerada e o config.txt ressuscitou ao fechar.</p>
 </div>
 
 <h2>Evidencia e anexos <small>3 itens</small></h2>
