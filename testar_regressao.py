@@ -3357,6 +3357,17 @@ def teste_anexos_e_visao():
               and "[FIM DO CONTEUDO OBSERVADO]" in fonte)
         checa("o nome do arquivo acompanha a cerca",
               'L"arquivo: " + nome' in fonte)
+        # Log de servidor Linux termina a linha so com \n, e a caixa de texto do
+        # Windows so quebra em \r\n: o arquivo inteiro virava UMA linha na tela.
+        # O que ia para a IA estava certo, mas o operador nao conseguia conferir
+        # o que estava mandando - e conferir antes de enviar e o motivo de o
+        # texto aparecer na caixa em vez de ir escondido.
+        checa("o anexo de texto e normalizado para quebras do Windows",
+              'conteudo->Replace(L"\\r\\n", L"\\n")->Replace(L"\\r", L"\\n")' in fonte
+              and '->Replace(L"\\n", L"\\r\\n");' in fonte)
+        checa("e a propria cerca usa as mesmas quebras",
+              'L"\\r\\n\\r\\n[ARQUIVO ANEXADO' in fonte
+              and 'L"\\r\\n[FIM DO CONTEUDO OBSERVADO]\\r\\n"' in fonte)
         # Texto e imagem tem custos muito diferentes, e so o texto e previsivel
         # o bastante para estimar antes de enviar.
         checa("arquivo grande avisa o custo antes de entrar",
