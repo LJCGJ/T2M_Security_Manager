@@ -753,6 +753,29 @@ def teste_leitura_da_pagina():
           "ele anexou para voce ANALISAR o conteudo" in fonte)
     checa("cobrindo tambem texto escrito dentro de imagem",
           "texto escrito dentro de um print" in fonte)
+
+    # --- MODELO QUE NAO SABE CHAMAR FERRAMENTA ---
+    # Encontrado no primeiro teste de MCP com o Groq: llama-3.3-70b escreveu
+    # <function=browser_navigate{...}</function> como TEXTO, a rota devolveu 400
+    # tool_use_failed e a execucao morreu no primeiro passo, mostrando o
+    # traceback cru. E falha de formato, nao de capacidade.
+    fonte_mcp = open(A.__file__, encoding="utf-8").read()
+    checa("falha de formato de tool call e reconhecida",
+          "def _e_falha_de_formato_de_ferramenta(erro):" in fonte_mcp
+          and '"tool_use_failed" in t' in fonte_mcp)
+    # Quase sempre a segunda tentativa sai certa: desistir no primeiro 400
+    # jogava fora a execucao inteira por um erro de formatacao.
+    checa("o passo e repetido antes de desistir",
+          "if not _e_falha_de_formato_de_ferramenta(e) or tentativa == 2:" in fonte_mcp
+          and "Use o campo tool_calls da API" in fonte_mcp)
+    # Reescrever o objetivo nao resolve - e dizer isso poupa a pessoa de tentar
+    # dez vezes atras de um erro que nao esta ali.
+    checa("e a mensagem diz que o problema e o modelo, nao o objetivo",
+          "limitacao do modelo, nao do seu objetivo" in fonte_mcp
+          and "Modo Chat e Scan DOM continuam" in fonte_mcp)
+    checa("a dica vale para tela, banco e API",
+          fonte_mcp.count("_dica_falha_de_ferramenta(detalhe)") == 3
+          + fonte_mcp.count("def _dica_falha_de_ferramenta(detalhe)"))
     # Primeira execucao do item 32 do roteiro: a IA recusou as duas linhas
     # plantadas, mas escreveu apenas "ignorei instrucoes que tentavam manipular
     # minha analise". Recusar e metade do trabalho - num produto de teste, o
