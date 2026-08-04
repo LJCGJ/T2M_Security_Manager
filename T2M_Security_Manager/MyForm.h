@@ -4958,6 +4958,26 @@ namespace T2MSecurityManager {
 		}
 		catch (...) {}
 
+		// A conversa do Copilot pelo mesmo motivo. O memoria_chat.json (o que a
+		// IA le) ia para a Lixeira, mas a conversa continuava NA TELA se a
+		// janela estivesse aberta - e ficava a impressao de que o "apagar tudo"
+		// tinha deixado passar alguma coisa. Pior: quem lesse a tela acharia que
+		// aquele contexto ainda vale para a proxima pergunta, e nao vale mais.
+		try {
+			if (rtbChat != nullptr && !rtbChat->IsDisposed) {
+				rtbChat->Clear();
+				modeloAnunciadoNoChat = nullptr;   // reanuncia o modelo
+				if (formIA != nullptr && !formIA->IsDisposed)
+					formIA_Shown(nullptr, nullptr);  // volta a mensagem de abertura
+			}
+			// Anexos e prints pendentes apontariam para arquivos que agora estao
+			// na Lixeira.
+			if (anexosPendentes != nullptr) anexosPendentes->Clear();
+			if (printsDaExecucao != nullptr) printsDaExecucao->Clear();
+			AtualizarRotuloAnexos();
+		}
+		catch (...) {}
+
 		MessageBox::Show(
 			L"Pronto: " + (apagados->Count + scriptsApagados).ToString()
 			+ L" item(ns) movido(s) para a Lixeira"
