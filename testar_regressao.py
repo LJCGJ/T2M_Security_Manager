@@ -776,6 +776,22 @@ def teste_leitura_da_pagina():
     # Visto na tela: a URL alvo apontava para outra pagina, o objetivo pedia
     # login, e o relatorio disse "nao e possivel" e emendou um menu de 1 a 3.
     # Quem errou o endereco quer o endereco certo, nao um questionario.
+    # Visto na tela: a cota diaria do Groq acabou no ultimo passo e o operador
+    # recebeu um traceback de asyncio com 60 linhas. Acabar a cota e rotina de
+    # quem testa com plano gratuito - nao e defeito, e nao precisa de pilha de
+    # chamadas para ser entendido.
+    checa("cota acabada vira mensagem, nao traceback",
+          "def _mensagem_de_cota(detalhe):" in fonte_mcp
+          and "cota = _mensagem_de_cota(detalhe)" in fonte_mcp
+          and fonte_mcp.count("responder(cota, erro=True)") == 3)
+    # Groq limita TOKENS POR DIA; Gemini limita REQUISICOES POR MINUTO. Uma
+    # tarde de espera contra dois minutos - a resposta certa muda junto.
+    checa("por dia e por minuto sao tratados diferente",
+          'por_dia = ("per day" in d or "tpd" in d or "rpd" in d)' in fonte_mcp
+          and "virada do dia (ou um plano pago)" in fonte_mcp
+          and "Cada PASSO da automacao e uma requisicao: reduzir" in fonte_mcp)
+    checa("e o tempo de espera informado pelo provedor e aproveitado",
+          'try again in ([0-9hms' in fonte_mcp)
     checa("objetivo impossivel na pagina vem primeiro, sem menu",
           "OBJETIVO IMPOSSIVEL NA PAGINA ENCONTRADA" in fonte_mcp
           and "Nao ofereca menu nem proximos passos nesse " in fonte_mcp)
