@@ -3089,6 +3089,35 @@ def teste_anexos_e_visao():
               "janelaDoBalao_Resize" in fonte)
         checa("clicar no balao fecha o balao",
               "caixaBalao_Click" in fonte)
+        # --- ENQUADRAMENTO DA JANELA DE CONFIGURACOES ---
+        # Numa janela com AutoScroll, um painel Dock::Bottom rola JUNTO com o
+        # conteudo: Salvar e Cancelar so apareciam depois de rolar ate o fim, e
+        # no topo a tela parecia nao ter saida. Quem rola agora e um painel do
+        # meio; o rodape fica presa na janela.
+        checa("quem rola e o corpo, nao a janela de Configuracoes",
+              "f->AutoScroll = false;" in fonte
+              and "corpo->Dock = System::Windows::Forms::DockStyle::Fill;" in fonte
+              and "corpo->AutoScroll = true;" in fonte)
+        checa("o rodape continua preso na janela, fora do corpo que rola",
+              "f->Controls->Add(rodape);" in fonte
+              and "corpo->Controls->Add(rodape);" not in fonte)
+        # Altura fixa em pixel e um numero que envelhece: encurtar um texto ou
+        # somar um campo torna o numero errado, e o erro aparece como rolagem
+        # desnecessaria ou conteudo cortado.
+        checa("a altura pedida pela janela e medida, nao chutada",
+              "AjustarAoMonitor(f, 720, fundo + rodape->Height + 60);" in fonte)
+        checa("a faixa vazia do meio virou distancia da moldura",
+              "y = molduraComp->Bottom + 22;" in fonte)
+        # O balao nao pode cobrir Salvar/Cancelar - seria o mesmo defeito, so
+        # que causado por nos.
+        checa("o balao respeita o rodape preso embaixo",
+              "if (filho->Dock == System::Windows::Forms::DockStyle::Bottom)" in fonte)
+        checa("o campo apontado e trazido para a vista antes de medir",
+              "rolavel->ScrollControlIntoView(alvo);" in fonte)
+        checa("rolar o conteudo recoloca o balao, sem entrar em circulo",
+              "corpoRolou_Scroll" in fonte
+              and "if (recolocandoBalao) return;" in fonte)
+
         # Cada tour listava seus controles para esconder um por um, e a lista
         # envelhecia a cada renomeacao.
         checa("esconder o balao anterior nao depende de lista fixa",

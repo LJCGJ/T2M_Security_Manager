@@ -243,6 +243,7 @@ namespace T2MSecurityManager {
 		// Sendo filho, ele anda junto, nunca passa da borda e some junto.
 		Dictionary<Object^, Panel^>^ caixasPorJanela;
 		Control^ ultimoAlvoBalao;   // para esconder o anterior sem lista fixa
+		bool recolocandoBalao;      // trava contra recolocar/rolar em circulo
 		int passoTour;               // 0 = parado; 1..N = passo atual
 		int passoTourChat;           // idem, para o tour do Copilot
 		int passoTourConfig;         // idem, para a tela de Configuracoes
@@ -805,6 +806,7 @@ namespace T2MSecurityManager {
 			   // dica diz o nome do campo, balao diz por que ele importa.
 			   this->caixasPorJanela = gcnew Dictionary<Object^, Panel^>();
 			   this->ultimoAlvoBalao = nullptr;
+			   this->recolocandoBalao = false;
 			   this->passoTour = 0;
 			   this->passoTourChat = 0;
 			   this->passoTourConfig = 0;
@@ -2860,12 +2862,26 @@ namespace T2MSecurityManager {
 		// Rede de seguranca para monitor pequeno ou escala de fonte alta: sem isto
 		// os botoes Salvar/Cancelar podem cair fora da area visivel e a tela fica
 		// sem saida a nao ser pelo X.
-		f->AutoScroll = true;
+		//
+		// QUEM ROLA E O CORPO, NAO A JANELA. Parece detalhe e nao e: numa janela
+		// com AutoScroll, um painel ancorado embaixo (Dock::Bottom) rola JUNTO com
+		// o conteudo. Era por isso que Salvar e Cancelar sumiam - so apareciam
+		// depois de rolar ate o fim, e no topo a tela parecia nao ter saida.
+		// Com a rolagem dentro de um painel que preenche o meio, o rodape fica
+		// preso na janela e nunca sai da vista.
+		f->AutoScroll = false;
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
 		AjustarAoMonitor(f, 720, 820);
 		AplicarIcone(f);
+
+		Panel^ corpo = gcnew Panel();
+		corpo->Dock = System::Windows::Forms::DockStyle::Fill;
+		corpo->AutoScroll = true;
+		// Rolou, o campo apontado saiu do lugar: o balao do tour se recoloca.
+		corpo->Scroll += gcnew System::Windows::Forms::ScrollEventHandler(this, &MyForm::corpoRolou_Scroll);
+		f->Controls->Add(corpo);
 
 		int x1 = 20, larg = 430, y = 18;
 
@@ -2885,7 +2901,7 @@ namespace T2MSecurityManager {
 		btnAjudaCfg->Cursor = Cursors::Hand;
 		btnAjudaCfg->Tag = f;
 		btnAjudaCfg->Click += gcnew System::EventHandler(this, &MyForm::btnAjudaConfig_Click);
-		f->Controls->Add(btnAjudaCfg);
+		corpo->Controls->Add(btnAjudaCfg);
 		passoTourConfig = 0;   // cada abertura da tela comeca o tour do zero
 
 		// Pendencia de uma abertura anterior nao pode sobreviver: quem cancelou
@@ -2898,73 +2914,73 @@ namespace T2MSecurityManager {
 		lblSecao1->Text = L"Pastas sugeridas ao salvar";
 		lblSecao1->Location = System::Drawing::Point(x1, y); lblSecao1->AutoSize = true;
 		lblSecao1->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
-		f->Controls->Add(lblSecao1);
+		corpo->Controls->Add(lblSecao1);
 
 		// Relatorios
 		y += 26;
 		Label^ l1 = gcnew Label(); l1->Text = L"Relatorios:";
 		l1->Location = System::Drawing::Point(x1, y + 3); l1->AutoSize = true;
-		f->Controls->Add(l1);
+		corpo->Controls->Add(l1);
 		TextBox^ txtRel = gcnew TextBox();
 		txtRel->Location = System::Drawing::Point(x1 + 90, y); txtRel->Size = System::Drawing::Size(larg, 22);
 		txtRel->Text = cfgPastaRelatorios;
-		f->Controls->Add(txtRel);
+		corpo->Controls->Add(txtRel);
 		Button^ bRel = gcnew Button(); bRel->Text = L"...";
 		bRel->Location = System::Drawing::Point(x1 + 90 + larg + 6, y - 1);
 		bRel->Size = System::Drawing::Size(34, 24); bRel->FlatStyle = FlatStyle::Flat;
 		bRel->Tag = txtRel;
 		bRel->Click += gcnew System::EventHandler(this, &MyForm::escolherPasta_Click);
-		f->Controls->Add(bRel);
+		corpo->Controls->Add(bRel);
 		Button^ bRelAbrir = gcnew Button(); bRelAbrir->Text = L"📂";
 		bRelAbrir->Location = System::Drawing::Point(x1 + 90 + larg + 44, y - 1);
 		bRelAbrir->Size = System::Drawing::Size(34, 24); bRelAbrir->FlatStyle = FlatStyle::Flat;
 		bRelAbrir->Tag = txtRel;
 		bRelAbrir->Click += gcnew System::EventHandler(this, &MyForm::abrirPastaConfig_Click);
-		f->Controls->Add(bRelAbrir);
+		corpo->Controls->Add(bRelAbrir);
 
 		// Sessoes
 		y += 32;
 		Label^ l2 = gcnew Label(); l2->Text = L"Sessoes:";
 		l2->Location = System::Drawing::Point(x1, y + 3); l2->AutoSize = true;
-		f->Controls->Add(l2);
+		corpo->Controls->Add(l2);
 		TextBox^ txtSes = gcnew TextBox();
 		txtSes->Location = System::Drawing::Point(x1 + 90, y); txtSes->Size = System::Drawing::Size(larg, 22);
 		txtSes->Text = cfgPastaSessoes;
-		f->Controls->Add(txtSes);
+		corpo->Controls->Add(txtSes);
 		Button^ bSes = gcnew Button(); bSes->Text = L"...";
 		bSes->Location = System::Drawing::Point(x1 + 90 + larg + 6, y - 1);
 		bSes->Size = System::Drawing::Size(34, 24); bSes->FlatStyle = FlatStyle::Flat;
 		bSes->Tag = txtSes;
 		bSes->Click += gcnew System::EventHandler(this, &MyForm::escolherPasta_Click);
-		f->Controls->Add(bSes);
+		corpo->Controls->Add(bSes);
 		Button^ bSesAbrir = gcnew Button(); bSesAbrir->Text = L"📂";
 		bSesAbrir->Location = System::Drawing::Point(x1 + 90 + larg + 44, y - 1);
 		bSesAbrir->Size = System::Drawing::Size(34, 24); bSesAbrir->FlatStyle = FlatStyle::Flat;
 		bSesAbrir->Tag = txtSes;
 		bSesAbrir->Click += gcnew System::EventHandler(this, &MyForm::abrirPastaConfig_Click);
-		f->Controls->Add(bSesAbrir);
+		corpo->Controls->Add(bSesAbrir);
 
 		// Scripts
 		y += 32;
 		Label^ l3 = gcnew Label(); l3->Text = L"Scripts:";
 		l3->Location = System::Drawing::Point(x1, y + 3); l3->AutoSize = true;
-		f->Controls->Add(l3);
+		corpo->Controls->Add(l3);
 		TextBox^ txtScr = gcnew TextBox();
 		txtScr->Location = System::Drawing::Point(x1 + 90, y); txtScr->Size = System::Drawing::Size(larg, 22);
 		txtScr->Text = cfgPastaScripts;
-		f->Controls->Add(txtScr);
+		corpo->Controls->Add(txtScr);
 		Button^ bScr = gcnew Button(); bScr->Text = L"...";
 		bScr->Location = System::Drawing::Point(x1 + 90 + larg + 6, y - 1);
 		bScr->Size = System::Drawing::Size(34, 24); bScr->FlatStyle = FlatStyle::Flat;
 		bScr->Tag = txtScr;
 		bScr->Click += gcnew System::EventHandler(this, &MyForm::escolherPasta_Click);
-		f->Controls->Add(bScr);
+		corpo->Controls->Add(bScr);
 		Button^ bScrAbrir = gcnew Button(); bScrAbrir->Text = L"📂";
 		bScrAbrir->Location = System::Drawing::Point(x1 + 90 + larg + 44, y - 1);
 		bScrAbrir->Size = System::Drawing::Size(34, 24); bScrAbrir->FlatStyle = FlatStyle::Flat;
 		bScrAbrir->Tag = txtScr;
 		bScrAbrir->Click += gcnew System::EventHandler(this, &MyForm::abrirPastaConfig_Click);
-		f->Controls->Add(bScrAbrir);
+		corpo->Controls->Add(bScrAbrir);
 
 		// Modelo da IA - impacta custo por teste.
 		// O campo segue a CHAVE selecionada: cada provedor tem o seu proprio
@@ -2979,7 +2995,7 @@ namespace T2MSecurityManager {
 		Label^ lblModelo = gcnew Label();
 		lblModelo->Text = L"Modelo " + provedorModelo + L":";
 		lblModelo->Location = System::Drawing::Point(x1, y + 3); lblModelo->AutoSize = true;
-		f->Controls->Add(lblModelo);
+		corpo->Controls->Add(lblModelo);
 		// Lista EDITAVEL de proposito: modelos sao aposentados com frequencia
 		// (ja aconteceu duas vezes neste projeto). Assim o usuario pode digitar
 		// um modelo novo sem precisar esperar uma atualizacao do programa.
@@ -3063,7 +3079,7 @@ namespace T2MSecurityManager {
 				L"Haiku ~$1/$5  |  Sonnet ~$3/$15  |  Opus ~$5/$25  |  Fable ~$10/$50\n"
 				L"Para automacao de testes, Haiku costuma bastar. Pode digitar outro modelo.";
 		}
-		f->Controls->Add(cbModelo);
+		corpo->Controls->Add(cbModelo);
 
 		// Busca a lista direto no provedor: evita depender de uma lista fixa no
 		// codigo, que envelhece a cada lancamento ou aposentadoria de modelo.
@@ -3076,7 +3092,7 @@ namespace T2MSecurityManager {
 		btnBuscarModelos->Cursor = Cursors::Hand;
 		btnBuscarModelos->Tag = cbModelo;
 		btnBuscarModelos->Click += gcnew System::EventHandler(this, &MyForm::btnBuscarModelos_Click);
-		f->Controls->Add(btnBuscarModelos);
+		corpo->Controls->Add(btnBuscarModelos);
 
 		// Havia aqui um botao "Reaprender", que apagava o que o aplicativo
 		// descobriu sobre cada modelo. Foi removido: o registro agora tem
@@ -3093,7 +3109,7 @@ namespace T2MSecurityManager {
 		dicaModelo->Size = System::Drawing::Size(560, 44);
 		dicaModelo->ForeColor = System::Drawing::Color::DimGray;
 		dicaModelo->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		f->Controls->Add(dicaModelo);
+		corpo->Controls->Add(dicaModelo);
 
 		// --- ENDPOINT COMPATIVEL COM A OPENAI ---
 		// Groq, Ollama, LM Studio, vLLM e OpenRouter falam o mesmo protocolo da
@@ -3110,13 +3126,13 @@ namespace T2MSecurityManager {
 		lblSecaoComp->Text = L"Servidor local ou proprio  (Ollama, LM Studio, vLLM)";
 		lblSecaoComp->Location = System::Drawing::Point(x1, y); lblSecaoComp->AutoSize = true;
 		lblSecaoComp->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
-		f->Controls->Add(lblSecaoComp);
+		corpo->Controls->Add(lblSecaoComp);
 
 		y += 26;
 		Label^ lblEndp = gcnew Label();
 		lblEndp->Text = L"Endereco do servidor:";
 		lblEndp->Location = System::Drawing::Point(x1, y + 3); lblEndp->AutoSize = true;
-		f->Controls->Add(lblEndp);
+		corpo->Controls->Add(lblEndp);
 		// Lista EDITAVEL, e nao botoes. A diferenca nao e de estilo: botao
 		// parece acao e AFIRMA - clicar em "Ollama" preenchia 11434 com ar de
 		// certeza, e quem roda em outra porta so descobria pelo "falha de
@@ -3140,7 +3156,7 @@ namespace T2MSecurityManager {
 			txtEndpoint->Items->Insert(0, cfgEndpointCompativel);
 		}
 		txtEndpoint->Text = cfgEndpointCompativel;
-		f->Controls->Add(txtEndpoint);
+		corpo->Controls->Add(txtEndpoint);
 		// Um botao so. Havia atalhos "LM Studio" e "Ollama" que preenchiam as
 		// portas padrao, e eles foram removidos por serem piores que o Detectar
 		// em todo cenario: 11434 e 1234 sao PADRAO, nao lei, e quem roda com
@@ -3160,7 +3176,7 @@ namespace T2MSecurityManager {
 		btnDetectar->Cursor = Cursors::Hand;
 		btnDetectar->Tag = txtEndpoint;   // ComboBox: o handler usa ->Text
 		btnDetectar->Click += gcnew System::EventHandler(this, &MyForm::detectarServidorLocal_Click);
-		f->Controls->Add(btnDetectar);
+		corpo->Controls->Add(btnDetectar);
 
 		// O modelo NAO fica aqui: ele e o campo la de cima, que ja muda de nome
 		// conforme a chave selecionada ("Modelo Groq", "Modelo Local"). Ter dois
@@ -3184,7 +3200,7 @@ namespace T2MSecurityManager {
 		dicaComp->Size = System::Drawing::Size(640, 58);
 		dicaComp->ForeColor = System::Drawing::Color::DimGray;
 		dicaComp->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		f->Controls->Add(dicaComp);
+		corpo->Controls->Add(dicaComp);
 		// Acompanha a altura REAL da dica, em vez de um numero copiado que
 		// envelhece toda vez que o texto muda - foi assim que a secao seguinte
 		// ja invadiu esta duas vezes.
@@ -3203,77 +3219,80 @@ namespace T2MSecurityManager {
 			(dicaComp->Bottom + 10) - (yInicioComp - 6));
 		molduraComp->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
 		molduraComp->BackColor = System::Drawing::Color::FromArgb(247, 249, 252);
-		f->Controls->Add(molduraComp);
+		corpo->Controls->Add(molduraComp);
 		// Controls->Add poe no FIM da colecao, que e o FUNDO da pilha - entao a
 		// moldura ja nasce atras. O SendToBack e cinto e suspensorio: se alguem
 		// mover esta linha para cima um dia, a tela nao some.
 		molduraComp->SendToBack();
 
-		y += 18;
+		// Depois da moldura, e nao "mais tantos pixels": o avanco fixo que
+		// estava aqui vinha de quando a dica tinha dez linhas. Encurtada a
+		// dica, sobrou uma faixa vazia de quase cem pixels no meio da tela -
+		// que era justamente a altura que fazia a janela precisar de rolagem.
+		y = molduraComp->Bottom + 22;
 
 		// Secao de limites
-		y += 74;
 		Label^ lblSecao2 = gcnew Label();
 		lblSecao2->Text = L"Limites de execucao (afetam custo e duracao)";
 		lblSecao2->Location = System::Drawing::Point(x1, y); lblSecao2->AutoSize = true;
 		lblSecao2->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
-		f->Controls->Add(lblSecao2);
+		corpo->Controls->Add(lblSecao2);
 
 		y += 28;
 		Label^ l4 = gcnew Label();
 		l4->Text = L"Passos maximos da IA por tarefa (1-60):";
 		l4->Location = System::Drawing::Point(x1, y + 3); l4->AutoSize = true;
-		f->Controls->Add(l4);
+		corpo->Controls->Add(l4);
 		NumericUpDown^ numPassos = gcnew NumericUpDown();
 		numPassos->Location = System::Drawing::Point(x1 + 300, y);
 		numPassos->Size = System::Drawing::Size(80, 22);
 		numPassos->Minimum = 1; numPassos->Maximum = 60; numPassos->Value = cfgMaxPassos;
-		f->Controls->Add(numPassos);
+		corpo->Controls->Add(numPassos);
 		Label^ dicaPassos = gcnew Label();
 		dicaPassos->Text = L"Menos passos = menos tokens gastos.";
 		dicaPassos->Location = System::Drawing::Point(x1 + 390, y + 3); dicaPassos->AutoSize = true;
 		dicaPassos->ForeColor = System::Drawing::Color::DimGray;
 		dicaPassos->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		f->Controls->Add(dicaPassos);
+		corpo->Controls->Add(dicaPassos);
 
 		y += 32;
 		Label^ l5 = gcnew Label();
 		l5->Text = L"Linhas maximas por consulta (1-5000):";
 		l5->Location = System::Drawing::Point(x1, y + 3); l5->AutoSize = true;
-		f->Controls->Add(l5);
+		corpo->Controls->Add(l5);
 		NumericUpDown^ numLinhas = gcnew NumericUpDown();
 		numLinhas->Location = System::Drawing::Point(x1 + 300, y);
 		numLinhas->Size = System::Drawing::Size(80, 22);
 		numLinhas->Minimum = 1; numLinhas->Maximum = 5000; numLinhas->Value = cfgMaxLinhas;
-		f->Controls->Add(numLinhas);
+		corpo->Controls->Add(numLinhas);
 
 		y += 32;
 		Label^ l7 = gcnew Label();
 		l7->Text = L"Mensagens mantidas no historico (2-200):";
 		l7->Location = System::Drawing::Point(x1, y + 3); l7->AutoSize = true;
-		f->Controls->Add(l7);
+		corpo->Controls->Add(l7);
 		NumericUpDown^ numHist = gcnew NumericUpDown();
 		numHist->Location = System::Drawing::Point(x1 + 300, y);
 		numHist->Size = System::Drawing::Size(80, 22);
 		numHist->Minimum = 2; numHist->Maximum = 200; numHist->Value = cfgMaxHistorico;
-		f->Controls->Add(numHist);
+		corpo->Controls->Add(numHist);
 		Label^ dicaHist = gcnew Label();
 		dicaHist->Text = L"Historico menor = respostas mais baratas.";
 		dicaHist->Location = System::Drawing::Point(x1 + 390, y + 3); dicaHist->AutoSize = true;
 		dicaHist->ForeColor = System::Drawing::Color::DimGray;
 		dicaHist->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		f->Controls->Add(dicaHist);
+		corpo->Controls->Add(dicaHist);
 
 		y += 32;
 		Label^ l6 = gcnew Label();
 		l6->Text = L"Timeout por operacao (segundos):";
 		l6->Location = System::Drawing::Point(x1, y + 3); l6->AutoSize = true;
-		f->Controls->Add(l6);
+		corpo->Controls->Add(l6);
 		NumericUpDown^ numTimeout = gcnew NumericUpDown();
 		numTimeout->Location = System::Drawing::Point(x1 + 300, y);
 		numTimeout->Size = System::Drawing::Size(80, 22);
 		numTimeout->Minimum = 10; numTimeout->Maximum = 3600; numTimeout->Value = cfgTimeout;
-		f->Controls->Add(numTimeout);
+		corpo->Controls->Add(numTimeout);
 
 		// Secao de seguranca da automacao
 		y += 42;
@@ -3281,14 +3300,14 @@ namespace T2MSecurityManager {
 		lblSecao3->Text = L"Seguranca da automacao de tela";
 		lblSecao3->Location = System::Drawing::Point(x1, y); lblSecao3->AutoSize = true;
 		lblSecao3->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
-		f->Controls->Add(lblSecao3);
+		corpo->Controls->Add(lblSecao3);
 
 		y += 26;
 		CheckBox^ chkIsolado = gcnew CheckBox();
 		chkIsolado->Text = L"Navegador isolado (nao reaproveita cookies nem sessoes ja logadas)";
 		chkIsolado->Location = System::Drawing::Point(x1, y); chkIsolado->AutoSize = true;
 		chkIsolado->Checked = cfgNavegadorIsolado;
-		f->Controls->Add(chkIsolado);
+		corpo->Controls->Add(chkIsolado);
 
 		y += 22;
 		Label^ dicaIsolado = gcnew Label();
@@ -3299,14 +3318,14 @@ namespace T2MSecurityManager {
 		dicaIsolado->Size = System::Drawing::Size(650, 32);
 		dicaIsolado->ForeColor = System::Drawing::Color::DimGray;
 		dicaIsolado->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		f->Controls->Add(dicaIsolado);
+		corpo->Controls->Add(dicaIsolado);
 
 		y += 36;
 		CheckBox^ chkJs = gcnew CheckBox();
 		chkJs->Text = L"Permitir JavaScript na pagina (browser_evaluate)";
 		chkJs->Location = System::Drawing::Point(x1, y); chkJs->AutoSize = true;
 		chkJs->Checked = cfgPermitirJsPagina;
-		f->Controls->Add(chkJs);
+		corpo->Controls->Add(chkJs);
 
 		y += 22;
 		Label^ dicaJs = gcnew Label();
@@ -3318,18 +3337,18 @@ namespace T2MSecurityManager {
 		dicaJs->Size = System::Drawing::Size(650, 46);
 		dicaJs->ForeColor = System::Drawing::Color::DimGray;
 		dicaJs->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		f->Controls->Add(dicaJs);
+		corpo->Controls->Add(dicaJs);
 
 		y += 50;
 		Label^ lblDom = gcnew Label();
 		lblDom->Text = L"Dominios confiaveis:";
 		lblDom->Location = System::Drawing::Point(x1, y + 3); lblDom->AutoSize = true;
-		f->Controls->Add(lblDom);
+		corpo->Controls->Add(lblDom);
 		TextBox^ txtDominios = gcnew TextBox();
 		txtDominios->Location = System::Drawing::Point(x1 + 130, y);
 		txtDominios->Size = System::Drawing::Size(430, 22);
 		txtDominios->Text = cfgDominiosConfiaveis;
-		f->Controls->Add(txtDominios);
+		corpo->Controls->Add(txtDominios);
 
 		y += 24;
 		Label^ dicaDom = gcnew Label();
@@ -3340,7 +3359,7 @@ namespace T2MSecurityManager {
 		dicaDom->Size = System::Drawing::Size(660, 32);
 		dicaDom->ForeColor = System::Drawing::Color::DimGray;
 		dicaDom->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		f->Controls->Add(dicaDom);
+		corpo->Controls->Add(dicaDom);
 
 		// Secao de instrucoes permanentes para a IA
 		y += 40;
@@ -3348,7 +3367,7 @@ namespace T2MSecurityManager {
 		lblSecao4->Text = L"Instrucoes permanentes para a IA";
 		lblSecao4->Location = System::Drawing::Point(x1, y); lblSecao4->AutoSize = true;
 		lblSecao4->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
-		f->Controls->Add(lblSecao4);
+		corpo->Controls->Add(lblSecao4);
 
 		// A caixa de verdade fica escondida aqui e e editada num dialogo proprio.
 		// Motivo: 2000 caracteres nao cabem com folga nesta tela, e crescer a
@@ -3359,7 +3378,7 @@ namespace T2MSecurityManager {
 		txtInstrOculto->Multiline = true;
 		txtInstrOculto->Visible = false;
 		txtInstrOculto->Text = cfgInstrucoesExtras;
-		f->Controls->Add(txtInstrOculto);
+		corpo->Controls->Add(txtInstrOculto);
 
 		y += 26;
 		Button^ btnInstr = gcnew Button();
@@ -3370,7 +3389,7 @@ namespace T2MSecurityManager {
 		btnInstr->FlatStyle = FlatStyle::Flat;
 		btnInstr->Tag = txtInstrOculto;
 		btnInstr->Click += gcnew System::EventHandler(this, &MyForm::editarInstrucoes_Click);
-		f->Controls->Add(btnInstr);
+		corpo->Controls->Add(btnInstr);
 
 		Label^ dicaInstr = gcnew Label();
 		dicaInstr->Text =
@@ -3381,7 +3400,7 @@ namespace T2MSecurityManager {
 		dicaInstr->Size = System::Drawing::Size(460, 46);
 		dicaInstr->ForeColor = System::Drawing::Color::DimGray;
 		dicaInstr->Font = gcnew System::Drawing::Font("Segoe UI", 8);
-		f->Controls->Add(dicaInstr);
+		corpo->Controls->Add(dicaInstr);
 
 		// Botoes
 		y += 46;
@@ -3464,6 +3483,19 @@ namespace T2MSecurityManager {
 		f->Tag = campos;
 		btnOk->Tag = f;
 		btnOk->Click += gcnew System::EventHandler(this, &MyForm::salvarConfiguracoes_Click);
+
+		// ALTURA MEDIDA, NAO CHUTADA. Ate aqui a janela pedia 820 pixels - um
+		// numero escrito quando a tela tinha outro conteudo. Cada campo novo
+		// ou texto encurtado tornava esse numero errado, e o erro aparecia como
+		// rolagem desnecessaria (ou como conteudo cortado). Agora ela pede
+		// exatamente o que o conteudo ocupa; o monitor continua tendo a ultima
+		// palavra, e o que nao couber vira rolagem do corpo - com o rodape
+		// sempre a vista.
+		int fundo = 0;
+		for each (Control^ filho in corpo->Controls) {
+			if (filho->Visible) fundo = Math::Max(fundo, filho->Bottom);
+		}
+		AjustarAoMonitor(f, 720, fundo + rodape->Height + 60);
 
 		AplicarTemaRecursivo(f, temaEscuro);
 		// Ver comentario acima: ShowDialog esconde, nao descarta.
@@ -3944,17 +3976,32 @@ namespace T2MSecurityManager {
 		EsconderBalaoAtual();
 	}
 
-	private: System::Void janelaDoBalao_Resize(System::Object^ sender, System::EventArgs^ e) {
+		   // Redesenha o balao no lugar certo depois de a janela mudar de
+		   // tamanho ou de o conteudo rolar. Sem isto o balao ficava onde
+		   // estava e o campo apontado ia embora.
+	private: void RecolocarBalao() {
+		if (recolocandoBalao) return;   // recolocar rola, rolar recoloca...
 		if (ultimoAlvoBalao == nullptr || ultimoAlvoBalao->IsDisposed) return;
 		Form^ dono = ultimoAlvoBalao->FindForm();
-		if (dono == nullptr || dono != sender) return;
+		if (dono == nullptr) return;
 		Panel^ c = nullptr;
 		if (!caixasPorJanela->TryGetValue(dono, c)) return;
 		if (c == nullptr || c->IsDisposed || !c->Visible) return;
 		cli::array<Object^>^ d = dynamic_cast<cli::array<Object^>^>(c->Tag);
 		if (d == nullptr || d->Length < 4) return;
 		Control^ alvo = ultimoAlvoBalao;
-		MostrarBalao(alvo, safe_cast<String^>(d[0]), safe_cast<String^>(d[1]));
+		recolocandoBalao = true;
+		try { MostrarBalao(alvo, safe_cast<String^>(d[0]), safe_cast<String^>(d[1])); }
+		finally { recolocandoBalao = false; }
+	}
+
+	private: System::Void janelaDoBalao_Resize(System::Object^ sender, System::EventArgs^ e) {
+		RecolocarBalao();
+	}
+
+	private: System::Void corpoRolou_Scroll(System::Object^ sender,
+		System::Windows::Forms::ScrollEventArgs^ e) {
+		RecolocarBalao();
 	}
 
 		   // Desenha o balao: fundo, borda, o circulo azul de informacao (o
@@ -4028,8 +4075,31 @@ namespace T2MSecurityManager {
 		Form^ dono = alvo->FindForm();
 		if (dono == nullptr) return;
 
+		// Se o campo apontado estiver fora da vista, tras ele para a tela
+		// ANTES de medir. Apontar para um campo que a pessoa nao esta vendo
+		// e o mesmo que apontar para o nada.
+		Control^ pai = alvo->Parent;
+		while (pai != nullptr) {
+			ScrollableControl^ rolavel = dynamic_cast<ScrollableControl^>(pai);
+			if (rolavel != nullptr && rolavel->AutoScroll) {
+				try { rolavel->ScrollControlIntoView(alvo); }
+				catch (...) {}
+				break;
+			}
+			pai = pai->Parent;
+		}
+
 		Panel^ caixa = CaixaDaJanela(dono);
+
+		// Area util = a janela MENOS o rodape preso embaixo. Um balao por cima
+		// de Salvar e Cancelar seria o mesmo defeito de antes, so que causado
+		// por nos.
 		System::Drawing::Rectangle area = dono->ClientRectangle;
+		for each (Control^ filho in dono->Controls) {
+			if (filho == caixa || !filho->Visible) continue;
+			if (filho->Dock == System::Windows::Forms::DockStyle::Bottom)
+				area.Height = Math::Max(120, Math::Min(area.Height, filho->Top - area.Top));
+		}
 
 		// 1) Largura. Teto de 420 para a linha nao ficar cansativa de ler,
 		//    mas quem manda e a janela: em notebook o balao encolhe junto.
