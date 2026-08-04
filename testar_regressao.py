@@ -773,6 +773,14 @@ def teste_leitura_da_pagina():
     checa("e a mensagem diz que o problema e o modelo, nao o objetivo",
           "limitacao do modelo, nao do seu objetivo" in fonte_mcp
           and "Modo Chat e Scan DOM continuam" in fonte_mcp)
+    # Visto na tela: a URL alvo apontava para outra pagina, o objetivo pedia
+    # login, e o relatorio disse "nao e possivel" e emendou um menu de 1 a 3.
+    # Quem errou o endereco quer o endereco certo, nao um questionario.
+    checa("objetivo impossivel na pagina vem primeiro, sem menu",
+          "OBJETIVO IMPOSSIVEL NA PAGINA ENCONTRADA" in fonte_mcp
+          and "Nao ofereca menu nem proximos passos nesse " in fonte_mcp)
+    checa("e o menu so aparece quando o objetivo foi cumprido",
+          "Se o objetivo FOI cumprido, ai sim pergunte" in fonte_mcp)
     checa("a dica vale para tela, banco e API",
           fonte_mcp.count("_dica_falha_de_ferramenta(detalhe)") == 3
           + fonte_mcp.count("def _dica_falha_de_ferramenta(detalhe)"))
@@ -3251,6 +3259,15 @@ def teste_anexos_e_visao():
         checa("guardando o rotulo, nao a posicao na lista",
               "File::WriteAllText(CaminhoDados(\"ultima_chave.txt\"), escolha);" in fonte
               and 'if (combo->Items[i]->ToString() == marca) {' in fonte)
+        # A memoria se destruia sozinha: SelectedIndex = 0 durante a montagem
+        # dispara o evento de troca, que gravava "primeira chave" no arquivo - e
+        # a leitura logo em seguida achava exatamente o que acabara de gravar.
+        checa("montar a lista nao conta como escolher",
+              "bool montandoListaDeChaves;" in fonte
+              and "montandoListaDeChaves = true;" in fonte
+              and "if (montandoListaDeChaves) return;" in fonte)
+        checa("e a trava e liberada mesmo se a leitura falhar",
+              "finally { montandoListaDeChaves = false; }" in fonte)
         checa("separador e '+ Adicionar' nao contam como escolha",
               'if (escolha->StartsWith(L"-") || escolha->StartsWith(L"+")' in fonte)
         checa("e a redefinicao tambem leva a ultima chave",

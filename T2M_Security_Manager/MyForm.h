@@ -244,6 +244,7 @@ namespace T2MSecurityManager {
 		Dictionary<Object^, Panel^>^ caixasPorJanela;
 		Control^ ultimoAlvoBalao;   // para esconder o anterior sem lista fixa
 		bool recolocandoBalao;      // trava contra recolocar/rolar em circulo
+		bool montandoListaDeChaves;  // trava: montar a lista nao e escolher
 		int passoTour;               // 0 = parado; 1..N = passo atual
 		int passoTourChat;           // idem, para o tour do Copilot
 		int passoTourConfig;         // idem, para a tela de Configuracoes
@@ -807,6 +808,7 @@ namespace T2MSecurityManager {
 			   this->caixasPorJanela = gcnew Dictionary<Object^, Panel^>();
 			   this->ultimoAlvoBalao = nullptr;
 			   this->recolocandoBalao = false;
+			   this->montandoListaDeChaves = false;
 			   this->passoTour = 0;
 			   this->passoTourChat = 0;
 			   this->passoTourConfig = 0;
@@ -1426,6 +1428,14 @@ namespace T2MSecurityManager {
 	}
 
 	private: void CarregarDropdownAPI(ComboBox^ combo) {
+		// MONTAR A LISTA NAO E ESCOLHER UMA CHAVE. Sem esta trava, a memoria da
+		// ultima chave se destruia sozinha: o SelectedIndex = 0 la embaixo
+		// dispara o evento de troca, que gravava "primeira chave" no arquivo -
+		// e ai a leitura logo em seguida encontrava exatamente o que acabara de
+		// ser gravado. A janela abria sempre na primeira, e a memoria parecia
+		// nao existir. Foi o que aconteceu no primeiro teste.
+		montandoListaDeChaves = true;
+		try {
 		combo->Items->Clear();
 		if (File::Exists(CaminhoDados("api_keys_ia.txt"))) {
 			array<String^>^ linhas = File::ReadAllLines(CaminhoDados("api_keys_ia.txt"));
@@ -1467,6 +1477,8 @@ namespace T2MSecurityManager {
 			}
 		}
 		catch (...) {}
+		}
+		finally { montandoListaDeChaves = false; }
 	}
 
 		   // Guarda a chave escolhida para a proxima abertura. Chamado so na
@@ -1474,6 +1486,7 @@ namespace T2MSecurityManager {
 		   // escolha, e gravar um deles faria a janela abrir neles no dia
 		   // seguinte.
 	private: void LembrarChaveEscolhida(ComboBox^ combo) {
+		if (montandoListaDeChaves) return;
 		try {
 			if (combo == nullptr || combo->SelectedItem == nullptr) return;
 			String^ escolha = combo->SelectedItem->ToString();
