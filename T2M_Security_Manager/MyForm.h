@@ -2798,17 +2798,45 @@ namespace T2MSecurityManager {
 		   // a altura DAQUELE monitor que importa.
 	private: void AjustarAoMonitor(Form^ f, int larguraDesejada, int alturaDesejada) {
 		try {
-			System::Drawing::Rectangle area =
-				Screen::FromPoint(Control::MousePosition)->WorkingArea;
+			// O monitor onde esta a JANELA PRINCIPAL, e nao onde esta o cursor:
+			// o dialogo abre sobre ela, e o mouse pode estar em outra tela na
+			// hora do clique.
+			System::Drawing::Rectangle area = Screen::FromControl(this)->WorkingArea;
+
 			// Margem para a barra de titulo e para nao colar nas bordas.
 			int largura = Math::Min(larguraDesejada, Math::Max(420, area.Width - 40));
-			int altura = Math::Min(alturaDesejada, Math::Max(360, area.Height - 50));
+			int altura = Math::Min(alturaDesejada, Math::Max(360, area.Height - 60));
 			f->Size = System::Drawing::Size(largura, altura);
+
 			// Encolhida, a janela vive de rolagem; entao precisa poder crescer
 			// se a pessoa arrastar a borda ou maximizar.
 			if (altura < alturaDesejada || largura < larguraDesejada) {
 				f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::Sizable;
 				f->MaximizeBox = true;
+			}
+
+			// POSICAO MANUAL, presa dentro da area util.
+			//
+			// Tamanho certo nao basta: com CenterParent, um dialogo mais ALTO
+			// que a janela principal nasce com o topo em coordenada NEGATIVA -
+			// a barra de titulo fica acima da borda do monitor, e nem arrastar
+			// resolve, porque nao ha o que agarrar. Foi o que aconteceu no
+			// notebook depois de a altura ja estar correta.
+			f->StartPosition = FormStartPosition::Manual;
+			int x = area.Left + (area.Width - largura) / 2;
+			int y = area.Top + (area.Height - altura) / 2;
+			// Nunca acima nem a esquerda do canto util; e nunca ultrapassando
+			// o canto oposto.
+			x = Math::Max(area.Left, Math::Min(x, area.Right - largura));
+			y = Math::Max(area.Top, Math::Min(y, area.Bottom - altura));
+			f->Location = System::Drawing::Point(x, y);
+			// Um MinimumSize maior que a area util desfaz tudo o que foi feito
+			// acima: o Windows respeita o minimo e devolve a janela ao tamanho
+			// que nao cabia.
+			if (f->MinimumSize.Height > altura || f->MinimumSize.Width > largura) {
+				f->MinimumSize = System::Drawing::Size(
+					Math::Min(f->MinimumSize.Width, largura),
+					Math::Min(f->MinimumSize.Height, altura));
 			}
 		}
 		catch (...) {
@@ -4024,10 +4052,10 @@ namespace T2MSecurityManager {
 	private: System::Void btnHistorico_Click(System::Object^ sender, System::EventArgs^ e) {
 		Form^ d = gcnew Form();
 		d->Text = L"Historico de execucoes";
-		AjustarAoMonitor(d, 1000, 660);
 		d->AutoScroll = true;   // encolhida, a janela vive de rolagem
-		d->StartPosition = FormStartPosition::CenterParent;
 		d->MinimumSize = System::Drawing::Size(760, 480);
+		// Depois do MinimumSize: um minimo maior que a tela desfaria o ajuste.
+		AjustarAoMonitor(d, 1000, 660);
 		AplicarIcone(d);
 
 		Label^ topo = gcnew Label();

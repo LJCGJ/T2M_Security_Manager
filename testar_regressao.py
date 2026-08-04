@@ -3072,9 +3072,24 @@ def teste_anexos_e_visao():
               and "d->Size = System::Drawing::Size(1000, 660)" not in fonte)
         # Em dois monitores, o que importa e a altura DAQUELE em que a pessoa
         # esta - nao a do primario.
-        checa("mede o monitor onde a pessoa esta, nao o primario",
-              "Screen::FromPoint(Control::MousePosition)" in fonte)
+        # O monitor da janela principal, e nao o do cursor: o dialogo abre sobre
+        # ela, e o mouse pode estar em outra tela na hora do clique.
+        checa("mede o monitor da janela principal",
+              "Screen::FromControl(this)->WorkingArea" in fonte)
         checa("e desconta a barra de tarefas", "WorkingArea" in fonte)
+        # Tamanho certo nao basta: com CenterParent, um dialogo mais ALTO que a
+        # janela principal nasce com o topo em coordenada NEGATIVA - a barra de
+        # titulo fica acima da borda do monitor e nem arrastar resolve, porque
+        # nao ha o que agarrar.
+        checa("a posicao tambem e calculada, nao herdada do CenterParent",
+              "f->StartPosition = FormStartPosition::Manual;" in fonte)
+        checa("e presa dentro da area util nos dois eixos",
+              "x = Math::Max(area.Left, Math::Min(x, area.Right - largura));" in fonte
+              and "y = Math::Max(area.Top, Math::Min(y, area.Bottom - altura));" in fonte)
+        # Um MinimumSize maior que a tela desfaz tudo: o Windows respeita o
+        # minimo e devolve a janela ao tamanho que nao cabia.
+        checa("o tamanho minimo tambem e limitado pela tela",
+              "f->MinimumSize.Height > altura" in fonte)
         # Encolhida, a janela vive de rolagem; travar o tamanho impediria a
         # pessoa de aumenta-la se quisesse.
         checa("encolhida, a janela pode ser redimensionada",
