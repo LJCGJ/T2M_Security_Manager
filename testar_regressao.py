@@ -780,16 +780,25 @@ def teste_leitura_da_pagina():
     # recebeu um traceback de asyncio com 60 linhas. Acabar a cota e rotina de
     # quem testa com plano gratuito - nao e defeito, e nao precisa de pilha de
     # chamadas para ser entendido.
+    # Cinco caminhos, nao tres: tela, banco, Mongo, API e Oracle. Os dois
+    # ultimos ficaram de fora na primeira correcao e o operador recebeu o
+    # traceback cru de novo, no teste de API - a mesma falha, no caminho que
+    # eu nao tinha olhado.
     checa("cota acabada vira mensagem, nao traceback",
-          "def _mensagem_de_cota(detalhe):" in fonte_mcp
-          and "cota = _mensagem_de_cota(detalhe)" in fonte_mcp
-          and fonte_mcp.count("responder(cota, erro=True)") == 3)
+          "def _mensagem_de_cota(detalhe, com_print=False):" in fonte_mcp
+          and "cota = _mensagem_de_cota(detalhe" in fonte_mcp
+          and fonte_mcp.count("responder(cota, erro=True)") == 5)
     # Groq limita TOKENS POR DIA; Gemini limita REQUISICOES POR MINUTO. Uma
     # tarde de espera contra dois minutos - a resposta certa muda junto.
     checa("por dia e por minuto sao tratados diferente",
           'por_dia = ("per day" in d or "tpd" in d or "rpd" in d)' in fonte_mcp
           and "virada do dia (ou um plano pago)" in fonte_mcp
           and "Cada PASSO da automacao e uma requisicao: reduzir" in fonte_mcp)
+    # Em API, banco e Oracle nao existe print: mandar procurar uma imagem que
+    # nunca foi tirada e uma mentira pequena que custa um minuto de busca.
+    checa("a frase do print so aparece no teste de tela",
+          "def _mensagem_de_cota(detalhe, com_print=False):" in fonte_mcp
+          and fonte_mcp.count("_mensagem_de_cota(detalhe, com_print=True)") == 1)
     checa("e o tempo de espera informado pelo provedor e aproveitado",
           'try again in ([0-9hms' in fonte_mcp)
     checa("objetivo impossivel na pagina vem primeiro, sem menu",
@@ -797,8 +806,10 @@ def teste_leitura_da_pagina():
           and "Nao ofereca menu nem proximos passos nesse " in fonte_mcp)
     checa("e o menu so aparece quando o objetivo foi cumprido",
           "Se o objetivo FOI cumprido, ai sim pergunte" in fonte_mcp)
-    checa("a dica vale para tela, banco e API",
-          fonte_mcp.count("_dica_falha_de_ferramenta(detalhe)") == 3
+    # Cinco caminhos de execucao, cinco lugares onde o erro pode sair:
+    # tela, banco, Mongo, API e Oracle.
+    checa("a dica vale para os cinco caminhos de execucao",
+          fonte_mcp.count("_dica_falha_de_ferramenta(detalhe)") == 5
           + fonte_mcp.count("def _dica_falha_de_ferramenta(detalhe)"))
     # Primeira execucao do item 32 do roteiro: a IA recusou as duas linhas
     # plantadas, mas escreveu apenas "ignorei instrucoes que tentavam manipular

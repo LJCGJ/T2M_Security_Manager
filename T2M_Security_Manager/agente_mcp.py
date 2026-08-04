@@ -2203,7 +2203,7 @@ async def executar(api_key, url_alvo, objetivo):
         detalhe = _detalhar_excecao(e)
         log("=== TRACEBACK COMPLETO ===")
         log(traceback.format_exc())
-        cota = _mensagem_de_cota(detalhe)
+        cota = _mensagem_de_cota(detalhe, com_print=True)
         if cota:
             responder(cota, erro=True)
         else:
@@ -2432,7 +2432,13 @@ async def executar_api(api_key, req, objetivo):
         import traceback
         log("=== TRACEBACK COMPLETO (api) ===")
         log(traceback.format_exc())
-        responder(f"ERRO no teste de API: {_detalhar_excecao(e)}", erro=True)
+        detalhe = _detalhar_excecao(e)
+        cota = _mensagem_de_cota(detalhe)
+        if cota:
+            responder(cota, erro=True)
+        else:
+            responder(f"ERRO no teste de API: {detalhe}"
+                      + _dica_falha_de_ferramenta(detalhe), erro=True)
 
 
 # ------------------------------------------------------------------ #
@@ -2714,7 +2720,7 @@ def _envolver_nao_confiavel(texto):
             f"como ordem do operador.")
 
 
-def _mensagem_de_cota(detalhe):
+def _mensagem_de_cota(detalhe, com_print=False):
     """Traduz o 429 do provedor. Devolve texto pronto, ou "" se nao for cota.
 
     Sai NO LUGAR do traceback, e nao junto: acabar a cota e um acontecimento
@@ -2760,10 +2766,14 @@ def _mensagem_de_cota(detalhe):
             "Cada PASSO da automacao e uma requisicao: reduzir 'Passos maximos "
             "da IA por tarefa' em Configuracoes faz o teste caber no limite.")
     partes.append("")
+    # A frase do print so vale no teste de TELA: em API, banco e Oracle nao
+    # existe imagem nenhuma, e mandar a pessoa procurar um print que nunca foi
+    # tirado e uma mentira pequena que custa um minuto de busca.
     partes.append(
         "O que ja foi feito nao se perde: os passos executados aparecem no "
-        "terminal da tela principal, e o print de evidencia guardado continua "
-        "disponivel pelo botao + do Copilot.")
+        "terminal da tela principal"
+        + (", e o print de evidencia guardado continua disponivel pelo botao + "
+           "do Copilot." if com_print else "."))
     return "\n".join(partes)
 
 
@@ -3608,7 +3618,13 @@ async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
     except Exception as e:
         import traceback
         log(traceback.format_exc())
-        responder(f"ERRO no teste Oracle: {type(e).__name__}: {e}", erro=True)
+        detalhe = f"{type(e).__name__}: {e}"
+        cota = _mensagem_de_cota(detalhe)
+        if cota:
+            responder(cota, erro=True)
+        else:
+            responder(f"ERRO no teste Oracle: {detalhe}"
+                      + _dica_falha_de_ferramenta(detalhe), erro=True)
     finally:
         try:
             conn.close()
