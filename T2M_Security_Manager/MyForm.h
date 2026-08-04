@@ -3935,6 +3935,14 @@ namespace T2MSecurityManager {
 		return p;
 	}
 
+		   // O "x" de fechar, no alto a direita. Existe porque clicar em
+		   // qualquer lugar ja fechava, mas ninguem adivinha o que nao esta
+		   // escrito: sem o x, o balao parecia preso ate o proximo passo.
+	private: System::Drawing::Rectangle RetanguloDoX(System::Drawing::Rectangle r, bool bicoEmCima) {
+		int topo = bicoEmCima ? BALAO_BICO : 0;
+		return System::Drawing::Rectangle(r.Right - BALAO_MARGEM - 16, topo + BALAO_MARGEM - 3, 18, 18);
+	}
+
 		   // Recorta o painel no formato do balao. Sem isto o bico seria um
 		   // desenho dentro de um retangulo branco - e apareceria o retangulo.
 	private: void AplicarRecorte(Panel^ caixa, bool bicoEmCima, int bicoX) {
@@ -3969,6 +3977,8 @@ namespace T2MSecurityManager {
 		c->Cursor = System::Windows::Forms::Cursors::Hand;
 		c->Paint += gcnew System::Windows::Forms::PaintEventHandler(this, &MyForm::caixaBalao_Paint);
 		c->Click += gcnew System::EventHandler(this, &MyForm::caixaBalao_Click);
+		c->MouseMove += gcnew System::Windows::Forms::MouseEventHandler(this, &MyForm::caixaBalao_MouseMove);
+		c->MouseLeave += gcnew System::EventHandler(this, &MyForm::caixaBalao_MouseLeave);
 		dono->Controls->Add(c);
 		c->BringToFront();
 		// Redimensionar a janela muda o que cabe: o balao se recoloca em vez
@@ -3980,6 +3990,30 @@ namespace T2MSecurityManager {
 
 	private: System::Void caixaBalao_Click(System::Object^ sender, System::EventArgs^ e) {
 		EsconderBalaoAtual();
+	}
+
+		   // O realce do "x" so muda quando o mouse ENTRA ou SAI dele. Repintar
+		   // a cada pixel de movimento faria o balao piscar.
+	private: void MarcarSobreX(Panel^ c, bool sobre) {
+		cli::array<Object^>^ d = dynamic_cast<cli::array<Object^>^>(c->Tag);
+		if (d == nullptr || d->Length < 5) return;
+		if (safe_cast<bool>(d[4]) == sobre) return;
+		d[4] = safe_cast<Object^>(sobre);
+		bool bicoEmCima = safe_cast<bool>(d[2]);
+		c->Invalidate(System::Drawing::Rectangle::Inflate(
+			RetanguloDoX(c->ClientRectangle, bicoEmCima), 3, 3));
+	}
+
+	private: System::Void caixaBalao_MouseMove(System::Object^ sender,
+		System::Windows::Forms::MouseEventArgs^ e) {
+		Panel^ c = safe_cast<Panel^>(sender);
+		cli::array<Object^>^ d = dynamic_cast<cli::array<Object^>^>(c->Tag);
+		if (d == nullptr || d->Length < 5) return;
+		MarcarSobreX(c, RetanguloDoX(c->ClientRectangle, safe_cast<bool>(d[2])).Contains(e->Location));
+	}
+
+	private: System::Void caixaBalao_MouseLeave(System::Object^ sender, System::EventArgs^ e) {
+		MarcarSobreX(safe_cast<Panel^>(sender), false);
 	}
 
 		   // Redesenha o balao no lugar certo depois de a janela mudar de
@@ -4044,14 +4078,31 @@ namespace T2MSecurityManager {
 			static_cast<TextFormatFlags>(TextFormatFlags::HorizontalCenter | TextFormatFlags::VerticalCenter));
 		delete fIcone;
 
+		// O "x" de fechar. Sobre ele, o titulo tem menos espaco - por isso a
+		// largura do titulo e a mesma conta aqui e na hora de medir a altura;
+		// se as duas discordarem, a ultima linha do titulo some.
+		System::Drawing::Rectangle rX = RetanguloDoX(r, bicoEmCima);
+		bool sobreX = (d->Length > 4) && safe_cast<bool>(d[4]);
+		if (sobreX) {
+			SolidBrush^ realce = gcnew SolidBrush(Color::FromArgb(232, 17, 35));
+			e->Graphics->FillRectangle(realce, rX);
+			delete realce;
+		}
+		Pen^ penX = gcnew Pen(sobreX ? Color::White : Color::FromArgb(90, 90, 90), 1.6f);
+		int mx = rX.Left + 5, my = rX.Top + 5, mf = 8;
+		e->Graphics->DrawLine(penX, mx, my, mx + mf, my + mf);
+		e->Graphics->DrawLine(penX, mx + mf, my, mx, my + mf);
+		delete penX;
+
 		int esqTexto = BALAO_MARGEM + BALAO_ICONE;
 		int larguraTexto = r.Width - esqTexto - BALAO_MARGEM;
 		if (larguraTexto < 40) return;
+		int larguraTitulo = Math::Max(40, larguraTexto - 24);
 		System::Drawing::Font^ fTitulo = gcnew System::Drawing::Font(SystemFonts::DefaultFont, FontStyle::Bold);
 		System::Drawing::Size mTit = TextRenderer::MeasureText(titulo, fTitulo,
-			System::Drawing::Size(larguraTexto, 0), TextFormatFlags::WordBreak);
+			System::Drawing::Size(larguraTitulo, 0), TextFormatFlags::WordBreak);
 		TextRenderer::DrawText(e->Graphics, titulo, fTitulo,
-			System::Drawing::Rectangle(esqTexto, topo + BALAO_MARGEM, larguraTexto, mTit.Height),
+			System::Drawing::Rectangle(esqTexto, topo + BALAO_MARGEM, larguraTitulo, mTit.Height),
 			Color::FromArgb(0, 80, 140), TextFormatFlags::WordBreak);
 		delete fTitulo;
 
@@ -4114,9 +4165,11 @@ namespace T2MSecurityManager {
 		int larguraTexto = Math::Max(60, largura - esqTexto - BALAO_MARGEM);
 
 		// 2) Altura medida com o texto ja quebrado nessa largura.
+		// Menos 24: o espaco do "x" de fechar. A mesma conta do desenho.
+		int larguraTitulo = Math::Max(40, larguraTexto - 24);
 		System::Drawing::Font^ fTitulo = gcnew System::Drawing::Font(SystemFonts::DefaultFont, FontStyle::Bold);
 		System::Drawing::Size mTit = TextRenderer::MeasureText(titulo, fTitulo,
-			System::Drawing::Size(larguraTexto, 0), TextFormatFlags::WordBreak);
+			System::Drawing::Size(larguraTitulo, 0), TextFormatFlags::WordBreak);
 		System::Drawing::Size mTxt = TextRenderer::MeasureText(texto, SystemFonts::DefaultFont,
 			System::Drawing::Size(larguraTexto, 0), TextFormatFlags::WordBreak);
 		delete fTitulo;
@@ -4145,11 +4198,12 @@ namespace T2MSecurityManager {
 		//    andava para caber e o bico ficava apontando para o nada.
 		int bicoX = Math::Max(16, Math::Min(largura - 16, centro - x));
 
-		cli::array<Object^>^ dados = gcnew cli::array<Object^>(4);
+		cli::array<Object^>^ dados = gcnew cli::array<Object^>(5);
 		dados[0] = titulo;
 		dados[1] = texto;
 		dados[2] = safe_cast<Object^>(bicoEmCima);
 		dados[3] = safe_cast<Object^>(bicoX);
+		dados[4] = safe_cast<Object^>(false);   // mouse sobre o "x"
 		caixa->Tag = dados;
 		// Coordenadas de FILHO: numa janela com rolagem a origem do conteudo
 		// nao e a mesma da area visivel.

@@ -3089,6 +3089,19 @@ def teste_anexos_e_visao():
               "janelaDoBalao_Resize" in fonte)
         checa("clicar no balao fecha o balao",
               "caixaBalao_Click" in fonte)
+        # Clicar em qualquer lugar ja fechava, mas ninguem adivinha o que nao
+        # esta escrito: sem o "x" o balao parecia preso ate o proximo passo.
+        checa("o balao tem um x de fechar",
+              "Rectangle RetanguloDoX(" in fonte
+              and "caixaBalao_MouseMove" in fonte
+              and "caixaBalao_MouseLeave" in fonte)
+        checa("o x realca ao passar o mouse, sem repintar a toa",
+              "void MarcarSobreX(Panel^ c, bool sobre)" in fonte
+              and "if (safe_cast<bool>(d[4]) == sobre) return;" in fonte)
+        # Se a largura do titulo no desenho e na medicao discordarem, a ultima
+        # linha do titulo some atras do x.
+        checa("o titulo desvia do x nas duas contas",
+              fonte.count("int larguraTitulo = Math::Max(40, larguraTexto - 24);") == 2)
         # --- ENQUADRAMENTO DA JANELA DE CONFIGURACOES ---
         # Numa janela com AutoScroll, um painel Dock::Bottom rola JUNTO com o
         # conteudo: Salvar e Cancelar so apareciam depois de rolar ate o fim, e
