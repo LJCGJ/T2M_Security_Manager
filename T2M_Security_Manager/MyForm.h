@@ -236,6 +236,12 @@ namespace T2MSecurityManager {
 		Button^ btnAjudaChat;    // "?" redondo: abre o tutorial
 		Button^ btnAjudaPrincipal;   // "?" redondo da tela inicial
 		System::Windows::Forms::ToolTip^ balaoTour;  // baloes do tour guiado
+		// Um ToolTip POR JANELA. Um unico ToolTip criado na tela principal
+		// posiciona errado quando o alvo esta em outra janela: o Windows calcula
+		// a partir da janela DONA do ToolTip, e o balao ia parar longe do
+		// controle - as vezes fora do aplicativo. Valia para os tres tutoriais.
+		Dictionary<Object^, System::Windows::Forms::ToolTip^>^ baloesPorJanela;
+		Control^ ultimoAlvoBalao;   // para esconder o anterior sem lista fixa
 		int passoTour;               // 0 = parado; 1..N = passo atual
 		int passoTourChat;           // idem, para o tour do Copilot
 		int passoTourConfig;         // idem, para a tela de Configuracoes
@@ -801,6 +807,8 @@ namespace T2MSecurityManager {
 			   this->balaoTour->ToolTipIcon = System::Windows::Forms::ToolTipIcon::Info;
 			   this->balaoTour->UseAnimation = true;
 			   this->balaoTour->UseFading = true;
+			   this->baloesPorJanela = gcnew Dictionary<Object^, System::Windows::Forms::ToolTip^>();
+			   this->ultimoAlvoBalao = nullptr;
 			   this->passoTour = 0;
 			   this->passoTourChat = 0;
 			   this->passoTourConfig = 0;
@@ -3853,13 +3861,62 @@ namespace T2MSecurityManager {
 		   // apontando para o lugar certo ensina; paragrafo solto so ocupa tela.
 		   // Depois do ultimo, o tour reinicia - ninguem fica preso.
 		   // ==========================================================================
+		   // ToolTip da janela onde o controle vive, criando na primeira vez.
+	private: System::Windows::Forms::ToolTip^ BalaoDaJanela(Form^ dono) {
+		if (dono == nullptr) return balaoTour;
+		System::Windows::Forms::ToolTip^ t = nullptr;
+		if (baloesPorJanela->TryGetValue(dono, t) && t != nullptr) return t;
+		t = gcnew System::Windows::Forms::ToolTip();
+		t->IsBalloon = true;
+		t->ToolTipIcon = System::Windows::Forms::ToolTipIcon::Info;
+		t->UseAnimation = true;
+		t->UseFading = true;
+		baloesPorJanela[dono] = t;
+		return t;
+	}
+
+		   // Esconde o balao que estiver aberto, seja de que janela for. Antes
+		   // cada tour listava seus proprios controles para esconder um por um -
+		   // e a lista envelhecia toda vez que um controle era renomeado.
+	private: void EsconderBalaoAtual() {
+		if (ultimoAlvoBalao == nullptr || ultimoAlvoBalao->IsDisposed) {
+			ultimoAlvoBalao = nullptr;
+			return;
+		}
+		Form^ dono = ultimoAlvoBalao->FindForm();
+		System::Windows::Forms::ToolTip^ t = BalaoDaJanela(dono);
+		try {
+			t->Hide(ultimoAlvoBalao);
+			if (dono != nullptr) t->Hide(dono);
+		}
+		catch (...) {}
+		ultimoAlvoBalao = nullptr;
+	}
+
 	private: void MostrarBalao(Control^ alvo, String^ titulo, String^ texto) {
-		if (alvo == nullptr || alvo->IsDisposed || balaoTour == nullptr) return;
-		balaoTour->ToolTipTitle = titulo;
-		// Ancora no meio do controle, logo abaixo. O Windows vira o balao
-		// sozinho quando nao ha espaco embaixo, entao nao ha risco de sair da
-		// tela nos controles do rodape.
-		balaoTour->Show(texto, alvo, alvo->Width / 2, alvo->Height + 2, 15000);
+		if (alvo == nullptr || alvo->IsDisposed) return;
+		EsconderBalaoAtual();
+
+		Form^ dono = alvo->FindForm();
+		System::Windows::Forms::ToolTip^ t = BalaoDaJanela(dono);
+		if (t == nullptr) return;
+		t->ToolTipTitle = titulo;
+
+		// Coordenadas relativas a JANELA do alvo, calculadas a partir da tela.
+		// Passar o proprio controle parecia mais simples e era a origem do bug:
+		// com o ToolTip pertencendo a outra janela, o Windows media a partir
+		// dela e o balao aparecia longe - as vezes fora do aplicativo. Assim
+		// funciona com a janela em qualquer canto, maximizada ou reduzida.
+		if (dono == nullptr) {
+			t->Show(texto, alvo, alvo->Width / 2, alvo->Height + 2, 15000);
+		}
+		else {
+			System::Drawing::Point naTela = alvo->PointToScreen(
+				System::Drawing::Point(alvo->Width / 2, alvo->Height + 2));
+			System::Drawing::Point naJanela = dono->PointToClient(naTela);
+			t->Show(texto, dono, naJanela, 15000);
+		}
+		ultimoAlvoBalao = alvo;
 	}
 
 		   // Tour da tela de Configuracoes. Os textos ao lado dos campos dizem o
@@ -3873,13 +3930,7 @@ namespace T2MSecurityManager {
 		Button^ b = safe_cast<Button^>(sender);
 		Form^ f = safe_cast<Form^>(b->Tag);
 		cli::array<Object^>^ ctl = safe_cast<cli::array<Object^>^>(f->Tag);
-		if (balaoTour != nullptr) {
-			for each (Object ^ o in ctl) {
-				Control^ c = dynamic_cast<Control^>(o);
-				if (c != nullptr) balaoTour->Hide(c);
-			}
-			balaoTour->Hide(b);
-		}
+		EsconderBalaoAtual();
 		passoTourConfig++;
 		switch (passoTourConfig) {
 		case 1:
@@ -3956,17 +4007,7 @@ namespace T2MSecurityManager {
 	private: System::Void btnAjudaPrincipal_Click(System::Object^ sender, System::EventArgs^ e) {
 		// Esconde o anterior antes de mostrar o proximo: dois baloes abertos em
 		// controles vizinhos ficam um por cima do outro.
-		if (balaoTour != nullptr) {
-			balaoTour->Hide(this);
-			balaoTour->Hide(btnGerarIA);
-			balaoTour->Hide(txtUrl);
-			balaoTour->Hide(lstScripts);
-			balaoTour->Hide(btnStart);
-			balaoTour->Hide(txtOutput);
-			balaoTour->Hide(btnAnalisarSaida);
-			balaoTour->Hide(btnHistorico);
-			balaoTour->Hide(btnConfiguracoes);
-		}
+		EsconderBalaoAtual();
 
 		passoTour++;
 		switch (passoTour) {
@@ -5912,19 +5953,7 @@ namespace T2MSecurityManager {
 		   // no lugar onde a duvida aparece.
 		   // ==========================================================================
 	private: void EsconderBaloesChat() {
-		if (balaoTour == nullptr) return;
-		// Esconder um a um: dois baloes abertos em controles vizinhos ficam um
-		// por cima do outro, e o de tras nunca some sozinho.
-		balaoTour->Hide(comboModeloChat);
-		balaoTour->Hide(btnChatConversa);
-		balaoTour->Hide(btnChatDom);
-		balaoTour->Hide(btnAutomacao);
-		balaoTour->Hide(rtbChat);
-		balaoTour->Hide(lblChatStatus);
-		balaoTour->Hide(txtChatInput);
-		balaoTour->Hide(btnSendChat);
-		balaoTour->Hide(btnSaveScript);
-		balaoTour->Hide(btnExportarRelatorio);
+		EsconderBalaoAtual();
 	}
 
 	private: System::Void btnAjudaChat_Click(System::Object^ sender, System::EventArgs^ e) {

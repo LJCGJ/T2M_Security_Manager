@@ -3039,6 +3039,20 @@ def teste_anexos_e_visao():
             checa(f"o tour tem o passo {n} de 6", f'L"{n} de 6  -  ' in fonte)
         checa("o tour reinicia depois do ultimo passo",
               "passoTourConfig = 0;" in fonte)
+        # Um unico ToolTip criado na tela principal posiciona errado quando o
+        # alvo esta em OUTRA janela: o Windows mede a partir da janela dona, e o
+        # balao ia parar longe do controle - as vezes fora do aplicativo. Valia
+        # para os tres tutoriais.
+        checa("cada janela tem seu proprio balao",
+              "Dictionary<Object^, System::Windows::Forms::ToolTip^>^ baloesPorJanela;" in fonte
+              and "ToolTip^ BalaoDaJanela(Form^ dono)" in fonte)
+        checa("a posicao e calculada pela tela, nao herdada",
+              "alvo->PointToScreen(" in fonte and "dono->PointToClient(naTela)" in fonte)
+        # Cada tour listava seus controles para esconder um por um, e a lista
+        # envelhecia a cada renomeacao.
+        checa("esconder o balao anterior nao depende de lista fixa",
+              "void EsconderBalaoAtual()" in fonte
+              and "balaoTour->Hide(" not in fonte)
         # Ancorar pelo vetor de campos evita promover meia duzia de controles a
         # membros da classe so para o tour poder aponta-los.
         checa("os baloes se ancoram nos campos reais",
