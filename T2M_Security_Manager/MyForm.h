@@ -1441,7 +1441,47 @@ namespace T2MSecurityManager {
 		}
 		if (combo->Items->Count == 0) combo->Items->Add(L" Nenhuma chave ");
 		combo->Items->Add("-------------------------"); combo->Items->Add(L"+ Adicionar Nova API Key...");
+
+		// VOLTA NA CHAVE DE ONTEM, nao na primeira da lista. Quem tem duas
+		// chaves cadastradas usa UMA delas o dia inteiro; abrir sempre na
+		// primeira significa trocar a mao toda vez - e, pior, esquecer de
+		// trocar e gastar cota da chave errada sem perceber.
+		//
+		// Guardado o ROTULO mascarado (o mesmo que aparece na lista), e nao a
+		// posicao: apagar ou cadastrar uma chave muda as posicoes, e a memoria
+		// passaria a apontar para outra chave calada. O rotulo ja e publico -
+		// esta na tela - entao nada de segredo novo vai para o disco.
 		combo->SelectedIndex = 0;
+		try {
+			String^ arq = CaminhoDados("ultima_chave.txt");
+			if (File::Exists(arq)) {
+				String^ marca = File::ReadAllText(arq)->Trim();
+				if (!String::IsNullOrWhiteSpace(marca)) {
+					for (int i = 0; i < combo->Items->Count; i++) {
+						if (combo->Items[i]->ToString() == marca) {
+							combo->SelectedIndex = i;
+							break;
+						}
+					}
+				}
+			}
+		}
+		catch (...) {}
+	}
+
+		   // Guarda a chave escolhida para a proxima abertura. Chamado so na
+		   // escolha de uma chave de verdade: separador e "+ Adicionar" nao sao
+		   // escolha, e gravar um deles faria a janela abrir neles no dia
+		   // seguinte.
+	private: void LembrarChaveEscolhida(ComboBox^ combo) {
+		try {
+			if (combo == nullptr || combo->SelectedItem == nullptr) return;
+			String^ escolha = combo->SelectedItem->ToString();
+			if (escolha->StartsWith(L"-") || escolha->StartsWith(L"+")
+				|| escolha->Trim() == L"Nenhuma chave") return;
+			File::WriteAllText(CaminhoDados("ultima_chave.txt"), escolha);
+		}
+		catch (...) {}
 	}
 
 		   // =========================================================================
@@ -2048,6 +2088,7 @@ namespace T2MSecurityManager {
 			CarregarDropdownAPI(comboModeloChat);
 		}
 		AtualizarIndicadorIA();  // atualiza a bolinha/nome da IA conforme a chave
+		LembrarChaveEscolhida(comboModeloChat);
 
 		// Trocar de CHAVE tambem troca de provedor e de modelo, e e um ato
 		// explicito - merece a linha na hora, nao so no proximo envio.
@@ -4919,7 +4960,7 @@ namespace T2MSecurityManager {
 		cli::array<String^>^ arquivos = gcnew cli::array<String^>{
 			L"configuracoes.txt", L"capacidades_modelos.txt", L"memoria_chat.json",
 			L"historico_execucoes.jsonl", L"modelo_gemini_ok.txt", L"tema.txt",
-			L"config.txt"
+			L"config.txt", L"ultima_chave.txt"
 		};
 		for each (String ^ nome in arquivos) {
 			if (MoverParaLixeira(CaminhoDados(nome))) apagados->Add(nome);
@@ -7036,8 +7077,81 @@ namespace T2MSecurityManager {
 			// identificar relendo a conversa depois.
 			AnunciarModoNoChat(L"Chat",
 				L"so conversa; nada e lido da pagina nesta resposta.");
-			RodarWorker(0, prompt, L"O agente esta pensando...");
+
+			// PEDIDO DE EXECUCAO EM MODO CHAT. Visto na tela: o operador
+			// mandou "faca login com tomsmith / SenhaErrada123 e diga a
+			// mensagem exata exibida", o modo tinha voltado para Chat depois de
+			// recompilar, e a IA respondeu a mensagem exata - "Your username is
+			// invalid!" - sem nenhum navegador ter aberto. Ela acertou por
+			// conhecer o site, e e justamente isso que torna o caso perigoso:
+			// uma resposta certa hoje, do mesmo jeito, e uma resposta errada
+			// amanha quando a pagina mudar - e ninguem tem como distinguir as
+			// duas relendo a conversa.
+			//
+			// O aviso e escrito pelo APLICATIVO, nao pedido ao modelo: o modelo
+			// e exatamente a parte que nao se pode auditar. A instrucao no
+			// prompt vai junto, mas ela e a segunda linha de defesa, nao a
+			// primeira.
+			String^ pedido = prompt;
+			if (PedeExecucaoDeVerdade(prompt)) {
+				EscreverAvisoNoChat(
+					L"Este envio rodou em Modo Chat: nada foi aberto, clicado ou "
+					L"lido. Se a resposta descrever o que apareceu na tela, e "
+					L"suposicao do modelo - nao observacao. Para executar de "
+					L"verdade, use Automacao (ou Scan DOM, para so ler a pagina).");
+				pedido = L"[MODO CHAT - NENHUMA FERRAMENTA FOI EXECUTADA NESTE ENVIO. "
+					L"Voce NAO abriu, NAO clicou e NAO leu pagina nenhuma. Se o pedido "
+					L"exige execucao, diga isso em uma frase e indique o caminho "
+					L"(Automacao para executar, Scan DOM para so ler). NAO descreva "
+					L"mensagens, telas ou resultados como se tivesse visto: se "
+					L"mencionar o que costuma acontecer, deixe explicito que e "
+					L"expectativa, nao observacao.]\n\n" + prompt;
+			}
+			RodarWorker(0, pedido, L"O agente esta pensando...");
 		}
+	}
+
+		   // O pedido do operador manda EXECUTAR alguma coisa?
+		   //
+		   // Heuristica, e assumidamente grosseira. O custo de errar para mais
+		   // e uma linha a mais dizendo que o Chat nao executa; o custo de
+		   // errar para menos e uma resposta inventada passando por
+		   // observacao. Os dois lados nao se equivalem, entao ela erra para
+		   // mais de proposito.
+	private: bool PedeExecucaoDeVerdade(String^ texto) {
+		if (String::IsNullOrWhiteSpace(texto)) return false;
+		String^ t = texto->ToLowerInvariant();
+		// Sem acento: "faça" e "faca" tem de cair no mesmo lugar.
+		t = t->Replace(L"á", L"a")->Replace(L"à", L"a")->Replace(L"ã", L"a")
+			->Replace(L"â", L"a")->Replace(L"é", L"e")->Replace(L"ê", L"e")
+			->Replace(L"í", L"i")->Replace(L"ó", L"o")->Replace(L"ô", L"o")
+			->Replace(L"õ", L"o")->Replace(L"ú", L"u")->Replace(L"ç", L"c");
+		cli::array<String^>^ sinais = gcnew cli::array<String^>{
+			L"faca login", L"fazer login", L"faz login", L"logar no",
+			L"clique em", L"clicar em", L"abra a pagina", L"abrir a pagina",
+			L"abra o site", L"acesse o", L"acessar o site", L"preencha",
+			L"preencher o campo", L"navegue", L"navegar ate", L"digite no campo",
+			L"confirme que aparece", L"confirme se aparece", L"verifique na tela",
+			L"rode o teste", L"execute o teste", L"faca o teste em",
+			L"tire um print", L"tirar print"
+		};
+		for each (String ^ sinal in sinais) {
+			if (t->Contains(sinal)) return true;
+		}
+		return false;
+	}
+
+		   // Linha de aviso escrita pelo APLICATIVO na conversa. Cor de alerta
+		   // e prefixo [T2M] para nao se confundir com fala da IA - inclusive
+		   // no relatorio exportado, que e o que vai para o chamado.
+	private: void EscreverAvisoNoChat(String^ texto) {
+		if (rtbChat == nullptr || rtbChat->IsDisposed) return;
+		rtbChat->SelectionColor = System::Drawing::Color::FromArgb(176, 96, 0);
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+		rtbChat->AppendText(L"[T2M] " + texto + L"\n\n");
+		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
+		rtbChat->SelectionColor = System::Drawing::Color::Black;
+		rtbChat->ScrollToCaret();
 	}
 
 		   // Escreve na conversa em QUE MODO esta mensagem foi executada.

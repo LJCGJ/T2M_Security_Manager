@@ -3213,6 +3213,49 @@ def teste_anexos_e_visao():
         checa("e o ultimo separa os tres niveis de desfazer",
               "Os tres niveis de desfazer" in fonte)
 
+        # --- CHAT NAO EXECUTA, E TEM DE DIZER ISSO ---
+        # Visto na tela: o operador mandou "faca login com tomsmith /
+        # SenhaErrada123 e diga a mensagem exata exibida", o modo tinha voltado
+        # para Chat depois de recompilar, e a IA respondeu a mensagem exata
+        # ("Your username is invalid!") sem nenhum navegador ter aberto. Ela
+        # acertou por conhecer o site - e e isso que torna o caso perigoso: a
+        # mesma resposta estara errada quando a pagina mudar, e ninguem
+        # distingue as duas relendo a conversa.
+        checa("pedido de execucao em Chat e reconhecido",
+              "bool PedeExecucaoDeVerdade(String^ texto)" in fonte
+              and 'L"faca login"' in fonte and 'L"clique em"' in fonte)
+        # Sem acento: "faça" e "faca" tem de cair no mesmo lugar.
+        checa("com acento ou sem, o sinal e o mesmo",
+              'Replace(L"\u00e7", L"c")' in fonte)
+        # O aviso e escrito pelo APLICATIVO. Pedir ao modelo que avise seria
+        # confiar a auditoria justamente a parte que nao se pode auditar.
+        checa("o aviso vem do aplicativo, nao do modelo",
+              "void EscreverAvisoNoChat(String^ texto)" in fonte
+              and 'rtbChat->AppendText(L"[T2M] " + texto' in fonte)
+        checa("e o texto separa suposicao de observacao",
+              "suposicao do modelo - nao observacao. Para executar de " in fonte)
+        # Segunda linha de defesa: a instrucao no proprio prompt.
+        checa("o prompt tambem avisa que nada foi executado",
+              "[MODO CHAT - NENHUMA FERRAMENTA FOI EXECUTADA NESTE ENVIO." in fonte
+              and "NAO descreva " in fonte)
+
+        # --- A CHAVE DE ONTEM ---
+        # Quem tem duas chaves usa UMA o dia inteiro. Abrir sempre na primeira
+        # significa trocar a mao toda vez - e esquecer de trocar gasta cota da
+        # chave errada sem aviso.
+        checa("a janela volta na chave usada por ultimo",
+              "void LembrarChaveEscolhida(ComboBox^ combo)" in fonte
+              and 'CaminhoDados("ultima_chave.txt")' in fonte)
+        # Guardar a POSICAO quebraria calado: apagar ou cadastrar uma chave
+        # muda as posicoes e a memoria passaria a apontar para outra chave.
+        checa("guardando o rotulo, nao a posicao na lista",
+              "File::WriteAllText(CaminhoDados(\"ultima_chave.txt\"), escolha);" in fonte
+              and 'if (combo->Items[i]->ToString() == marca) {' in fonte)
+        checa("separador e '+ Adicionar' nao contam como escolha",
+              'if (escolha->StartsWith(L"-") || escolha->StartsWith(L"+")' in fonte)
+        checa("e a redefinicao tambem leva a ultima chave",
+              'L"config.txt", L"ultima_chave.txt"' in fonte)
+
         # --- REDEFINIR APLICATIVO (destrutivo) ---
         # Pedido do operador. Implementado SEPARADO do Reaprender de proposito:
         # Reaprender e estreito, barato e seguro; fundir os dois obrigaria quem
