@@ -3059,11 +3059,26 @@ def teste_anexos_e_visao():
         # Reaprender e estreito, barato e seguro; fundir os dois obrigaria quem
         # so quer reaprender a destruir as chaves junto.
         checa("existe redefinir aplicativo", "redefinirAplicativo_Click" in fonte)
-        # A janela tinha 940px de altura e a barra de botoes ficava ABAIXO da
-        # borda do monitor num notebook: os botoes existiam e nao dava para
-        # clicar. AutoScroll nao resolve, porque quem excede a tela e a JANELA.
-        checa("a janela cabe em tela de notebook",
-              "Size(720, 820)" in fonte)
+        # Duas rodadas foram gastas tentando acertar um numero fixo de altura -
+        # 940 nao cabia no notebook, 820 tambem nao, e no desktop os dois
+        # cabiam. Altura util nao e constante: muda com a resolucao, com a barra
+        # de tarefas e com a escala de fonte do Windows. A janela passou a pedir
+        # o tamanho ideal e receber o que cabe.
+        checa("a janela pergunta ao monitor em vez de supor a altura",
+              "void AjustarAoMonitor(Form^ f, int larguraDesejada, int alturaDesejada)" in fonte
+              and "AjustarAoMonitor(f, 720, 820);" in fonte)
+        checa("nenhum dialogo grande ficou com tamanho fixo",
+              "f->Size = System::Drawing::Size(720, 820)" not in fonte
+              and "d->Size = System::Drawing::Size(1000, 660)" not in fonte)
+        # Em dois monitores, o que importa e a altura DAQUELE em que a pessoa
+        # esta - nao a do primario.
+        checa("mede o monitor onde a pessoa esta, nao o primario",
+              "Screen::FromPoint(Control::MousePosition)" in fonte)
+        checa("e desconta a barra de tarefas", "WorkingArea" in fonte)
+        # Encolhida, a janela vive de rolagem; travar o tamanho impediria a
+        # pessoa de aumenta-la se quisesse.
+        checa("encolhida, a janela pode ser redimensionada",
+              "FormBorderStyle::Sizable" in fonte)
         checa("e a barra de botoes fica num rodape fixo",
               "rodape->Dock = System::Windows::Forms::DockStyle::Bottom;" in fonte)
         checa("com os quatro botoes dentro dele",

@@ -2781,18 +2781,50 @@ namespace T2MSecurityManager {
 		}
 	}
 
+		   // Tamanho de janela que CABE no monitor de quem esta usando.
+		   //
+		   // Fixar altura em pixel foi um erro que custou duas rodadas: 940 nao
+		   // cabia num notebook, 820 tambem nao, e no desktop os dois cabiam.
+		   // Altura util nao e constante - muda com a resolucao, com a barra de
+		   // tarefas e, principalmente, com a escala de fonte do Windows (125%
+		   // num notebook 1080p deixa a area util em ~810 pixels logicos).
+		   //
+		   // Aqui a janela pede o tamanho que gostaria e recebe o que cabe. Com
+		   // AutoScroll ligado e a barra de botoes ancorada no rodape, encolher
+		   // nunca esconde o Salvar: o conteudo e que rola.
+		   //
+		   // Screen::FromPoint com a posicao do cursor, e nao PrimaryScreen: em
+		   // dois monitores, a janela abre onde a pessoa esta trabalhando, e e
+		   // a altura DAQUELE monitor que importa.
+	private: void AjustarAoMonitor(Form^ f, int larguraDesejada, int alturaDesejada) {
+		try {
+			System::Drawing::Rectangle area =
+				Screen::FromPoint(Control::MousePosition)->WorkingArea;
+			// Margem para a barra de titulo e para nao colar nas bordas.
+			int largura = Math::Min(larguraDesejada, Math::Max(420, area.Width - 40));
+			int altura = Math::Min(alturaDesejada, Math::Max(360, area.Height - 50));
+			f->Size = System::Drawing::Size(largura, altura);
+			// Encolhida, a janela vive de rolagem; entao precisa poder crescer
+			// se a pessoa arrastar a borda ou maximizar.
+			if (altura < alturaDesejada || largura < larguraDesejada) {
+				f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::Sizable;
+				f->MaximizeBox = true;
+			}
+		}
+		catch (...) {
+			f->Size = System::Drawing::Size(larguraDesejada, alturaDesejada);
+		}
+	}
+
 	private: System::Void btnConfiguracoes_Click(System::Object^ sender, System::EventArgs^ e) {
 		Form^ f = gcnew Form();
 		f->Text = L"Configuracoes";
 		// Altura acompanha o conteudo: os controles sao posicionados por um "y"
 		// que so cresce, entao uma secao nova sem ajustar isto empurra Salvar e
 		// Cancelar para fora da janela - e a tela fica sem saida a nao ser pelo X.
-		// 820, e nao 940: a barra de botoes vive num rodape FIXO (ver abaixo), e
-		// a janela precisa caber em tela de notebook. Com 940 os botoes ficavam
-		// abaixo da borda do monitor - existiam, mas nao dava para clicar, e o
-		// AutoScroll nao resolve isso porque quem excede a tela e a JANELA, nao
-		// o conteudo dela.
-		f->Size = System::Drawing::Size(720, 820);
+		// 720x820 e o tamanho IDEAL; o que vale e o que couber no monitor.
+		// Duas rodadas foram gastas tentando acertar um numero fixo - e nao
+		// existe numero fixo que sirva para notebook, desktop e projetor.
 		// Rede de seguranca para monitor pequeno ou escala de fonte alta: sem isto
 		// os botoes Salvar/Cancelar podem cair fora da area visivel e a tela fica
 		// sem saida a nao ser pelo X.
@@ -2800,6 +2832,7 @@ namespace T2MSecurityManager {
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
+		AjustarAoMonitor(f, 720, 820);
 		AplicarIcone(f);
 
 		int x1 = 20, larg = 430, y = 18;
@@ -3991,7 +4024,8 @@ namespace T2MSecurityManager {
 	private: System::Void btnHistorico_Click(System::Object^ sender, System::EventArgs^ e) {
 		Form^ d = gcnew Form();
 		d->Text = L"Historico de execucoes";
-		d->Size = System::Drawing::Size(1000, 660);
+		AjustarAoMonitor(d, 1000, 660);
+		d->AutoScroll = true;   // encolhida, a janela vive de rolagem
 		d->StartPosition = FormStartPosition::CenterParent;
 		d->MinimumSize = System::Drawing::Size(760, 480);
 		AplicarIcone(d);
@@ -4191,10 +4225,11 @@ namespace T2MSecurityManager {
 
 		Form^ d = gcnew Form();
 		d->Text = L"Instrucoes permanentes para a IA";
-		d->Size = System::Drawing::Size(680, 520);
 		d->StartPosition = FormStartPosition::CenterParent;
 		d->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		d->MaximizeBox = false; d->MinimizeBox = false;
+		AjustarAoMonitor(d, 680, 520);
+		d->AutoScroll = true;   // encolhida, a janela vive de rolagem
 		AplicarIcone(d);
 
 		Label^ lbl = gcnew Label();
@@ -4932,10 +4967,11 @@ namespace T2MSecurityManager {
 	private: void AbrirFormularioApi() {
 		Form^ f = gcnew Form();
 		f->Text = L"Teste de API - Montar Requisicao";
-		f->Size = System::Drawing::Size(520, 520);
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
+		AjustarAoMonitor(f, 520, 520);
+		f->AutoScroll = true;   // encolhida, a janela vive de rolagem
 		f->BackColor = System::Drawing::Color::WhiteSmoke;
 		AplicarIcone(f);
 
@@ -5092,10 +5128,11 @@ namespace T2MSecurityManager {
 		// ficam escondidas nos outros tipos de banco, entao sobra um espaco em
 		// branco - preferi isso a redimensionar a janela a cada troca de tipo,
 		// que fica visualmente inquieto.
-		f->Size = System::Drawing::Size(460, 660);
 		f->StartPosition = FormStartPosition::CenterParent;
 		f->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 		f->MaximizeBox = false; f->MinimizeBox = false;
+		AjustarAoMonitor(f, 460, 660);
+		f->AutoScroll = true;   // encolhida, a janela vive de rolagem
 		f->BackColor = System::Drawing::Color::WhiteSmoke;
 		AplicarIcone(f);
 
