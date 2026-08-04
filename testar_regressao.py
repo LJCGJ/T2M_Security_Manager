@@ -3105,7 +3105,13 @@ def teste_anexos_e_visao():
         # somar um campo torna o numero errado, e o erro aparece como rolagem
         # desnecessaria ou conteudo cortado.
         checa("a altura pedida pela janela e medida, nao chutada",
-              "AjustarAoMonitor(f, 720, fundo + rodape->Height + 60);" in fonte)
+              "AjustarAoMonitor(f, 720, Math::Max(420, fundo + rodape->Height + 60));" in fonte)
+        # Antes de a janela ser mostrada, ->Visible responde "falso" para TODO
+        # controle (a propriedade olha a janela mae tambem). Perguntar ali media
+        # zero e a janela abriu com o rodape colado na barra de titulo.
+        checa("a medicao nao pergunta ->Visible antes de a janela existir",
+              "if (filho->Visible) fundo" not in fonte
+              and "fundo = Math::Max(fundo, filho->Bottom);" in fonte)
         checa("a faixa vazia do meio virou distancia da moldura",
               "y = molduraComp->Bottom + 22;" in fonte)
         # O balao nao pode cobrir Salvar/Cancelar - seria o mesmo defeito, so

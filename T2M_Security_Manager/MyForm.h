@@ -3491,11 +3491,17 @@ namespace T2MSecurityManager {
 		// exatamente o que o conteudo ocupa; o monitor continua tendo a ultima
 		// palavra, e o que nao couber vira rolagem do corpo - com o rodape
 		// sempre a vista.
+		//
+		// Nada de perguntar ->Visible aqui: enquanto a janela nao foi mostrada,
+		// TODO controle responde "invisivel" (a propriedade olha a janela mae
+		// tambem). A primeira versao perguntava, media zero, e a janela abriu
+		// com o rodape colado no titulo. O piso de 420 e a rede: se um dia a
+		// medicao falhar de novo, a tela ainda abre utilizavel.
 		int fundo = 0;
 		for each (Control^ filho in corpo->Controls) {
-			if (filho->Visible) fundo = Math::Max(fundo, filho->Bottom);
+			fundo = Math::Max(fundo, filho->Bottom);
 		}
-		AjustarAoMonitor(f, 720, fundo + rodape->Height + 60);
+		AjustarAoMonitor(f, 720, Math::Max(420, fundo + rodape->Height + 60));
 
 		AplicarTemaRecursivo(f, temaEscuro);
 		// Ver comentario acima: ShowDialog esconde, nao descarta.
