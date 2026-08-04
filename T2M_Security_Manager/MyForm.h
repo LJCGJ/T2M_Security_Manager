@@ -2149,10 +2149,20 @@ namespace T2MSecurityManager {
 	}
 
 	private: System::Void btnGerarIA_Click(System::Object^ sender, System::EventArgs^ e) {
-		AbrirCopilot(true);
+		AbrirCopilot();
 	}
 
-	private: void AbrirCopilot(bool exigeUrl) {
+		   // ABRIR NAO EXIGE URL. Exigia, e estava errado: dos tres modos do
+		   // Copilot, so Scan DOM e Automacao de tela precisam de endereco -
+		   // Chat nao le pagina nenhuma, e "Analisar saida com a IA" analisa um
+		   // texto que ja esta na tela. Quem so queria planejar um teste, ou
+		   // entender um erro que acabou de sair no terminal, era barrado por
+		   // um campo que nao tinha nada a ver com o que ele ia fazer.
+		   //
+		   // A cobranca da URL ficou onde ela de fato faz falta: na hora de
+		   // ENVIAR em Scan DOM ou em Teste de Tela, com o aviso dizendo qual
+		   // modo precisa dela.
+	private: void AbrirCopilot() {
 		// Ja aberta: traz para a frente em vez de criar uma segunda janela. Sem
 		// isto, sair do modal significaria duas conversas disputando o mesmo
 		// worker e o mesmo arquivo de memoria.
@@ -2162,11 +2172,6 @@ namespace T2MSecurityManager {
 			formIA->Activate();
 			return;
 		}
-		if (exigeUrl && txtUrl->Text->Trim() == "") {
-			MessageBox::Show(L"Preencha a URL Alvo primeiro para a IA poder analisar o projeto!", L"Aviso");
-			return;
-		}
-
 		formIA = gcnew Form();
 		formIA->Text = L"T2M Copilot - Arquiteto de Automacao e Qualidade";
 		formIA->Size = System::Drawing::Size(750, 640);   // botoes de acao subiram para o topo
@@ -2547,11 +2552,10 @@ namespace T2MSecurityManager {
 			return;
 		}
 		if (formIA == nullptr || formIA->IsDisposed) {
-			if (txtUrl->Text->Trim() == "") {
-				MessageBox::Show(L"Preencha a URL Alvo primeiro.", L"Aviso");
-				return;
-			}
-			AbrirCopilot(true);
+			// Sem exigir URL: o que vai ser analisado e o texto do terminal,
+			// que ja esta aqui. Pedir o endereco do site para ler uma saida de
+			// script era barrar por um motivo que nao existia.
+			AbrirCopilot();
 		}
 		if (formIA == nullptr || txtChatInput == nullptr) return;
 

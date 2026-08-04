@@ -3237,6 +3237,23 @@ def teste_anexos_e_visao():
         checa("e o ultimo separa os tres niveis de desfazer",
               "Os tres niveis de desfazer" in fonte)
 
+        # --- ABRIR O COPILOT NAO EXIGE URL ---
+        # Encontrado testando o item 11: o aviso "Preencha a URL Alvo primeiro
+        # para a IA poder analisar o projeto" barrava ate quem so queria
+        # conversar. Dos tres modos, so Scan DOM e Teste de Tela precisam de
+        # endereco - e "Analisar saida com a IA" analisa um texto que ja esta
+        # na tela. A cobranca ficou onde faz falta: na hora de enviar.
+        checa("abrir o Copilot nao depende da URL Alvo",
+              "private: void AbrirCopilot() {" in fonte
+              and "Preencha a URL Alvo primeiro para a IA poder analisar" not in fonte)
+        checa("analisar a saida do terminal tambem nao",
+              'MessageBox::Show(L"Preencha a URL Alvo primeiro.", L"Aviso");' not in fonte)
+        # Mas continua sendo exigida onde ela e mesmo necessaria, com o aviso
+        # dizendo QUAL modo precisa dela.
+        checa("Scan DOM e Teste de Tela seguem exigindo a URL, cada um com seu aviso",
+              "Preencha a URL Alvo na tela principal para usar o Scan DOM." in fonte
+              and "Preencha a URL Alvo na tela principal para o Teste de Tela." in fonte)
+
         # --- CHAT NAO EXECUTA, E TEM DE DIZER ISSO ---
         # Visto na tela: o operador mandou "faca login com tomsmith /
         # SenhaErrada123 e diga a mensagem exata exibida", o modo tinha voltado
