@@ -244,6 +244,7 @@ namespace T2MSecurityManager {
 		Dictionary<Object^, Panel^>^ caixasPorJanela;
 		Control^ ultimoAlvoBalao;   // para esconder o anterior sem lista fixa
 		bool recolocandoBalao;      // trava contra recolocar/rolar em circulo
+		System::Windows::Forms::Timer^ relogioDestaqueScript;  // destaque temporario
 		bool montandoListaDeChaves;  // trava: montar a lista nao e escolher
 		int passoTour;               // 0 = parado; 1..N = passo atual
 		int passoTourChat;           // idem, para o tour do Copilot
@@ -808,6 +809,7 @@ namespace T2MSecurityManager {
 			   this->caixasPorJanela = gcnew Dictionary<Object^, Panel^>();
 			   this->ultimoAlvoBalao = nullptr;
 			   this->recolocandoBalao = false;
+			   this->relogioDestaqueScript = nullptr;
 			   this->montandoListaDeChaves = false;
 			   this->passoTour = 0;
 			   this->passoTourChat = 0;
@@ -6445,6 +6447,54 @@ namespace T2MSecurityManager {
 	}
 
 		   // Volta para a THREAD DA UI quando o Python termina. Aqui pode atualizar a tela.
+		   // Terminou uma Automacao e a IA entregou codigo? Convida a guardar.
+		   //
+		   // O ciclo que economiza dinheiro ja existia inteiro no aplicativo -
+		   // Extrair e Salvar Codigo grava o script, a tela inicial roda ele
+		   // sem IA, e o Analisar saida com a IA explica quando falha. So que
+		   // NADA na tela contava essa historia: o operador recebia o relatorio,
+		   // fechava a janela, e no dia seguinte pagava a mesma automacao de
+		   // novo. Recurso que existe e ninguem descobre e recurso que nao
+		   // existe.
+		   //
+		   // Convite, nao automatismo: salvar sozinho encheria a pasta de
+		   // scripts de tentativas descartadas, e o operador perderia o controle
+		   // do que esta na lista. Quem decide e ele - e nao decidir tambem e
+		   // uma resposta valida, porque o codigo continua na conversa.
+	private: void OferecerSalvarScript() {
+		try {
+			if (btnSaveScript == nullptr || btnSaveScript->IsDisposed) return;
+			EscreverAvisoNoChat(
+				L"Este teste virou codigo. Salvando o script, ele passa a rodar "
+				L"pela tela inicial no INICIAR TESTE - sem IA e sem gastar cota, "
+				L"quantas vezes voce quiser; a IA so volta a ser chamada se ele "
+				L"falhar.\n"
+				L"Para guardar, clique em \"Extrair e Salvar Codigo\" aqui "
+				L"embaixo. Se preferir nao guardar, nada se perde: o codigo "
+				L"continua nesta conversa.");
+			// O botao se anuncia por 1 minuto. Passado isso volta ao normal:
+			// destaque permanente vira parte do movel e ninguem enxerga mais.
+			btnSaveScript->Text = L"💾 Salvar este teste como script";
+			btnSaveScript->BackColor = System::Drawing::Color::FromArgb(0, 140, 90);
+			if (relogioDestaqueScript == nullptr) {
+				relogioDestaqueScript = gcnew System::Windows::Forms::Timer();
+				relogioDestaqueScript->Interval = 60000;
+				relogioDestaqueScript->Tick += gcnew System::EventHandler(
+					this, &MyForm::destaqueScript_Tick);
+			}
+			relogioDestaqueScript->Stop();
+			relogioDestaqueScript->Start();
+		}
+		catch (...) {}
+	}
+
+	private: System::Void destaqueScript_Tick(System::Object^ sender, System::EventArgs^ e) {
+		if (relogioDestaqueScript != nullptr) relogioDestaqueScript->Stop();
+		if (btnSaveScript == nullptr || btnSaveScript->IsDisposed) return;
+		btnSaveScript->Text = L"💾 Extrair e Salvar Codigo";
+		btnSaveScript->BackColor = System::Drawing::Color::Indigo;
+	}
+
 	private: System::Void workerChat_Completed(System::Object^ sender, System::ComponentModel::RunWorkerCompletedEventArgs^ e) {
 		// A janela do Copilot pode ter sido fechada enquanto a execucao rodava
 		// (uma automacao leva minutos). O ShowDialog() ja descartou os controles,
@@ -6510,6 +6560,14 @@ namespace T2MSecurityManager {
 		promptDevolvivel = L"";
 		motivoDevolucao = L"";
 		anexosDevolviveis->Clear();
+
+		// Automacao que terminou com codigo na resposta: convida a guardar.
+		// So na Automacao (em Chat o script ainda esta sendo desenhado) e so
+		// quando ha bloco de codigo de verdade - convite sem objeto vira ruido.
+		if (modoWorker == 2 && e->Error == nullptr && resposta != nullptr
+			&& resposta->Contains(L"```")) {
+			OferecerSalvarScript();
+		}
 
 		// Evidencia depois do laudo: o texto explica, a imagem prova.
 		if (printsDaExecucao != nullptr) {
@@ -7544,6 +7602,9 @@ namespace T2MSecurityManager {
 	}
 
 	private: System::Void btnSaveScript_Click(System::Object^ sender, System::EventArgs^ e) {
+		// Convite aceito: o botao volta ao normal. Deixar o destaque depois do
+		// clique faria a tela pedir de novo o que ja foi feito.
+		destaqueScript_Tick(nullptr, nullptr);
 		String^ textoCompleto = rtbChat->Text;
 
 		// Percorre TODAS as cercas ``` na ordem em que aparecem e as pareia: a 1a abre,

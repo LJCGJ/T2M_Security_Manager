@@ -3564,6 +3564,31 @@ def teste_anexos_e_visao():
         checa("e o padrao do aviso e nao exportar",
               fonte.count("MessageBoxDefaultButton::Button2") >= 7)
 
+        # --- O CICLO QUE ECONOMIZA: DA AUTOMACAO PARA O SCRIPT ---
+        # As tres pecas ja existiam - Extrair e Salvar Codigo, INICIAR TESTE na
+        # tela inicial, Analisar saida com a IA. Mas nada na tela contava essa
+        # historia: o operador recebia o relatorio, fechava a janela, e no dia
+        # seguinte pagava a mesma automacao de novo. Recurso que existe e
+        # ninguem descobre e recurso que nao existe.
+        checa("automacao com codigo convida a salvar o script",
+              "void OferecerSalvarScript()" in fonte
+              and "Este teste virou codigo." in fonte)
+        # So na Automacao e so quando ha bloco de codigo: convite sem objeto
+        # vira ruido, e em Chat o script ainda esta sendo desenhado.
+        checa("o convite so aparece quando ha o que salvar",
+              'if (modoWorker == 2 && e->Error == nullptr && resposta != nullptr' in fonte
+              and 'resposta->Contains(L"```")' in fonte)
+        # Convite, nao automatismo: salvar sozinho encheria a pasta de scripts
+        # de tentativas descartadas.
+        checa("quem decide salvar e o operador",
+              "Se preferir nao guardar, nada se perde" in fonte)
+        # Destaque permanente vira parte do movel e ninguem enxerga mais.
+        checa("o destaque do botao e temporario",
+              "relogioDestaqueScript->Interval = 60000;" in fonte
+              and "System::Void destaqueScript_Tick" in fonte)
+        checa("e some ao aceitar o convite",
+              "destaqueScript_Tick(nullptr, nullptr);" in fonte)
+
         # --- VEREDITO DO AVALIADOR VIRA PROTECAO ---
         # Pergunta do operador: "se o resultado nao deveria depender da IA, por
         # que estamos tendo diferenca?". Depende, e vai depender: o julgamento e
