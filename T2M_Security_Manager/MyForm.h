@@ -7374,6 +7374,31 @@ namespace T2MSecurityManager {
 			MessageBox::Show(L"Nao ha conteudo para exportar. Faca um teste ou converse primeiro.", L"Aviso");
 			return;
 		}
+		// CONVERSA SEM TESTE GERA RELATORIO SEM RESULTADO.
+		//
+		// "Ha texto na tela" nao e o mesmo que "ha teste". Recem-aberto, o
+		// Copilot ja tem a mensagem de boas-vindas e a linha do modelo - e
+		// exportar nesse estado produz um documento com cabecalho, data,
+		// operador e rodape oficial, dizendo nada. Encontrado num relatorio
+		// real de 31/07: tres paragrafos de apresentacao e nenhum teste.
+		//
+		// Num produto de QA isso e pior que um arquivo vazio: o vazio ninguem
+		// anexa a um chamado, e este parece completo.
+		//
+		// A prova de que houve execucao e a linha ">>> Modo ", escrita pelo
+		// proprio aplicativo a cada envio - nao pelo modelo, entao nao ha como
+		// forjar.
+		if (rtbChat->Text->IndexOf(L">>> Modo ") < 0) {
+			System::Windows::Forms::DialogResult r = MessageBox::Show(
+				L"Esta conversa nao tem nenhuma pergunta enviada nem teste "
+				L"executado.\n\n"
+				L"O relatorio vai sair com a mensagem de abertura e mais nada - "
+				L"com cabecalho, data e o seu nome, parecendo um laudo completo.\n\n"
+				L"Exportar assim mesmo?",
+				L"Relatorio sem teste", MessageBoxButtons::YesNo,
+				MessageBoxIcon::Warning, MessageBoxDefaultButton::Button2);
+			if (r != System::Windows::Forms::DialogResult::Yes) return;
+		}
 		ExportarComoHtml(rtbChat->Text, L"Relatorio de Teste",
 			L"Resultado do teste conduzido pela IA", L"relatorio_T2M_");
 	}

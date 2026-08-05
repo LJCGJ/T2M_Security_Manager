@@ -3342,6 +3342,22 @@ def teste_anexos_e_visao():
         checa("e o ultimo separa os tres niveis de desfazer",
               "Os tres niveis de desfazer" in fonte)
 
+        # --- RELATORIO SEM TESTE ---
+        # Achado num relatorio real exportado em 31/07: cabecalho, data,
+        # operador, rodape oficial - e por conteudo so a mensagem de
+        # boas-vindas. "Ha texto na tela" nao e o mesmo que "ha teste", e num
+        # produto de QA um documento vazio com aparencia de laudo e pior que
+        # um arquivo vazio: o vazio ninguem anexa a um chamado.
+        checa("exportar sem teste na conversa avisa antes",
+              'if (rtbChat->Text->IndexOf(L">>> Modo ") < 0) {' in fonte
+              and "Relatorio sem teste" in fonte)
+        # A prova de execucao e a linha escrita pelo APLICATIVO a cada envio -
+        # nao pelo modelo, entao nao ha como forjar.
+        checa("a prova de execucao e a linha do proprio aplicativo",
+              'rtbChat->AppendText(L">>> Modo " + modo);' in fonte)
+        checa("e o padrao do aviso e nao exportar",
+              fonte.count("MessageBoxDefaultButton::Button2") >= 7)
+
         # --- PORTA DO BANCO ---
         # Achado na auditoria: o campo e livre, e um "1521 " com espaco - colado
         # de uma anotacao - so aparecia la na frente, como ValueError no Python,
