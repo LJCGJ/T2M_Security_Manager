@@ -6277,6 +6277,35 @@ namespace T2MSecurityManager {
 				MarcarErroCampo(txtNome, errNome, L"Campo obrigatorio"); ok = false;
 			}
 		}
+		// PORTA TEM DE SER NUMERO.
+		//
+		// O campo e livre, e um "1521 " com espaco - colado de uma anotacao, do
+		// Teams ou de um e-mail - so aparecia la na frente: o agente montava o
+		// endereco, o Python levantava ValueError e o operador via um erro de
+		// execucao, longe do campo que causou. Barrar aqui devolve o erro ao
+		// lugar onde ele pode ser corrigido, que e o unico lugar util.
+		//
+		// Vazio continua valendo: SQLite nao usa porta, wallet do Oracle nao
+		// usa, e string de conexao colada ja carrega a dela.
+		String^ portaDigitada = txtPorta->Text->Trim();
+		if (!String::IsNullOrEmpty(portaDigitada)) {
+			int numero = 0;
+			bool numerica = Int32::TryParse(portaDigitada, numero)
+				&& numero > 0 && numero <= 65535;
+			if (!numerica) {
+				MessageBox::Show(
+					L"A porta precisa ser um numero entre 1 e 65535.\n\n"
+					L"Foi digitado: \"" + portaDigitada + L"\"\n\n"
+					L"Espaco no fim ou caractere colado junto contam - apague e "
+					L"digite so os numeros. O padrao do Oracle e 1521; "
+					L"PostgreSQL 5432; MySQL 3306; SQL Server 1433; MongoDB 27017.",
+					L"Porta invalida", MessageBoxButtons::OK, MessageBoxIcon::Warning);
+				txtPorta->Focus();
+				txtPorta->SelectAll();
+				return;
+			}
+		}
+
 		if (!ok) return;  // nao salva enquanto houver campos obrigatorios vazios
 
 		dbTipo = tipo;

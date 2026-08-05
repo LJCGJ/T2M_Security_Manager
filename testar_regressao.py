@@ -3342,6 +3342,23 @@ def teste_anexos_e_visao():
         checa("e o ultimo separa os tres niveis de desfazer",
               "Os tres niveis de desfazer" in fonte)
 
+        # --- PORTA DO BANCO ---
+        # Achado na auditoria: o campo e livre, e um "1521 " com espaco - colado
+        # de uma anotacao - so aparecia la na frente, como ValueError no Python,
+        # longe do campo que causou. Barrar na tela devolve o erro ao unico
+        # lugar onde ele pode ser corrigido.
+        checa("a porta do banco tem de ser numero valido",
+              "bool numerica = Int32::TryParse(portaDigitada, numero)" in fonte
+              and "numero > 0 && numero <= 65535" in fonte)
+        # Vazio continua valendo: SQLite nao usa porta, wallet do Oracle nao usa,
+        # e string de conexao colada ja carrega a dela.
+        checa("porta vazia continua permitida",
+              "if (!String::IsNullOrEmpty(portaDigitada)) {" in fonte)
+        # Erro que nao diz o valor recebido obriga a pessoa a adivinhar o que o
+        # programa leu - e no caso do espaco invisivel, ela nao adivinha.
+        checa("o aviso mostra o que foi digitado e os padroes de cada banco",
+              "Foi digitado: " in fonte and "O padrao do Oracle e 1521" in fonte)
+
         # --- ABRIR O COPILOT NAO EXIGE URL ---
         # Encontrado testando o item 11: o aviso "Preencha a URL Alvo primeiro
         # para a IA poder analisar o projeto" barrava ate quem so queria
