@@ -3606,8 +3606,38 @@ def teste_anexos_e_visao():
         checa("o aviso informa e nao bloqueia",
               "REPROVOU na medicao de escolha de " in fonte
               and "Ele continua util em Chat e Scan DOM" in fonte)
+        # Repetir a cada envio transformaria informacao util em barulho: numa
+        # sessao de dez testes com o mesmo modelo, o operador para de ler na
+        # terceira vez - e no dia em que o aviso importar, ele ja e paisagem.
+        # Mesma regra da linha ">>> Modelo em uso", que so sai quando muda.
+        checa("o aviso sai uma vez por modelo, nao a cada envio",
+              "if (modeloReprovadoAvisado == modelo) return;" in fonte
+              and "modeloReprovadoAvisado = modelo;" in fonte)
+        checa("e conversa nova volta a avisar",
+              "modeloReprovadoAvisado = nullptr; // e reavisa a reprovacao" in fonte)
+        # Nome de modelo e reaproveitado: o provedor atualiza e mantem o nome,
+        # entao um numero de dois meses atras nao descreve o modelo de hoje.
+        # Vencida, a medicao para de ser AFIRMADA - repetir "57% de acerto"
+        # sobre uma versao que pode ter sido substituida seria o mesmo defeito
+        # que perseguimos no modelo: dado velho apresentado como observacao.
+        checa("medicao tem validade de 30 dias",
+              "literal int VALIDADE_VEREDITO_DIAS = 30;" in fonte
+              and "bool vencida = (dias > VALIDADE_VEREDITO_DIAS);" in fonte)
+        checa("vencida, o numero antigo nao e repetido",
+              "Nao repito o numero porque ele pode nao valer mais" in fonte
+              and "A medicao de " in fonte)
+        # Mas tambem nao se cala: um modelo que ja reprovou merece a lembranca
+        # de que ninguem conferiu de novo, com o caminho do conserto junto.
+        checa("e o caminho para remedir vai no aviso",
+              "python avaliar_modelo.py --chave SUA_CHAVE" in fonte
+              and "Leva um minuto e sete requisicoes." in fonte)
+        # Aprovado nao fala, vencido ou nao: aviso de "sua aprovacao venceu"
+        # nao muda decisao nenhuma e gasta a atencao do proximo aviso de verdade.
+        checa("aprovado segue em silencio mesmo vencido",
+              "if (!reprovado) return;" in fonte)
         checa("modelo aprovado nao gera ruido",
-              'if (p[1]->Trim() != "reprovado") return;   // aprovado: silencio' in fonte)
+              'bool reprovado = (p[1]->Trim() == "reprovado");' in fonte
+              and "if (!reprovado) return;" in fonte)
         checa("e sem medicao nenhuma o aplicativo fica calado",
               "if (!File::Exists(arq)) return;   // nunca medido: nada a dizer" in fonte)
         checa("o veredito tambem vai para a Lixeira no Redefinir",

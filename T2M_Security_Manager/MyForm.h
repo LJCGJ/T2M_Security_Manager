@@ -261,6 +261,7 @@ namespace T2MSecurityManager {
 		// isso, ou a conversa nao diz com que modelo cada resposta foi feita,
 		// ou repete a mesma linha a cada mensagem e vira ruido.
 		String^ modeloAnunciadoNoChat;
+		String^ modeloReprovadoAvisado;   // aviso de reprovacao: uma vez por modelo
 
 		// Modo e modelo da execucao que esta rodando agora. Ficam gravados no
 		// cabecalho da resposta ("T2M Copilot (Scan DOM | gemini-3.6-flash):"),
@@ -815,6 +816,7 @@ namespace T2MSecurityManager {
 			   this->passoTourChat = 0;
 			   this->passoTourConfig = 0;
 		   this->modeloAnunciadoNoChat = nullptr;
+		   this->modeloReprovadoAvisado = nullptr;
 		   this->rotuloModoExecucao = L"";
 		   this->rotuloModeloExecucao = L"";
 		   this->modeloEfetivoRelatado = L"";
@@ -2626,6 +2628,7 @@ namespace T2MSecurityManager {
 
 		rtbChat->Clear();
 		modeloAnunciadoNoChat = nullptr;  // conversa nova: reanuncia o modelo
+		modeloReprovadoAvisado = nullptr; // e reavisa a reprovacao, se houver
 		formIA_Shown(nullptr, nullptr);   // reexibe a mensagem de boas-vindas
 	}
 
@@ -7270,6 +7273,8 @@ namespace T2MSecurityManager {
 		   // Nao bloqueia. O operador pode ter motivo para insistir (custo,
 		   // disponibilidade), e um aplicativo que decide por ele acaba
 		   // contornado. Avisar com numero e deixar decidir e o meio-termo.
+	private: literal int VALIDADE_VEREDITO_DIAS = 30;
+
 	private: void AvisarSeModeloReprovado() {
 		try {
 			String^ modelo = ModeloAtualCurto();
@@ -7280,21 +7285,68 @@ namespace T2MSecurityManager {
 				cli::array<String^>^ p = linha->Split('|');
 				if (p->Length < 5) continue;
 				if (p[0]->Trim() != modelo) continue;
-				if (p[1]->Trim() != "reprovado") return;   // aprovado: silencio
-				String^ quando = L"";
+
+				// Idade da medicao. Nome de modelo e reaproveitado: o provedor
+				// atualiza o modelo e mantem o nome, entao um numero de dois
+				// meses atras nao descreve o modelo de hoje.
+				int dias = -1;
+				String^ dataMedicao = L"";
 				double seg = 0;
 				if (Double::TryParse(p[2], seg)) {
 					try {
 						DateTime d = DateTimeOffset::FromUnixTimeSeconds(
 							(long long)seg).LocalDateTime;
-						quando = L", medido em " + d.ToString("dd/MM");
+						dataMedicao = d.ToString("dd/MM/yyyy");
+						dias = (int)(DateTime::Now - d).TotalDays;
 					}
 					catch (...) {}
 				}
+				bool vencida = (dias > VALIDADE_VEREDITO_DIAS);
+				bool reprovado = (p[1]->Trim() == "reprovado");
+
+				// APROVADO nao fala, vencido ou nao. Silencio ja e a mensagem
+				// certa, e um aviso de "sua medicao de aprovacao venceu" nao
+				// muda decisao nenhuma - so gasta a atencao que o proximo
+				// aviso de verdade vai precisar.
+				if (!reprovado) return;
+
+				// UMA VEZ POR MODELO. Repetir a cada envio transformaria uma
+				// informacao util em barulho: numa sessao de dez testes com o
+				// mesmo modelo, o operador para de ler na terceira vez - e no
+				// dia em que o aviso importar, ele ja virou paisagem. Mesma
+				// regra da linha ">>> Modelo em uso", que so sai quando muda.
+				if (modeloReprovadoAvisado == modelo) return;
+				modeloReprovadoAvisado = modelo;
+
+				if (vencida) {
+					// VENCIDA: o numero antigo NAO e repetido como se valesse
+					// hoje. Dizer "57% de acerto" sobre uma versao que pode ter
+					// sido substituida e o mesmo defeito que perseguimos no
+					// modelo - apresentar dado velho como observacao atual.
+					//
+					// Mas tambem nao se cala: um modelo que ja reprovou uma vez
+					// merece pelo menos a lembranca de que ninguem conferiu de
+					// novo. O caminho do conserto vai junto, porque aviso sem
+					// saida vira aviso ignorado.
+					EscreverAvisoNoChat(
+						L"A medicao de " + modelo + L" venceu: ela e de "
+						+ dataMedicao + L" (" + dias.ToString() + L" dias) e "
+						L"naquele momento ele REPROVOU para Automacao.\n"
+						L"Nao repito o numero porque ele pode nao valer mais - "
+						L"provedores atualizam o modelo mantendo o mesmo nome. "
+						L"Para saber como ele esta hoje, no repositorio:\n"
+						L"    python avaliar_modelo.py --chave SUA_CHAVE\n"
+						L"Leva um minuto e sete requisicoes.");
+					return;
+				}
+
 				EscreverAvisoNoChat(
 					L"O modelo " + modelo + L" REPROVOU na medicao de escolha de "
-					L"ferramenta" + quando + L": " + p[4] + L"% de acerto, e o "
-					L"minimo e 80%. Falhou em: " + p[3] + L".\n"
+					L"ferramenta"
+					+ (String::IsNullOrEmpty(dataMedicao)
+						? L"" : (L", medido em " + dataMedicao))
+					+ L": " + p[4] + L"% de acerto, e o minimo e 80%. Falhou em: "
+					+ p[3] + L".\n"
 					L"Ele continua util em Chat e Scan DOM, onde nao ha ferramenta. "
 					L"Para trocar, use o seletor \"Chave da IA\" no topo desta janela.");
 				return;
