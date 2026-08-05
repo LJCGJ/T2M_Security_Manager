@@ -947,6 +947,7 @@ def teste_leitura_da_pagina():
     except Exception:
         _av, _nomes = None, set()
     checa("o avaliador carrega e expoe as ferramentas", len(_nomes) >= 5)
+    _av_fonte = open(_os.path.join(_base, "avaliar_modelo.py"), encoding="utf-8").read()
     checa("toda ferramenta do gabarito existe na lista oferecida",
           all(c.get("tool_esperada") in _nomes or c.get("tool_esperada") is None
               for c in _casos))
@@ -973,6 +974,13 @@ def teste_leitura_da_pagina():
               _av._e_chave_ou_cota(Exception("Error code: 401 - Invalid API Key"))
               and _av._e_chave_ou_cota(Exception("429 rate limit reached"))
               and not _av._e_chave_ou_cota(Exception("connection closed")))
+        # Medir e depois esquecer o resultado seria trabalho jogado fora: o
+        # veredito vai para a mesma pasta que o aplicativo le.
+        checa("o avaliador grava o veredito onde a tela le",
+              "def gravar_veredito(provedor, modelo, faltas, notas, quando):" in _av_fonte
+              and 'ARQ_VEREDITOS = "vereditos_modelos.txt"' in _av_fonte)
+        checa("uma linha por modelo, com o que faltou e a nota",
+              'f"{modelo}|{estado}|{int(quando)}|{detalhe}|{acerto}|{provedor}"' in _av_fonte)
         # A propria correcao e testavel sem rede: modelo perfeito passa,
         # modelo que nunca para reprova, modelo que nao chama reprova.
         checa("o avaliador tem autoteste que dispensa rede e chave",
@@ -3555,6 +3563,30 @@ def teste_anexos_e_visao():
               'rtbChat->AppendText(L">>> Modo " + modo);' in fonte)
         checa("e o padrao do aviso e nao exportar",
               fonte.count("MessageBoxDefaultButton::Button2") >= 7)
+
+        # --- VEREDITO DO AVALIADOR VIRA PROTECAO ---
+        # Pergunta do operador: "se o resultado nao deveria depender da IA, por
+        # que estamos tendo diferenca?". Depende, e vai depender: o julgamento e
+        # do modelo. O que da para fazer e MEDIR antes e avisar na hora certa -
+        # senao a medicao vira um relatorio que alguem precisa lembrar de ler.
+        checa("o aplicativo avisa quando o modelo reprovou para Automacao",
+              "void AvisarSeModeloReprovado()" in fonte
+              and 'CaminhoDados("vereditos_modelos.txt")' in fonte)
+        # So na Automacao: em Chat e Scan DOM o mesmo modelo pode ser otimo, e
+        # aviso fora de hora vira aviso ignorado.
+        checa("e so no modo em que a escolha de ferramenta decide",
+              "if (modoAtivo == 2) AvisarSeModeloReprovado();" in fonte)
+        # Nao bloquear e uma decisao: quem tem motivo para insistir (custo,
+        # disponibilidade) contorna um aplicativo que decide por ele.
+        checa("o aviso informa e nao bloqueia",
+              "REPROVOU na medicao de escolha de " in fonte
+              and "Ele continua util em Chat e Scan DOM" in fonte)
+        checa("modelo aprovado nao gera ruido",
+              'if (p[1]->Trim() != "reprovado") return;   // aprovado: silencio' in fonte)
+        checa("e sem medicao nenhuma o aplicativo fica calado",
+              "if (!File::Exists(arq)) return;   // nunca medido: nada a dizer" in fonte)
+        checa("o veredito tambem vai para a Lixeira no Redefinir",
+              'L"ultima_chave.txt", L"vereditos_modelos.txt"' in fonte)
 
         # --- PORTA DO BANCO ---
         # Achado na auditoria: o campo e livre, e um "1521 " com espaco - colado

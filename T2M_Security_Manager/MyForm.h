@@ -4977,7 +4977,7 @@ namespace T2MSecurityManager {
 		cli::array<String^>^ arquivos = gcnew cli::array<String^>{
 			L"configuracoes.txt", L"capacidades_modelos.txt", L"memoria_chat.json",
 			L"historico_execucoes.jsonl", L"modelo_gemini_ok.txt", L"tema.txt",
-			L"config.txt", L"ultima_chave.txt"
+			L"config.txt", L"ultima_chave.txt", L"vereditos_modelos.txt"
 		};
 		for each (String ^ nome in arquivos) {
 			if (MoverParaLixeira(CaminhoDados(nome))) apagados->Add(nome);
@@ -7200,6 +7200,51 @@ namespace T2MSecurityManager {
 		rtbChat->ScrollToCaret();
 	}
 
+		   // O modelo escolhido ja foi MEDIDO e reprovou para Automacao?
+		   //
+		   // O veredito vem do avaliar_modelo.py, que roda fora do aplicativo e
+		   // grava uma linha por modelo em vereditos_modelos.txt. Medir sem
+		   // avisar seria produzir um relatorio que alguem precisa lembrar de
+		   // ler; o aviso aparece no momento em que a informacao importa - o
+		   // envio em Automacao, que e onde a escolha de ferramenta decide o
+		   // resultado.
+		   //
+		   // Nao bloqueia. O operador pode ter motivo para insistir (custo,
+		   // disponibilidade), e um aplicativo que decide por ele acaba
+		   // contornado. Avisar com numero e deixar decidir e o meio-termo.
+	private: void AvisarSeModeloReprovado() {
+		try {
+			String^ modelo = ModeloAtualCurto();
+			if (String::IsNullOrWhiteSpace(modelo)) return;
+			String^ arq = CaminhoDados("vereditos_modelos.txt");
+			if (!File::Exists(arq)) return;   // nunca medido: nada a dizer
+			for each (String ^ linha in File::ReadAllLines(arq)) {
+				cli::array<String^>^ p = linha->Split('|');
+				if (p->Length < 5) continue;
+				if (p[0]->Trim() != modelo) continue;
+				if (p[1]->Trim() != "reprovado") return;   // aprovado: silencio
+				String^ quando = L"";
+				double seg = 0;
+				if (Double::TryParse(p[2], seg)) {
+					try {
+						DateTime d = DateTimeOffset::FromUnixTimeSeconds(
+							(long long)seg).LocalDateTime;
+						quando = L", medido em " + d.ToString("dd/MM");
+					}
+					catch (...) {}
+				}
+				EscreverAvisoNoChat(
+					L"O modelo " + modelo + L" REPROVOU na medicao de escolha de "
+					L"ferramenta" + quando + L": " + p[4] + L"% de acerto, e o "
+					L"minimo e 80%. Falhou em: " + p[3] + L".\n"
+					L"Ele continua util em Chat e Scan DOM, onde nao ha ferramenta. "
+					L"Para trocar, use o seletor \"Chave da IA\" no topo desta janela.");
+				return;
+			}
+		}
+		catch (...) {}
+	}
+
 		   // Escreve na conversa em QUE MODO esta mensagem foi executada.
 		   // Sai em toda execucao, de proposito: o modo muda o que a resposta
 		   // significa (Scan DOM leu a pagina agora; Chat responde de memoria),
@@ -7230,6 +7275,9 @@ namespace T2MSecurityManager {
 		rtbChat->SelectionFont = gcnew System::Drawing::Font("Segoe UI", 10);
 		rtbChat->SelectionColor = System::Drawing::Color::Black;
 		rtbChat->ScrollToCaret();
+		// So na Automacao: e o unico modo em que a escolha de ferramenta
+		// decide o resultado. Em Chat e Scan DOM o mesmo modelo pode ser otimo.
+		if (modoAtivo == 2) AvisarSeModeloReprovado();
 	}
 
 		   // Dispara o worker para o modo BANCO: passa o DSN via URL com marcador --DB--.

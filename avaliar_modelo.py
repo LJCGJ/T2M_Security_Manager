@@ -375,6 +375,58 @@ def julgar(notas, limiares):
 
 
 # --------------------------------------------------------------------- #
+# O veredito guardado                                                    #
+# --------------------------------------------------------------------- #
+# Medir nao adianta se a medicao vira um relatorio que alguem precisa lembrar
+# de ler. O veredito e gravado onde o APLICATIVO le, e a tela avisa na hora em
+# que o modelo reprovado for usado em Automacao - que e o momento em que a
+# informacao importa.
+#
+# Mesma pasta do resto: %APPDATA%/T2M Security Manager. Instalado em Program
+# Files, gravar ao lado do script falha com PermissionError.
+ARQ_VEREDITOS = "vereditos_modelos.txt"
+
+
+def _caminho_dados(arquivo):
+    try:
+        appdata = os.environ.get("APPDATA", "")
+        if not appdata:
+            return os.path.join(PASTA, arquivo)
+        pasta = os.path.join(appdata, "T2M Security Manager")
+        os.makedirs(pasta, exist_ok=True)
+        return os.path.join(pasta, arquivo)
+    except Exception:
+        return os.path.join(PASTA, arquivo)
+
+
+def gravar_veredito(provedor, modelo, faltas, notas, quando):
+    """Uma linha por modelo: modelo|aprovado ou reprovado|epoch|o que faltou.
+
+    O nome do modelo e a chave, sem o provedor: e o que a tela tem em maos na
+    hora de avisar, e o mesmo modelo nao muda de comportamento por vir de outra
+    rota."""
+    try:
+        caminho = _caminho_dados(ARQ_VEREDITOS)
+        linhas = {}
+        if os.path.exists(caminho):
+            with open(caminho, encoding="utf-8") as f:
+                for linha in f:
+                    if "|" in linha:
+                        linhas[linha.split("|", 1)[0].strip()] = linha.rstrip("\n")
+        estado = "reprovado" if faltas else "aprovado"
+        detalhe = ",".join(faltas) if faltas else "-"
+        acerto = int(round(notas["acerto_ferramenta"] * 100))
+        linhas[modelo] = f"{modelo}|{estado}|{int(quando)}|{detalhe}|{acerto}|{provedor}"
+        with open(caminho, "w", encoding="utf-8") as f:
+            for v in linhas.values():
+                f.write(v + "\n")
+        return caminho
+    except Exception as e:
+        log(f"Nao foi possivel gravar o veredito: {e}")
+        return ""
+
+
+# --------------------------------------------------------------------- #
 # Autoteste: prova que a correcao funciona, sem rede e sem chave          #
 # --------------------------------------------------------------------- #
 def autoteste(casos, limiares):
@@ -540,6 +592,12 @@ def main():
     else:
         log("  APROVADO para Automacao.")
     log("=" * 66)
+
+    import time
+    destino = gravar_veredito(provedor, modelo, faltas, notas, time.time())
+    if destino:
+        log(f">>> Veredito guardado: o aplicativo avisa se este modelo for "
+            f"usado em Automacao.")
 
     if args.saida_json:
         try:
