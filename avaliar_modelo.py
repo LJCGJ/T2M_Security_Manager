@@ -48,8 +48,10 @@ def log(msg=""):
 # --------------------------------------------------------------------- #
 # As ferramentas oferecidas ao modelo                                    #
 # --------------------------------------------------------------------- #
-# Subconjunto do Playwright MCP - os nomes e argumentos sao os mesmos que
-# aparecem no log de execucao do T2M. Nao sao todas as 22: as que sobraram
+# Subconjunto do Playwright MCP 0.0.78. Nomes e parametros CONFERIDOS contra o
+# servidor de verdade (tools/list), e nao copiados de memoria: a primeira versao
+# usava "ref" onde o servidor usa "target", e uma eval que mede um mundo que nao
+# existe e pior que nenhuma - a nota sai com toda a aparencia de valida. Nao sao todas as 22: as que sobraram
 # (abas, upload, dialogos) nao participam de nenhum cenario, e ferramenta
 # que nunca e a resposta certa so serve para encarecer o prompt.
 #
@@ -76,8 +78,8 @@ FERRAMENTAS = [
         "descricao": "Clica no elemento indicado pela referencia do snapshot.",
         "parametros": {
             "type": "object",
-            "properties": {"ref": {"type": "string", "description": "referencia do snapshot, ex.: e42"}},
-            "required": ["ref"],
+            "properties": {"target": {"type": "string", "description": "referencia do snapshot, ex.: e42"}},
+            "required": ["target"],
         },
     },
     {
@@ -86,10 +88,10 @@ FERRAMENTAS = [
         "parametros": {
             "type": "object",
             "properties": {
-                "ref": {"type": "string", "description": "referencia do snapshot, ex.: e39"},
+                "target": {"type": "string", "description": "referencia do snapshot, ex.: e39"},
                 "text": {"type": "string", "description": "texto a digitar"},
             },
-            "required": ["ref", "text"],
+            "required": ["target", "text"],
         },
     },
     {
@@ -393,7 +395,7 @@ def autoteste(casos, limiares):
 
     # Nunca para: chama browser_click sempre - inclusive nos casos em que o
     # certo era encerrar, onde click esta entre as nao esperadas.
-    teimoso = [corrigir(c, "browser_click", {"ref": "e1"}) for c in casos]
+    teimoso = [corrigir(c, "browser_click", {"target": "e1"}) for c in casos]
     notas_t = calcular_notas(teimoso)
     if not julgar(notas_t, limiares):
         problemas.append("o modelo que nunca para deveria reprovar")

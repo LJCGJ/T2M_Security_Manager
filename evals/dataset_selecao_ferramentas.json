@@ -50,8 +50,8 @@
       ],
       "tool_esperada": "browser_type",
       "argumentos_esperados": {
-        "ref": "e39",
-        "text": "student"
+        "text": "student",
+        "target": "e39"
       },
       "tools_nao_esperadas": [
         "browser_click",
@@ -73,7 +73,7 @@
       ],
       "tool_esperada": "browser_click",
       "argumentos_esperados": {
-        "ref": "e42"
+        "target": "e42"
       },
       "tools_nao_esperadas": [
         "browser_type",

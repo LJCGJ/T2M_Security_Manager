@@ -1529,13 +1529,65 @@ def _descrever_parametros(esquema):
                      for n in props) or "(nenhum)"
 
 
+def _esquema_para_o_modelo(esquema):
+    """Tira do 'required' os campos que TEM valor padrao no proprio schema.
+
+    Nasceu de uma execucao real que morreu assim:
+
+        parameters for tool browser_take_screenshot did not match schema:
+        errors: [missing properties: 'type', 'scale']
+
+    O schema do servidor marca 'type' e 'scale' como obrigatorios e, na mesma
+    linha, declara default "png" e default "css" para eles. Campo com valor
+    padrao nao e obrigatorio - e uma contradicao do schema, nao um erro do
+    modelo. Mas o Groq valida a chamada contra o schema e recusa a requisicao
+    INTEIRA, entao a contradicao derruba a execucao.
+
+    A regra e generica de proposito: nada de lista de ferramentas conhecidas
+    aqui. Se amanha o servidor marcar outro campo com default como obrigatorio,
+    isto continua funcionando sozinho - e se ele parar de marcar, tambem.
+
+    O que o servidor recebe continua completo: _completar_defaults recoloca os
+    valores antes da chamada."""
+    if not isinstance(esquema, dict):
+        return esquema
+    props = esquema.get("properties")
+    obrig = esquema.get("required")
+    if not isinstance(props, dict) or not isinstance(obrig, list):
+        return esquema
+    sem_default = [n for n in obrig
+                   if not (isinstance(props.get(n), dict) and "default" in props[n])]
+    if len(sem_default) == len(obrig):
+        return esquema
+    copia = dict(esquema)
+    copia["required"] = sem_default
+    return copia
+
+
+def _completar_defaults(nome, args):
+    """Recoloca os valores padrao que tiramos do 'required'.
+
+    Simplificar o schema para o modelo nao pode significar mandar chamada
+    incompleta ao servidor: quem valida do outro lado e ele."""
+    esquema = _ESQUEMAS_FERRAMENTAS.get(nome) or {}
+    props = esquema.get("properties")
+    if not isinstance(props, dict):
+        return args
+    saida = dict(args or {})
+    for campo in (esquema.get("required") or []):
+        if campo not in saida and isinstance(props.get(campo), dict) \
+                and "default" in props[campo]:
+            saida[campo] = props[campo]["default"]
+    return saida
+
+
 def _conferir_args(nome, args):
     """Confere os argumentos contra o schema da ferramenta. Devolve o motivo da
     recusa, ou "" quando esta tudo certo.
 
     Isto existe por causa de um teste real, e de um jeito que so ficou visivel
-    rodando: a IA chamou browser_type com o parametro 'target', que nao existe -
-    o certo e 'element' + 'ref'. O servidor recusou, mas devolveu a recusa como
+    rodando: a IA chamou uma ferramenta com um parametro que aquela versao do
+    servidor nao aceitava. O servidor recusou, mas devolveu a recusa como
     TEXTO COMUM, sem marcar isError. Ou seja: nem o modelo entendeu direito o
     que errou, nem o aplicativo tinha como saber que a chamada falhou. A IA
     repetiu o mesmo erro no passo seguinte e o relatorio final ainda declarou
@@ -1564,7 +1616,10 @@ def _conferir_args(nome, args):
     if not isinstance(props, dict) or not props:
         return ""      # sem schema utilizavel, nao ha o que conferir
 
-    faltando = [n for n in ((esquema or {}).get("required") or [])
+    # Mesmo criterio do que foi enviado ao modelo: cobrar aqui um campo que
+    # tiramos da lista de obrigatorios seria recusar o que ele nao tinha como
+    # saber que precisava.
+    faltando = [n for n in ((_esquema_para_o_modelo(esquema) or {}).get("required") or [])
                 if n not in (args or {})]
     desconhecidos = [n for n in (args or {}) if n not in props]
     if not faltando and not desconhecidos:
@@ -1604,6 +1659,7 @@ async def _chamar_ferramenta_mcp(session, nome, args):
         _registrar_falha_ferramenta(nome)
         return f"ERRO na chamada de {nome}: {motivo}", False
 
+    args = _completar_defaults(nome, args)
     try:
         r = await asyncio.wait_for(session.call_tool(nome, args or {}),
                                    timeout=TIMEOUT_OPERACAO)
@@ -1767,7 +1823,7 @@ async def loop_anthropic(session, api_key, objetivo, mcp_tools):
     ferramentas = [{
         "name": t.name,
         "description": (t.description or "")[:1024],
-        "input_schema": t.inputSchema,
+        "input_schema": _esquema_para_o_modelo(t.inputSchema),
     } for t in mcp_tools]
 
     system = ("Voce e um assistente de automacao de testes, QA e seguranca. Use as "
@@ -1838,7 +1894,7 @@ async def loop_openai(session, api_key, objetivo, mcp_tools):
         "function": {
             "name": t.name,
             "description": (t.description or "")[:1024],
-            "parameters": t.inputSchema,
+            "parameters": _esquema_para_o_modelo(t.inputSchema),
         }
     } for t in mcp_tools]
 
@@ -1932,7 +1988,8 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
     # Converte as ferramentas MCP para o formato do Gemini (whitelist de schema).
     declaracoes = []
     for t in mcp_tools:
-        params = limpar_schema_gemini(t.inputSchema or {"type": "object", "properties": {}})
+        params = limpar_schema_gemini(
+            _esquema_para_o_modelo(t.inputSchema or {"type": "object", "properties": {}}))
         if not isinstance(params, dict):
             params = {"type": "object", "properties": {}}
         if "type" not in params:

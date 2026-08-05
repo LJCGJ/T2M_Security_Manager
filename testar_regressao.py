@@ -756,6 +756,39 @@ def teste_leitura_da_pagina():
 
     fonte_mcp = open(A.__file__, encoding="utf-8").read()
 
+    # --- SCHEMA CONTRADITORIO DO SERVIDOR ---
+    # Execucao real morreu com: "parameters for tool browser_take_screenshot did
+    # not match schema: errors: [missing properties: 'type', 'scale']". O schema
+    # do @playwright/mcp marca 'type' e 'scale' como obrigatorios e, na mesma
+    # linha, declara default "png" e default "css" para eles. Campo com valor
+    # padrao nao e obrigatorio - a contradicao e do schema, nao do modelo. Mas o
+    # Groq valida contra o schema e recusa a requisicao INTEIRA.
+    checa("campo com default sai da lista de obrigatorios",
+          "def _esquema_para_o_modelo(esquema):" in fonte_mcp
+          and '"default" in props[n]' in fonte_mcp)
+    _esq = {"type": "object",
+            "properties": {"type": {"type": "string", "default": "png"},
+                           "scale": {"type": "string", "default": "css"},
+                           "url": {"type": "string"}},
+            "required": ["type", "scale", "url"]}
+    checa("so o que nao tem default continua obrigatorio",
+          A._esquema_para_o_modelo(_esq)["required"] == ["url"])
+    checa("e o schema original nao e alterado", _esq["required"] == ["type", "scale", "url"])
+    # O servidor continua recebendo a chamada completa: simplificar para o
+    # modelo nao pode virar chamada incompleta do outro lado.
+    A._registrar_esquemas([("tirar_print", _esq)])
+    checa("os defaults sao recolocados antes de chamar o servidor",
+          A._completar_defaults("tirar_print", {"url": "x"})
+          == {"url": "x", "type": "png", "scale": "css"})
+    # Cobrar localmente um campo que tiramos da lista seria recusar o que o
+    # modelo nao tinha como saber que precisava.
+    checa("a conferencia local usa o mesmo criterio",
+          A._conferir_args("tirar_print", {"url": "x"}) == "")
+    A._registrar_esquemas([])
+    # A regra e generica: nada de lista de ferramentas conhecidas no codigo.
+    checa("a regra nao depende de nome de ferramenta",
+          "browser_take_screenshot" not in fonte_mcp.split("def _esquema_para_o_modelo")[1].split("def _completar_defaults")[0].split('"""')[2])
+
     # --- QUAL NAVEGADOR A AUTOMACAO USA ---
     # Pergunta do operador: "e se o usuario nao tiver Chrome, so Edge?".
     #
