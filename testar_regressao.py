@@ -867,6 +867,37 @@ def teste_leitura_da_pagina():
     checa("e a mensagem diz que o problema e o modelo, nao o objetivo",
           "limitacao do modelo, nao do seu objetivo" in fonte_mcp
           and "Modo Chat e Scan DOM continuam" in fonte_mcp)
+    # O DEFEITO MAIS GRAVE ENCONTRADO EM DOIS DIAS DE TESTE.
+    #
+    # Teste negativo de login em practicetestautomation.com: usuario "student"
+    # (valido) com senha errada. A IA chamou browser_find procurando a frase
+    # "Your username is invalid!" - a mesma que ela ja tinha inventado no dia
+    # anterior, em Modo Chat, sem abrir navegador - e depois relatou essa frase
+    # como "a mensagem de erro exibida", encerrando com "teste realizado com
+    # sucesso". A pagina mostra "Your password is invalid!" quando o usuario e
+    # valido: o laudo estava errado.
+    #
+    # Ou seja: com a pagina aberta e o snapshot na mao, ela confirmou a propria
+    # expectativa em vez de ler. Nao e alucinacao por falta de dado - e vies de
+    # confirmacao com o dado disponivel, que e pior, porque parece verificado.
+    checa("o texto da tela so vale se foi lido no snapshot",
+          "TEXTO DA TELA: so afirme que uma mensagem apareceu se voce a LEU " in fonte_mcp.replace("\n", " ")
+          and "resultado dele manda, inclusive quando e 'nao encontrado'" in fonte_mcp)
+    checa("e contrariar a suposicao do objetivo e tratado como achado",
+          "inclusive se contrariar o " in fonte_mcp
+          and "Contrariar a suposicao E o achado" in fonte_mcp)
+    # O menu 1/2/3 no fim do relatorio custava uma EXECUCAO inteira: responder
+    # "1" em modo Automacao reabre o navegador e roda tudo de novo. Foi o que
+    # aconteceu - e a segunda execucao entrou com "1" como objetivo, fez login
+    # com a senha correta e relatou "login realizado com sucesso", contradizendo
+    # o teste negativo que acabara de rodar.
+    checa("o relatorio nao oferece menu que custa outra execucao",
+          "NAO ofereca " in fonte_mcp
+          and "cada mensagem neste " in fonte_mcp
+          and "modo abre o navegador de novo e gasta uma execucao inteira" in fonte_mcp)
+    checa("e aponta o modo Chat para construir o proximo passo",
+          "modo Chat, que e barato e nao executa nada" in fonte_mcp)
+
     # Visto na tela: a URL alvo apontava para outra pagina, o objetivo pedia
     # login, e o relatorio disse "nao e possivel" e emendou um menu de 1 a 3.
     # Quem errou o endereco quer o endereco certo, nao um questionario.
@@ -898,8 +929,8 @@ def teste_leitura_da_pagina():
     checa("objetivo impossivel na pagina vem primeiro, sem menu",
           "OBJETIVO IMPOSSIVEL NA PAGINA ENCONTRADA" in fonte_mcp
           and "Nao ofereca menu nem proximos passos nesse " in fonte_mcp)
-    checa("e o menu so aparece quando o objetivo foi cumprido",
-          "Se o objetivo FOI cumprido, ai sim pergunte" in fonte_mcp)
+    checa("e o objetivo cumprido encerra com relatorio, sem pergunta",
+          "Se o objetivo FOI cumprido, encerre com o relatorio." in fonte_mcp)
     # Cinco caminhos de execucao, cinco lugares onde o erro pode sair:
     # tela, banco, Mongo, API e Oracle.
     checa("a dica vale para os cinco caminhos de execucao",
