@@ -1529,6 +1529,85 @@ def _descrever_parametros(esquema):
                      for n in props) or "(nenhum)"
 
 
+# Nomes que os modelos usam para dizer a MESMA coisa. A chave e o que o schema
+# pede; os valores sao o que o modelo costuma mandar no lugar.
+#
+# Isto nao e complacencia com modelo preguicoso: o Playwright MCP renomeou o
+# parametro de referencia de elemento de "ref" para "target" entre versoes, e os
+# modelos foram treinados com a documentacao antiga. Recusar a chamada por causa
+# disso e cobrar do modelo uma atualizacao de biblioteca que ele nao viveu - e o
+# preco e um passo perdido, contado como falha no relatorio, a cada clique.
+#
+# Visto em execucao real com dois provedores diferentes: browser_click e
+# browser_type falhando duas e tres vezes por teste, sempre pelo mesmo motivo.
+_APELIDOS_DE_PARAMETRO = {
+    "target": ("ref", "element_ref", "selector"),
+}
+
+
+# O snapshot mostra as referencias como [ref=e39]. Alguns modelos copiam o
+# rotulo inteiro para o valor - "ref=e39", "[ref=e39]" - em vez do identificador
+# puro que o servidor espera. Visto em execucao real: o Gemini chamou
+# browser_fill_form com target "ref=e39", levou a recusa, e refez com "e39" no
+# passo seguinte. O passo perdido custa uma requisicao, e num plano gratuito
+# requisicao e o recurso escasso.
+_RE_REFERENCIA = re.compile(r"^\[?\s*ref\s*=\s*([^\],\s]+)\s*\]?$", re.I)
+
+
+def _limpar_referencia(valor):
+    """Devolve so o identificador quando o valor veio embrulhado em ref=."""
+    if not isinstance(valor, str):
+        return valor
+    achado = _RE_REFERENCIA.match(valor.strip())
+    return achado.group(1) if achado else valor
+
+
+def _limpar_referencias_em_profundidade(valor):
+    """Limpa 'target' no topo e dentro de listas de campos.
+
+    browser_fill_form recebe uma LISTA de campos, cada um com o seu target -
+    limpar so a superficie deixaria justamente a ferramenta que preenche
+    formulario inteiro de fora."""
+    if isinstance(valor, dict):
+        saida = {}
+        for k, v in valor.items():
+            if k == "target":
+                saida[k] = _limpar_referencia(v)
+            else:
+                saida[k] = _limpar_referencias_em_profundidade(v)
+        return saida
+    if isinstance(valor, list):
+        return [_limpar_referencias_em_profundidade(v) for v in valor]
+    return valor
+
+
+def _normalizar_args(nome, args):
+    """Traduz apelido de parametro para o nome que o schema pede, e limpa o
+    valor da referencia de elemento.
+
+    So age quando o campo pedido esta AUSENTE e o apelido esta presente: nunca
+    sobrescreve o que o modelo mandou certo."""
+    esquema = _ESQUEMAS_FERRAMENTAS.get(nome) or {}
+    props = esquema.get("properties")
+    if not isinstance(props, dict):
+        return args
+    saida = dict(args or {})
+    for oficial, apelidos in _APELIDOS_DE_PARAMETRO.items():
+        if oficial not in props or oficial in saida:
+            continue
+        for apelido in apelidos:
+            if apelido in saida and apelido not in props:
+                saida[oficial] = saida.pop(apelido)
+                log(f">>> parametro '{apelido}' traduzido para '{oficial}' "
+                    f"em {nome} (versoes diferentes do servidor)")
+                break
+    limpo = _limpar_referencias_em_profundidade(saida)
+    if limpo != saida:
+        log(f">>> referencia de elemento normalizada em {nome} "
+            f"(o valor veio como 'ref=...' em vez do identificador)")
+    return limpo
+
+
 def _esquema_para_o_modelo(esquema):
     """Tira do 'required' os campos que TEM valor padrao no proprio schema.
 
@@ -1651,6 +1730,7 @@ async def _chamar_ferramenta_mcp(session, nome, args):
        Claude ou OpenAI a automacao seguia iterando as cegas contra um navegador
        morto ate queimar todos os passos (e os tokens).
     """
+    args = _normalizar_args(nome, args)
     motivo = _conferir_args(nome, args)
     if motivo:
         # Nao sai do aplicativo: economiza a ida ao servidor e, principalmente,
@@ -2257,7 +2337,9 @@ async def executar(api_key, url_alvo, objetivo):
                     f"Inventar um nome parecido faz a requisicao inteira ser "
                     f"recusada e derruba a execucao - nao ha recuperacao.\n"
                     f"TEXTO DA TELA: so afirme que uma mensagem apareceu se voce a LEU "
-                    f"num snapshot. Procurar a frase que voce esperava e depois "
+                    f"num snapshot. browser_find responde SE um texto existe, e o "
+                    f"resultado dele manda - inclusive quando e 'nao encontrado'. "
+                    f"Procurar a frase que voce esperava e depois "
                     f"relata-la como se tivesse aparecido e inventar prova, e e a "
                     f"falha mais grave possivel neste produto: o operador leva um "
                     f"laudo errado para o cliente. Ao citar mensagem da tela, copie "

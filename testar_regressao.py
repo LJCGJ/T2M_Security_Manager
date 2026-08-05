@@ -756,6 +756,63 @@ def teste_leitura_da_pagina():
 
     fonte_mcp = open(A.__file__, encoding="utf-8").read()
 
+    # --- APELIDO DE PARAMETRO ENTRE VERSOES ---
+    # browser_click e browser_type falhando 2x e 3x por teste, com DOIS
+    # provedores diferentes, sempre pelo mesmo motivo: o Playwright MCP renomeou
+    # a referencia de elemento de "ref" para "target" entre versoes, e os
+    # modelos foram treinados com a documentacao antiga. Recusar por isso e
+    # cobrar do modelo uma atualizacao de biblioteca que ele nao viveu - e o
+    # preco e um passo perdido, contado como falha no laudo, a cada clique.
+    _real = {"type": "object",
+             "properties": {"element": {"type": "string"},
+                            "target": {"type": "string"},
+                            "text": {"type": "string"}},
+             "required": ["target", "text"]}
+    A._registrar_esquemas([("browser_type", _real)])
+    checa("apelido antigo e traduzido para o nome atual",
+          A._normalizar_args("browser_type", {"ref": "e39", "text": "x"})
+          == {"target": "e39", "text": "x"})
+    # Depois da traducao a chamada passa na conferencia - antes ela morria aqui.
+    checa("e a chamada deixa de ser recusada",
+          A._conferir_args("browser_type",
+                           A._normalizar_args("browser_type", {"ref": "e39", "text": "x"})) == "")
+    # Nunca sobrescrever o que o modelo mandou certo.
+    checa("o que veio certo nao e tocado",
+          A._normalizar_args("browser_type", {"target": "e42", "ref": "e99", "text": "x"})
+          .get("target") == "e42")
+    # Sem o campo no schema, nao ha o que traduzir.
+    A._registrar_esquemas([("outra", {"type": "object", "properties": {"x": {}}})])
+    checa("ferramenta sem o campo fica intacta",
+          A._normalizar_args("outra", {"ref": "e1"}) == {"ref": "e1"})
+    A._registrar_esquemas([])
+
+    # O snapshot mostra as referencias como [ref=e39], e alguns modelos copiam o
+    # rotulo inteiro para o valor. Visto em execucao real: o Gemini chamou
+    # browser_fill_form com target "ref=e39", foi recusado, e refez com "e39" no
+    # passo seguinte - um passo perdido, que num plano gratuito e o recurso
+    # escasso.
+    A._registrar_esquemas([
+        ("browser_click", {"type": "object",
+                           "properties": {"target": {"type": "string"}},
+                           "required": ["target"]}),
+        ("browser_fill_form", {"type": "object",
+                               "properties": {"fields": {"type": "array"}},
+                               "required": ["fields"]})])
+    checa("valor embrulhado em ref= vira o identificador",
+          A._normalizar_args("browser_click", {"target": "ref=e39"}) == {"target": "e39"}
+          and A._normalizar_args("browser_click", {"target": "[ref=e42]"}) == {"target": "e42"})
+    # browser_fill_form recebe uma LISTA de campos: limpar so a superficie
+    # deixaria de fora justamente a ferramenta que preenche formulario inteiro.
+    checa("a limpeza alcanca os campos de dentro do formulario",
+          A._normalizar_args("browser_fill_form",
+                             {"fields": [{"target": "ref=e39", "value": "a"}]})
+          == {"fields": [{"target": "e39", "value": "a"}]})
+    # Seletor CSS e um valor legitimo de target: nao pode ser mutilado.
+    checa("seletor css passa intacto",
+          A._normalizar_args("browser_click", {"target": "#login .btn"})
+          == {"target": "#login .btn"})
+    A._registrar_esquemas([])
+
     # --- SCHEMA CONTRADITORIO DO SERVIDOR ---
     # Execucao real morreu com: "parameters for tool browser_take_screenshot did
     # not match schema: errors: [missing properties: 'type', 'scale']". O schema
@@ -962,10 +1019,14 @@ def teste_leitura_da_pagina():
     # oferecidas. O modelo tentou chama-la, o Groq recusou a requisicao inteira
     # com 400 e a execucao morreu. Instrucao que cita ferramenta inexistente
     # nao e texto solto: e um convite.
-    # (o nome so aparece no comentario que explica o defeito, nunca no prompt)
-    checa("a regra nao cita ferramenta que nao existe",
-          "browser_find" not in fonte_mcp.split("# NOME QUE NAO EXISTE")[0]
-          and 'f"browser_find' not in fonte_mcp)
+    # Correcao de uma conclusao minha que estava errada: o browser_find EXISTE
+    # entre as 24 ferramentas do servidor (conferido com tools/list). O 400 do
+    # Groq dizia "which was not in request.tools" porque o modelo escreveu a
+    # chamada inteira como texto - o nome que a rota leu foi
+    # 'browser_find({"text": ...})', que de fato nao existe. O defeito era o
+    # formato, nao o nome.
+    checa("a regra do resultado da busca esta no prompt",
+          "browser_find responde SE um texto existe, e o " in fonte_mcp)
     checa("e manda usar so os nomes da lista",
           "USE SOMENTE AS FERRAMENTAS DESTA LISTA, pelo nome exato." in fonte_mcp)
     checa("nome inventado e recusado antes de sair do aplicativo",
