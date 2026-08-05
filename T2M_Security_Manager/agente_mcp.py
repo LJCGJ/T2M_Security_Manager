@@ -1441,6 +1441,54 @@ def limpar_schema_gemini(schema, _raiz=True):
     return limpo
 
 
+def _navegador_instalado_na_maquina():
+    """Diz se existe Chrome ou Edge NA MAQUINA. Informativo, nao impositivo.
+
+    ATENCAO ao que esta funcao NAO faz, porque a primeira versao dela fazia e
+    estava errada: ela nao escolhe o navegador da automacao.
+    
+    O motivo foi medido, nao suposto. Subindo o @playwright/mcp 0.0.78 sem
+    passar --browser, o servidor abriu o navegador normalmente numa maquina sem
+    Chrome nenhum: o padrao dele e o Chromium que vem com o Playwright, e nao o
+    canal "chrome". Forcar --browser msedge so porque o Chrome nao esta
+    instalado trocaria um navegador que funciona por outro, sem ganho - e
+    mudaria em que navegador o teste roda, que e informacao do laudo.
+
+    Continua util para uma coisa: quando o Chromium do Playwright NAO estiver
+    baixado, saber que existe Chrome ou Edge na maquina permite sugerir o
+    conserto certo em vez de mandar baixar meio gigabyte."""
+    if platform.system() == "Darwin":
+        if os.path.exists("/Applications/Google Chrome.app"):
+            return "chrome"
+        if os.path.exists("/Applications/Microsoft Edge.app"):
+            return "msedge"
+        return ""
+    if platform.system() != "Windows":
+        # Linux: o que vale e estar no PATH.
+        import shutil
+        for exe, nome in (("google-chrome", "chrome"),
+                          ("google-chrome-stable", "chrome"),
+                          ("microsoft-edge", "msedge"),
+                          ("microsoft-edge-stable", "msedge")):
+            if shutil.which(exe):
+                return nome
+        return ""
+    chrome = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    ]
+    if any(os.path.exists(c) for c in chrome):
+        return "chrome"
+    edge = [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ]
+    if any(os.path.exists(c) for c in edge):
+        return "msedge"
+    return ""
+
+
 def _navegador_fechado(msg):
     """Reconhece SOMENTE o navegador realmente fechado.
 
@@ -1500,6 +1548,17 @@ def _conferir_args(nome, args):
     Deliberadamente conservador - so reclama de parametro obrigatorio que faltou
     e de nome que nao existe no schema. Nao valida tipo nem formato: um schema
     que a gente entenda mal nao pode impedir uma chamada que funcionaria."""
+    # NOME QUE NAO EXISTE. Visto num teste real: o modelo chamou "browser_find",
+    # que nao esta entre as ferramentas oferecidas. No Groq a propria rota
+    # recusa a requisicao inteira com 400 e a execucao morre sem recuperacao;
+    # nos outros provedores a chamada chegava aqui e ia para o servidor so para
+    # voltar com um erro vago. Recusar pelo nome, devolvendo a lista, resolve o
+    # segundo caso e ainda deixa o registro de que houve invencao.
+    if _ESQUEMAS_FERRAMENTAS and nome not in _ESQUEMAS_FERRAMENTAS:
+        disponiveis = ", ".join(sorted(_ESQUEMAS_FERRAMENTAS.keys()))
+        return (f"a ferramenta '{nome}' nao existe. Use exatamente um destes "
+                f"nomes: {disponiveis}")
+
     esquema = _ESQUEMAS_FERRAMENTAS.get(nome)
     props = (esquema or {}).get("properties")
     if not isinstance(props, dict) or not props:
@@ -2137,15 +2196,18 @@ async def executar(api_key, url_alvo, objetivo):
                     f"alvo para a pagina certa. Nao ofereca menu nem proximos passos nesse "
                     f"caso: quem errou o endereco quer o endereco certo, nao um "
                     f"questionario.\n"
+                    f"USE SOMENTE AS FERRAMENTAS DESTA LISTA, pelo nome exato. "
+                    f"Inventar um nome parecido faz a requisicao inteira ser "
+                    f"recusada e derruba a execucao - nao ha recuperacao.\n"
                     f"TEXTO DA TELA: so afirme que uma mensagem apareceu se voce a LEU "
-                    f"num snapshot. browser_find responde SE um texto existe - o "
-                    f"resultado dele manda, inclusive quando e 'nao encontrado'. "
-                    f"Procurar a frase que voce esperava e depois relata-la como se "
-                    f"tivesse aparecido e inventar prova, e e a falha mais grave "
-                    f"possivel neste produto: o operador leva um laudo errado para o "
-                    f"cliente. Ao citar mensagem da tela, copie do snapshot, entre "
-                    f"aspas, exatamente como esta escrita - inclusive se contrariar o "
-                    f"que o objetivo supunha. Contrariar a suposicao E o achado.\n"
+                    f"num snapshot. Procurar a frase que voce esperava e depois "
+                    f"relata-la como se tivesse aparecido e inventar prova, e e a "
+                    f"falha mais grave possivel neste produto: o operador leva um "
+                    f"laudo errado para o cliente. Ao citar mensagem da tela, copie "
+                    f"do snapshot, entre aspas, exatamente como esta escrita - "
+                    f"inclusive se contrariar o que o objetivo supunha. Contrariar a "
+                    f"suposicao E o achado; confirmar a suposicao sem ter lido e o "
+                    f"defeito.\n"
                     f"Se o objetivo FOI cumprido, encerre com o relatorio. NAO ofereca "
                     f"menu de opcoes nem pergunte o proximo passo: cada mensagem neste "
                     f"modo abre o navegador de novo e gasta uma execucao inteira, entao "
@@ -2849,6 +2911,26 @@ def _dica_falha_servidor_mcp(detalhe, pacote=""):
         return ("\n\nO servidor fechou assim que subiu. Quase sempre e o cache "
                 "do npx corrompido por um download interrompido. No Prompt de "
                 "Comando:\n" + limpar + "Depois tente de novo.")
+    if ("is not found at" in d or "executable doesn't exist" in d
+            or "playwright install" in d):
+        # O teste de tela usa o Chromium que vem com o Playwright - nao o Chrome
+        # da maquina. Isso e proposital: mesma versao de navegador em todo
+        # computador da equipe, que e o que faz um teste ser comparavel entre
+        # maquinas. O preco e este download, uma vez so.
+        ja_tem = _navegador_instalado_na_maquina()
+        extra = ""
+        if ja_tem:
+            extra = ("\n\nVoce tem " + ("o Chrome" if ja_tem == "chrome" else "o Edge")
+                     + " instalado. Da para usa-lo em vez do download, mas ai o "
+                     "teste passa a depender da versao que estiver nessa "
+                     "maquina - e duas maquinas da equipe podem dar resultados "
+                     "diferentes. Se quiser essa opcao no aplicativo, me diga.")
+        return ("\n\nO navegador da automacao nao esta baixado. Ele nao e o "
+                "Chrome do seu computador: o teste usa o Chromium que vem com o "
+                "Playwright, para que a mesma versao rode em todas as maquinas "
+                "da equipe. No Prompt de Comando:\n"
+                "    npx playwright install chromium\n"
+                "E um download de algumas centenas de MB, uma vez so." + extra)
     if "timeout" in d or "timeouterror" in d:
         return ("\n\nTempo esgotado. Na primeira vez de cada modo o npx baixa "
                 "centenas de arquivos, e em rede lenta isso passa de dois "

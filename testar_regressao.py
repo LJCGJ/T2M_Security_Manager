@@ -756,6 +756,47 @@ def teste_leitura_da_pagina():
 
     fonte_mcp = open(A.__file__, encoding="utf-8").read()
 
+    # --- QUAL NAVEGADOR A AUTOMACAO USA ---
+    # Pergunta do operador: "e se o usuario nao tiver Chrome, so Edge?".
+    #
+    # A primeira resposta foi errada e chegou a virar codigo: forcar
+    # --browser msedge quando o Chrome nao estivesse instalado. Medindo de
+    # verdade - subindo o @playwright/mcp 0.0.78 sem --browser numa maquina sem
+    # Chrome nenhum - o servidor abriu o navegador normalmente. O padrao dele e
+    # o Chromium que vem com o Playwright, nao o canal "chrome".
+    #
+    # Ou seja: nao ter Chrome nao quebra nada. E usar o Chromium do Playwright e
+    # melhor para QA - mesma versao de navegador em toda maquina da equipe, que
+    # e o que torna um resultado comparavel entre computadores.
+    checa("a automacao nao impoe navegador da maquina",
+          'args += ["--browser", navegador]' not in fonte_mcp
+          and "def _navegador_instalado_na_maquina():" in fonte_mcp)
+    _sistema, _existe = A.platform.system, A.os.path.exists
+    try:
+        A.platform.system = lambda: "Windows"
+        A.os.path.exists = lambda c: "Google\\Chrome" in c
+        checa("detecta Chrome no Windows", A._navegador_instalado_na_maquina() == "chrome")
+        A.os.path.exists = lambda c: "Microsoft\\Edge" in c
+        checa("detecta Edge no Windows", A._navegador_instalado_na_maquina() == "msedge")
+        A.os.path.exists = lambda c: False
+        checa("e diz que nao ha nenhum quando nao ha",
+              A._navegador_instalado_na_maquina() == "")
+        A.platform.system = lambda: "Darwin"
+        A.os.path.exists = lambda c: c == "/Applications/Google Chrome.app"
+        checa("no Mac procura no /Applications",
+              A._navegador_instalado_na_maquina() == "chrome")
+    finally:
+        A.platform.system, A.os.path.exists = _sistema, _existe
+    checa("no Linux procura no PATH", 'shutil.which(exe)' in fonte_mcp)
+    # O erro que aparece de verdade nao e "sem Chrome": e o Chromium do
+    # Playwright nao baixado. A dica precisa mandar baixar a coisa certa.
+    checa("navegador ausente manda instalar o do Playwright",
+          "npx playwright install chromium" in fonte_mcp
+          and "nao e o " in fonte_mcp
+          and "Chrome do seu computador" in fonte_mcp)
+    checa("e reconhece o Chrome ou Edge ja instalado como alternativa",
+          "Da para usa-lo em vez do download" in fonte_mcp)
+
     # --- AUDITORIA DOS CAMINHOS NUNCA EXECUTADOS (API, banco, Oracle) ---
     # Antes do lancamento, os tres caminhos que nunca rodaram foram lidos linha
     # a linha. Cada verificacao abaixo guarda um defeito encontrado ali - todos
@@ -881,11 +922,25 @@ def teste_leitura_da_pagina():
     # expectativa em vez de ler. Nao e alucinacao por falta de dado - e vies de
     # confirmacao com o dado disponivel, que e pior, porque parece verificado.
     checa("o texto da tela so vale se foi lido no snapshot",
-          "TEXTO DA TELA: so afirme que uma mensagem apareceu se voce a LEU " in fonte_mcp.replace("\n", " ")
-          and "resultado dele manda, inclusive quando e 'nao encontrado'" in fonte_mcp)
+          "TEXTO DA TELA: so afirme que uma mensagem apareceu se voce a LEU " in fonte_mcp
+          and "confirmar a suposicao sem ter lido e o " in fonte_mcp)
+    # Erro meu, encontrado na primeira execucao depois da correcao: a regra
+    # citava "browser_find" pelo nome, e essa ferramenta NAO esta entre as 22
+    # oferecidas. O modelo tentou chama-la, o Groq recusou a requisicao inteira
+    # com 400 e a execucao morreu. Instrucao que cita ferramenta inexistente
+    # nao e texto solto: e um convite.
+    # (o nome so aparece no comentario que explica o defeito, nunca no prompt)
+    checa("a regra nao cita ferramenta que nao existe",
+          "browser_find" not in fonte_mcp.split("# NOME QUE NAO EXISTE")[0]
+          and 'f"browser_find' not in fonte_mcp)
+    checa("e manda usar so os nomes da lista",
+          "USE SOMENTE AS FERRAMENTAS DESTA LISTA, pelo nome exato." in fonte_mcp)
+    checa("nome inventado e recusado antes de sair do aplicativo",
+          "if _ESQUEMAS_FERRAMENTAS and nome not in _ESQUEMAS_FERRAMENTAS:" in fonte_mcp
+          and "Use exatamente um destes " in fonte_mcp)
     checa("e contrariar a suposicao do objetivo e tratado como achado",
-          "inclusive se contrariar o " in fonte_mcp
-          and "Contrariar a suposicao E o achado" in fonte_mcp)
+          "inclusive se contrariar o que o objetivo supunha. Contrariar a " in fonte_mcp
+          and "suposicao E o achado; confirmar a suposicao sem ter lido e o " in fonte_mcp)
     # O menu 1/2/3 no fim do relatorio custava uma EXECUCAO inteira: responder
     # "1" em modo Automacao reabre o navegador e roda tudo de novo. Foi o que
     # aconteceu - e a segunda execucao entrou com "1" como objetivo, fez login
@@ -1260,6 +1315,9 @@ def teste_falhas_de_ferramenta():
         def __getattr__(self, n): raise AttributeError(n)
 
     A._zerar_falhas_ferramenta()
+    # Registrada sem schema utilizavel: o que se testa aqui e a excecao vinda do
+    # cliente MCP, nao a recusa por nome desconhecido (que e outro teste).
+    A._registrar_esquemas([("browser_type", {})])
     texto, morreu = asyncio.run(
         A._chamar_ferramenta_mcp(ServidorQueLevanta(), "browser_type", {"target": "x"}))
     checa("excecao na chamada e contabilizada",
@@ -1372,11 +1430,26 @@ def teste_falhas_de_ferramenta():
         srv5, "browser_type", {"element": "campo", "ref": "f1", "text": "x"}))
     checa("parametro opcional pode faltar", srv5.chamado is True)
 
-    # Ferramenta sem schema conhecido nao pode ser bloqueada por precaucao.
+    # Schema vazio nao pode bloquear por precaucao: um schema que a gente
+    # entenda mal nao deve impedir uma chamada que funcionaria.
     A._zerar_falhas_ferramenta()
+    A._registrar_esquemas([("ferramenta_sem_schema", {})])
     srv6 = ServidorProibido()
     asyncio.run(A._chamar_ferramenta_mcp(srv6, "ferramenta_sem_schema", {"x": 1}))
-    checa("sem schema, a chamada segue normalmente", srv6.chamado is True)
+    checa("schema vazio nao impede a chamada", srv6.chamado is True)
+
+    # Mas NOME que nao existe na lista e outra coisa: e invencao do modelo.
+    # Visto num teste real - "browser_find" nao esta entre as 22 ferramentas, e
+    # no Groq a rota recusa a requisicao inteira com 400, matando a execucao.
+    A._zerar_falhas_ferramenta()
+    A._registrar_esquemas([("browser_snapshot", {"type": "object", "properties": {}})])
+    srv7 = ServidorProibido()
+    texto7, _ = asyncio.run(A._chamar_ferramenta_mcp(srv7, "browser_find", {"text": "x"}))
+    checa("nome inventado nao chega ao servidor", srv7.chamado is False)
+    checa("e a recusa devolve a lista de nomes validos",
+          "nao existe" in texto7 and "browser_snapshot" in texto7)
+    checa("invencao de nome tambem entra na contagem de falhas",
+          A._FALHAS_FERRAMENTA.get("browser_find") == 1)
     A._registrar_esquemas([])
 
     # Uma execucao nova nao pode herdar as falhas da anterior.
