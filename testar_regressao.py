@@ -754,12 +754,106 @@ def teste_leitura_da_pagina():
     checa("cobrindo tambem texto escrito dentro de imagem",
           "texto escrito dentro de um print" in fonte)
 
+    fonte_mcp = open(A.__file__, encoding="utf-8").read()
+
+    # --- AUDITORIA DOS CAMINHOS NUNCA EXECUTADOS (API, banco, Oracle) ---
+    # Antes do lancamento, os tres caminhos que nunca rodaram foram lidos linha
+    # a linha. Cada verificacao abaixo guarda um defeito encontrado ali - todos
+    # invisiveis em teste de tela, porque so aparecem nos modos que ninguem
+    # tinha exercitado.
+
+    # A tela le a resposta entre CHAT_MSG_INICIO e CHAT_MSG_FIM. Excecao antes
+    # do primeiro responder() deixava stdout vazio e o operador via "erro de
+    # comunicacao" - a mensagem que menos ajuda. Gatilho real: porta do Oracle
+    # digitada como "1521 " levanta ValueError na montagem do DSN.
+    checa("nenhuma excecao escapa sem o marcador de resposta",
+          "        main()\n    except BaseException as e:" in fonte_mcp
+          and 'print("CHAT_MSG_INICIO")' in fonte_mcp)
+    # Era o unico ponto do arquivo que logava argumento de ferramenta cru. Com
+    # "Somente leitura" desmarcado, um ALTER USER ... IDENTIFIED BY levava a
+    # senha inteira para o terminal e para o Log Tecnico exportado.
+    checa("o Oracle nativo mascara os argumentos no log",
+          'log(f">>> [Oracle] {nome} {_resumo_args(args)}")' in fonte_mcp
+          and 'log(f">>> [Oracle] {nome} {args if args else' not in fonte_mcp)
+    # Os dois relogios tinham o mesmo valor e o de fora sempre vencia: o laudo
+    # dizia "a ferramenta do T2M nao respondeu" quando o certo era "a API alvo
+    # nao respondeu no prazo" - trocando o achado do cliente por defeito nosso.
+    checa("o timeout de dentro e mais curto que o de fora",
+          "timeout_interno = max(5, TIMEOUT_OPERACAO - 10)" in fonte_mcp
+          and 'env={"T2M_TIMEOUT": str(timeout_interno)}' in fonte_mcp)
+    # Banco e Mongo ja mascaravam; a API ficou de fora na primeira escrita.
+    checa("os tres caminhos mascaram credencial na mensagem de erro",
+          fonte_mcp.count("_mascarar_credenciais(_detalhar_excecao(e))") == 3)
+
+    # --- EVAL DE SELECAO DE FERRAMENTA ---
+    # Este arquivo confere o CODIGO; nenhuma das suas verificacoes mede
+    # DECISAO. A pergunta "este modelo serve para a Automacao?" custou uma
+    # tarde e a cota diaria inteira de um provedor, e a resposta nao ficou
+    # registrada. O avaliar_modelo.py responde isso por alguns milhares de
+    # tokens - e o que se confere aqui e se ele proprio esta integro, porque
+    # uma eval quebrada da um veredito errado com toda a aparencia de rigor.
+    import os as _os
+    _base = _os.path.dirname(_os.path.abspath(__file__))
+    checa("existe o avaliador de escolha de ferramenta",
+          _os.path.exists(_os.path.join(_base, "avaliar_modelo.py")))
+    _ds = _os.path.join(_base, "evals", "dataset_selecao_ferramentas.json")
+    checa("existe o dataset de cenarios", _os.path.exists(_ds))
+    try:
+        with open(_ds, encoding="utf-8") as _f:
+            _dados = json.load(_f)
+        _casos = _dados.get("casos", [])
+    except Exception:
+        _casos = []
+    checa("o dataset tem cenarios", len(_casos) >= 5)
+    # Ferramentas do gabarito precisam existir de verdade: um nome digitado
+    # errado reprovaria todo modelo, para sempre, sem ninguem entender por que.
+    try:
+        import importlib.util as _iu
+        _sp = _iu.spec_from_file_location("av", _os.path.join(_base, "avaliar_modelo.py"))
+        _av = _iu.module_from_spec(_sp)
+        _sp.loader.exec_module(_av)
+        _nomes = {f["nome"] for f in _av.FERRAMENTAS}
+    except Exception:
+        _av, _nomes = None, set()
+    checa("o avaliador carrega e expoe as ferramentas", len(_nomes) >= 5)
+    checa("toda ferramenta do gabarito existe na lista oferecida",
+          all(c.get("tool_esperada") in _nomes or c.get("tool_esperada") is None
+              for c in _casos))
+    checa("nenhum caso lista a esperada entre as nao esperadas",
+          all(c.get("tool_esperada") not in (c.get("tools_nao_esperadas") or [])
+              for c in _casos))
+    # Saber PARAR e metade do trabalho: um agente que nunca encerra gasta a
+    # cota inteira antes de entregar relatorio.
+    checa("ha cenario em que o certo e nao chamar ferramenta nenhuma",
+          any(c.get("tool_esperada") is None for c in _casos))
+    # A injecao tem de estar entre os cenarios: e o unico defeito que, quando
+    # acontece, produz um relatorio bonito e falso.
+    checa("ha cenario de texto plantado dentro da pagina",
+          any("injec" in (c.get("justificativa") or "").lower() for c in _casos))
+    # Ferramentas perigosas nao entram na eval porque tambem nao entram na
+    # execucao - a medicao tem de ver o mesmo mundo que o agente ve.
+    checa("as ferramentas escondidas do modelo ficam fora da eval",
+          "browser_evaluate" not in _nomes
+          and "browser_run_code_unsafe" not in _nomes)
+    # Chave invalida devolvia "falha de formato: 100%" e reprovava um modelo
+    # que nunca chegou a ser perguntado. Nota falsa e pior que nota nenhuma.
+    if _av is not None:
+        checa("chave invalida e cota nao viram nota do modelo",
+              _av._e_chave_ou_cota(Exception("Error code: 401 - Invalid API Key"))
+              and _av._e_chave_ou_cota(Exception("429 rate limit reached"))
+              and not _av._e_chave_ou_cota(Exception("connection closed")))
+        # A propria correcao e testavel sem rede: modelo perfeito passa,
+        # modelo que nunca para reprova, modelo que nao chama reprova.
+        checa("o avaliador tem autoteste que dispensa rede e chave",
+              _av.autoteste(_casos, json.load(
+                  open(_os.path.join(_base, "evals", "limiares.json"),
+                       encoding="utf-8"))["limiares"]) == 0)
+
     # --- MODELO QUE NAO SABE CHAMAR FERRAMENTA ---
     # Encontrado no primeiro teste de MCP com o Groq: llama-3.3-70b escreveu
     # <function=browser_navigate{...}</function> como TEXTO, a rota devolveu 400
     # tool_use_failed e a execucao morreu no primeiro passo, mostrando o
     # traceback cru. E falha de formato, nao de capacidade.
-    fonte_mcp = open(A.__file__, encoding="utf-8").read()
     checa("falha de formato de tool call e reconhecida",
           "def _e_falha_de_formato_de_ferramenta(erro):" in fonte_mcp
           and '"tool_use_failed" in t' in fonte_mcp)

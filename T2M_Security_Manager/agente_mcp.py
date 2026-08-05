@@ -2376,10 +2376,19 @@ async def executar_api(api_key, req, objetivo):
 
     # sys.executable: o MESMO interpretador que roda este script. Usar "python"
     # pegaria o primeiro do PATH, que pode ser outro (ou o atalho da Store).
+    # O relogio de DENTRO precisa ser mais curto que o de fora.
+    #
+    # _chamar_ferramenta_mcp envolve toda chamada num wait_for(TIMEOUT_OPERACAO),
+    # e esse relogio comeca antes: serializacao, IPC, import do requests. Com os
+    # dois no mesmo valor o de fora sempre vencia, e o modelo recebia "a
+    # ferramenta do T2M nao respondeu" em vez de "a API alvo nao respondeu no
+    # prazo" - trocando o achado que o cliente comprou por um defeito nosso.
+    # A folga de 10s faz o servidor falar primeiro, com a mensagem certa.
+    timeout_interno = max(5, TIMEOUT_OPERACAO - 10)
     server_params = StdioServerParameters(
         command=sys.executable,
         args=["-u", caminho_servidor],
-        env={"T2M_TIMEOUT": str(TIMEOUT_OPERACAO)})
+        env={"T2M_TIMEOUT": str(timeout_interno)})
 
     log(">>> Subindo servidor MCP de HTTP (T2M)...")
     try:
@@ -2432,7 +2441,9 @@ async def executar_api(api_key, req, objetivo):
         import traceback
         log("=== TRACEBACK COMPLETO (api) ===")
         log(traceback.format_exc())
-        detalhe = _detalhar_excecao(e)
+        # Mascarado como no banco e no Mongo: a excecao pode carregar a URL
+        # alvo com credencial embutida.
+        detalhe = _mascarar_credenciais(_detalhar_excecao(e))
         cota = _mensagem_de_cota(detalhe)
         if cota:
             responder(cota, erro=True)
@@ -3582,7 +3593,11 @@ async def executar_oracle_nativo(api_key, info, somente_leitura, objetivo):
         + _instrucoes_do_operador() + REGRA_CONTEUDO_NAO_CONFIAVEL)
 
     def despachar(nome, args):
-        log(f">>> [Oracle] {nome} {args if args else ''}")
+        # _resumo_args e obrigatorio aqui: era o unico ponto do arquivo que
+        # logava argumento cru. Um objetivo do tipo "crie um usuario de teste"
+        # faz o modelo chamar ALTER USER ... IDENTIFIED BY "senha", e a senha
+        # inteira ia para o terminal e para o Log Tecnico exportado.
+        log(f">>> [Oracle] {nome} {_resumo_args(args)}")
         return _oracle_executar_ferramenta(conn, somente_leitura, nome, args)
 
     try:
@@ -4073,4 +4088,28 @@ def main():
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
-    main()
+    # REDE DE SEGURANCA DO MARCADOR.
+    #
+    # A tela do C++ le a resposta entre CHAT_MSG_INICIO e CHAT_MSG_FIM. Se uma
+    # excecao escapa ANTES do primeiro responder(), o processo morre com stdout
+    # vazio e o operador ve "erro de comunicacao" - a mensagem que menos ajuda,
+    # porque nao diz nada sobre a causa.
+    #
+    # Achado auditando o caminho Oracle: uma porta digitada como "1521 " levanta
+    # ValueError na montagem do DSN, antes de qualquer execucao. A mensagem
+    # dessa excecao foi escrita justamente para orientar quem digitou errado, e
+    # era a unica que ele nunca ia ler.
+    try:
+        main()
+    except BaseException as e:
+        import traceback
+        log("=== TRACEBACK COMPLETO (fora do laco) ===")
+        log(traceback.format_exc())
+        try:
+            responder(_mascarar_credenciais(f"{type(e).__name__}: {e}"), erro=True)
+        except BaseException:
+            # Ultimo recurso: se ate o responder falhar, o marcador ainda sai.
+            print("CHAT_MSG_INICIO")
+            print("Falha inesperada no agente. Veja o log tecnico.")
+            print("CHAT_MSG_FIM")
+        sys.exit(1)
