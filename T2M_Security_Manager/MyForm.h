@@ -312,7 +312,14 @@ namespace T2MSecurityManager {
 		// Modo ativo do chat: 0 = Chat (so conversa), 1 = DOM, 2 = Automacao (dropdown).
 		// So um modo fica ligado por vez; o controle ligado fica em destaque.
 		int modoAtivo;
-		int tipoAutomacao;       // quando modoAtivo==2: 0=Tela, 1=API, 2=Banco
+		int tipoAutomacao;       // quando modoAtivo==2: 0=Tela, 1=API, 2=Banco, 3=Arquivos
+
+		// Pasta unica que a automacao de arquivos enxerga. Vai como argumento
+		// para o servidor MCP oficial de sistema de arquivos, que RECUSA
+		// qualquer caminho fora dela - a trava mora no servidor, nao numa frase
+		// do prompt. Vazia significa que o operador ainda nao escolheu, e o
+		// modo se recusa a comecar.
+		String^ pastaArquivos;
 
 		// Dados da conexao de banco (coletados no formulario; senha cifrada com DPAPI).
 		// Por enquanto so armazenados na sessao; a conexao real via MCP vem depois.
@@ -2431,6 +2438,7 @@ namespace T2MSecurityManager {
 			L"Teste de Tela: descreva o teste e a IA executa passo a passo ao vivo.\n"
 			L"Teste de API: monte a requisicao e a IA chama e analisa a resposta.\n"
 			L"Banco de Dados: a IA explora o schema e consulta (somente leitura por padrao).\n"
+			L"Arquivos do Windows: a IA le arquivos de UMA pasta que voce escolhe (somente leitura por padrao).\n"
 			L"ATENCAO: consome MUITO MAIS tokens (~100k+ por tarefa).");
 
 		// Menu com as 3 opcoes reais (sem placeholder)
@@ -2438,12 +2446,15 @@ namespace T2MSecurityManager {
 		System::Windows::Forms::ToolStripMenuItem^ itTela = gcnew System::Windows::Forms::ToolStripMenuItem(L"🖥 Teste de Tela");
 		System::Windows::Forms::ToolStripMenuItem^ itApi = gcnew System::Windows::Forms::ToolStripMenuItem(L"🔌 Teste de API");
 		System::Windows::Forms::ToolStripMenuItem^ itBanco = gcnew System::Windows::Forms::ToolStripMenuItem(L"🗄 Banco de Dados");
+		System::Windows::Forms::ToolStripMenuItem^ itArquivos = gcnew System::Windows::Forms::ToolStripMenuItem(L"📁 Arquivos do Windows");
 		itTela->Click += gcnew System::EventHandler(this, &MyForm::menuTela_Click);
 		itApi->Click += gcnew System::EventHandler(this, &MyForm::menuApi_Click);
 		itBanco->Click += gcnew System::EventHandler(this, &MyForm::menuBanco_Click);
+		itArquivos->Click += gcnew System::EventHandler(this, &MyForm::menuArquivos_Click);
 		menuAutomacao->Items->Add(itTela);
 		menuAutomacao->Items->Add(itApi);
 		menuAutomacao->Items->Add(itBanco);
+		menuAutomacao->Items->Add(itArquivos);
 
 		btnSaveScript = gcnew Button();
 		btnSaveScript->Text = L"💾 Extrair e Salvar Codigo";
@@ -2479,6 +2490,7 @@ namespace T2MSecurityManager {
 		// Estado inicial: modo Chat + indicador da IA da chave atual
 		modoAtivo = 0;
 		tipoAutomacao = 0;
+		pastaArquivos = L"";
 		dbConfigurado = false;
 		apiConfigurado = false;
 		AtualizarBotoesModo();
@@ -5559,8 +5571,11 @@ namespace T2MSecurityManager {
 					lblChatStatus->Text = L"MCP - Teste de Tela (vindo da tela principal): descreva o teste; a IA executa ao vivo. Clique em Chat para so conversar.";
 				else if (tipoAutomacao == 1)
 					lblChatStatus->Text = L"MCP - Teste de API (vindo da tela principal): informe metodo, URL, headers e payload. Clique em Chat para so conversar.";
-				else
+				else if (tipoAutomacao == 2)
 					lblChatStatus->Text = L"MCP - Banco de Dados (vindo da tela principal): a IA consulta o banco de verdade. Clique em Chat para so conversar.";
+				else
+					lblChatStatus->Text = L"MCP - Arquivos: a IA le a pasta " + pastaArquivos
+						+ L" e nada fora dela. Clique em Chat para so conversar.";
 			}
 		}
 	}
@@ -5588,6 +5603,56 @@ namespace T2MSecurityManager {
 		modoAtivo = 2; tipoAutomacao = 0;
 		AtualizarBotoesModo();
 	}
+		   // Opcao Arquivos do Windows - a IA le uma pasta, e SO ela.
+		   //
+		   // A pasta e escolhida a cada vez, e nao guardada em Configuracoes, de
+		   // proposito: e a unica coisa que separa "a IA leu meus arquivos de
+		   // teste" de "a IA leu meus documentos". Uma escolha que se esquece
+		   // ligada e uma escolha que ninguem faz de novo com atencao.
+	private: System::Void menuArquivos_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (workerChat->IsBusy) return;
+		System::Windows::Forms::FolderBrowserDialog^ dlg = gcnew System::Windows::Forms::FolderBrowserDialog();
+		dlg->Description = L"Escolha a pasta que a automacao pode ler. Ela nao enxerga nada fora daqui.";
+		dlg->ShowNewFolderButton = false;
+		if (!String::IsNullOrWhiteSpace(pastaArquivos)) dlg->SelectedPath = pastaArquivos;
+		if (dlg->ShowDialog() != System::Windows::Forms::DialogResult::OK) return;
+
+		String^ escolhida = dlg->SelectedPath->Trim();
+		String^ recusa = MotivoPastaRecusada(escolhida);
+		if (recusa != L"") {
+			MessageBox::Show(recusa, L"Pasta nao permitida",
+				MessageBoxButtons::OK, MessageBoxIcon::Warning);
+			return;
+		}
+		pastaArquivos = escolhida;
+		modoAtivo = 2; tipoAutomacao = 3;
+		AtualizarBotoesModo();
+	}
+
+		   // Mesma recusa que o agente_mcp.py aplica, repetida aqui de proposito:
+		   // avisar ANTES de subir servidor e gastar chamada e mais barato, e a
+		   // mensagem chega no momento em que a pessoa ainda esta escolhendo.
+	private: String^ MotivoPastaRecusada(String^ pasta) {
+		if (String::IsNullOrWhiteSpace(pasta)) return L"Nenhuma pasta foi escolhida.";
+		String^ p = pasta->Trim()->TrimEnd('\\')->ToLower();
+		cli::array<String^>^ proibidas = gcnew cli::array<String^>(6);
+		proibidas[0] = L"c:";
+		proibidas[1] = L"c:\\windows";
+		proibidas[2] = L"c:\\program files";
+		proibidas[3] = L"c:\\program files (x86)";
+		proibidas[4] = L"c:\\programdata";
+		proibidas[5] = L"c:\\users";
+		for each (String ^ raiz in proibidas) {
+			if (p == raiz)
+				return L"Essa e uma raiz do sistema.\n\nEscolha uma pasta de trabalho "
+					L"especifica: a automacao so enxerga o que voce declarar aqui, e "
+					L"declarar o sistema inteiro anula a protecao.";
+		}
+		if (!System::IO::Directory::Exists(pasta))
+			return L"A pasta nao existe mais.";
+		return L"";
+	}
+
 		   // Opcao Teste de API - em breve
 	private: System::Void menuApi_Click(System::Object^ sender, System::EventArgs^ e) {
 		if (workerChat->IsBusy) return;
@@ -7106,6 +7171,17 @@ namespace T2MSecurityManager {
 			MessageBox::Show(L"Configure a requisicao de API primeiro (menu Automacao > Teste de API).", L"Aviso");
 			return;
 		}
+		if (modoAtivo == 2 && tipoAutomacao == 3) {
+			// A pasta pode ter sido apagada ou desconectada entre a escolha e o
+			// envio - um pen drive basta. Conferir de novo aqui evita subir o
+			// servidor para receber um erro que ja daria para prever.
+			String^ recusa = MotivoPastaRecusada(pastaArquivos);
+			if (recusa != L"") {
+				MessageBox::Show(recusa + L"\n\nEscolha a pasta de novo em "
+					L"Automacao > Arquivos do Windows.", L"Aviso");
+				return;
+			}
+		}
 
 		// Se o usuario trocou de modelo (ou de chave) desde a ultima execucao,
 		// a troca entra na conversa ANTES da pergunta - assim fica claro qual
@@ -7165,6 +7241,12 @@ namespace T2MSecurityManager {
 			AnunciarModoNoChat(L"Automacao MCP - banco",
 				L"consultando o banco " + dbTipo + L". Aguarde...");
 			RodarWorkerBanco(prompt);
+		}
+		else if (modoAtivo == 2 && tipoAutomacao == 3) {
+			// AUTOMACAO DE ARQUIVOS: a IA le uma pasta, e so ela
+			AnunciarModoNoChat(L"Automacao MCP - arquivos",
+				L"lendo a pasta " + pastaArquivos + L". Aguarde...");
+			RodarWorkerArquivos(prompt);
 		}
 		else if (modoAtivo == 2) {
 			// AUTOMACAO DE TELA: o texto do usuario e o objetivo do teste
@@ -7414,6 +7496,20 @@ namespace T2MSecurityManager {
 		modoWorker = 2;              // usa ChamarAgenteMcp (que roteia p/ agente_mcp.py)
 		payloadWorker = objetivo;
 		DefinirOcupado(true, L"Consultando o banco de dados...");
+		workerChat->RunWorkerAsync();
+	}
+
+		   // Dispara o worker para o modo ARQUIVOS: a pasta permitida vai na
+		   // segunda linha com o marcador --ARQ--, e o agente_mcp.py sobe o
+		   // servidor oficial de sistema de arquivos com ela como argumento.
+	private: void RodarWorkerArquivos(String^ objetivo) {
+		if (workerChat->IsBusy) return;
+		workerApiKey = ObterChaveReal();
+		if (workerApiKey == "") { MessageBox::Show(L"Selecione a API Key!", L"Aviso"); return; }
+		workerUrl = L"--ARQ--" + pastaArquivos;
+		modoWorker = 2;              // usa ChamarAgenteMcp (que roteia p/ agente_mcp.py)
+		payloadWorker = objetivo;
+		DefinirOcupado(true, L"Lendo os arquivos da pasta escolhida...");
 		workerChat->RunWorkerAsync();
 	}
 

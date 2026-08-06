@@ -1060,6 +1060,30 @@ def teste_leitura_da_pagina():
           and "Nenhum caminho de arquivo deve sair do conteudo lido" in fonte_mcp)
     checa("o modo arquivos tem rota propria no main",
           'if linha2.startswith("--ARQ--"):' in fonte_mcp)
+    # Primeira execucao real do modo, com o llama: ele chamou get_file_info em
+    # TRES arquivos e afirmou qual era o mais recente da pasta inteira. A regra
+    # antiga - "so afirme o conteudo de um arquivo que voce leu" - cobria a
+    # afirmacao sobre UM arquivo e deixava a comparacao sobre o CONJUNTO de
+    # fora. Maior, mais recente e quantos existem sao perguntas sobre todos.
+    checa("comparacao sobre o conjunto exige olhar todos os candidatos",
+          "COMPARACAO SOBRE O CONJUNTO" in fonte_mcp
+          and "arquivos e concluir sobre trinta e um erro" in fonte_mcp)
+    checa("a regra indica a ferramenta que traz todos de uma vez",
+          "list_directory_with_sizes, que ja traz tamanho de todos" in fonte_mcp)
+    # Segunda execucao real: perguntado o total INCLUINDO subpastas, o modelo
+    # listou um nivel de cada uma e somou 53. O numero verificado e 485 - a
+    # subpasta que ele chamou de "diretorio vazio" tinha 32 arquivos um nivel
+    # abaixo, e outra tinha 401. Ele avisou no meio que nao tinha a lista
+    # completa e mesmo assim apresentou um total. Total com pasta faltando nao e
+    # aproximacao: e resposta errada com aparencia de resposta.
+    checa("pergunta sobre subpastas manda usar a ferramenta que percorre a arvore",
+          "SUBPASTAS:" in fonte_mcp
+          and "directory_tree, que percorre a arvore inteira" in fonte_mcp)
+    checa("a regra explica que um nivel esconde arvore inteira",
+          "pasta com milhares de arquivos dentro" in fonte_mcp)
+    checa("sem percorrer tudo, nenhum total pode ser apresentado",
+          "NAO apresente um numero total" in fonte_mcp
+          and "resposta errada com aparencia de resposta" in fonte_mcp)
     # Servidor MCP que so aparece na primeira execucao do modo faz o operador
     # esperar um download sem saber o que esta acontecendo. Os outros tres ja
     # sao pre-baixados pelo preparador de ambiente; este entra junto.
@@ -1074,6 +1098,50 @@ def teste_leitura_da_pagina():
     checa("o servidor de arquivos entra com versao fixa, como os outros tres",
           "@modelcontextprotocol/server-filesystem@2026.7.10" in open(
               _dep, encoding="utf-8", errors="replace").read())
+    # A trava e uma afirmacao, e afirmacao nao verificada e o que este produto
+    # caça nos outros. O testar_mcp_arquivos.py sobe o servidor de verdade e
+    # mede: le dentro, recusa fora, recusa o ".." que tenta escapar. Nao entra
+    # nesta suite porque precisa de rede e de npx - mas precisa EXISTIR, senao a
+    # unica prova da trava seria a nossa palavra.
+    checa("existe a prova da trava do modo arquivos",
+          _os.path.exists(_os.path.join(_base, "testar_mcp_arquivos.py")))
+    # Medido em 06/08/2026 rodando o servidor: 14 ferramentas, e as que escrevem
+    # sao exatamente estas quatro. Se uma quinta aparecer numa versao futura, a
+    # lista de bloqueio fica desatualizada e o modo passa a oferecer escrita sem
+    # ninguem ter ligado nada.
+    if A is not None:
+        checa("a lista de escrita cobre as quatro ferramentas medidas no servidor",
+              set(A.FERRAMENTAS_ARQUIVO_ESCRITA)
+              == {"write_file", "edit_file", "create_directory", "move_file"})
+
+    # Lado C++: os dois lados precisam concordar sobre o marcador e sobre quais
+    # pastas sao recusadas. Se a tela deixar passar C:\ e o Python recusar, o
+    # operador escolhe, espera o servidor subir e leva um erro no fim - com a
+    # informacao que a tela ja tinha no momento do clique.
+    _cpp = _os.path.join(_base, "T2M_Security_Manager", "MyForm.h")
+    if _os.path.exists(_cpp):
+        _ui = open(_cpp, encoding="utf-8", errors="replace").read()
+        checa("a tela manda o modo arquivos com o mesmo marcador do Python",
+              'workerUrl = L"--ARQ--" + pastaArquivos;' in _ui
+              and 'if linha2.startswith("--ARQ--"):' in fonte_mcp)
+        checa("Arquivos e a quarta opcao do menu Automacao",
+              "Arquivos do Windows" in _ui
+              and "menuArquivos_Click" in _ui
+              and "tipoAutomacao == 3" in _ui)
+        # A pasta e escolhida a cada execucao, nao guardada: e a unica coisa que
+        # separa "leu meus arquivos de teste" de "leu meus documentos", e uma
+        # escolha que fica ligada sozinha e uma escolha que ninguem refaz com
+        # atencao.
+        checa("a pasta e escolhida na hora, por dialogo, e nao fica salva",
+              "FolderBrowserDialog" in _ui
+              and 'pastaArquivos = L"";' in _ui)
+        checa("a tela recusa raiz de sistema antes de subir servidor",
+              "MotivoPastaRecusada" in _ui
+              and 'proibidas[1] = L"c:\\\\windows";' in _ui)
+        # Pen drive removido, pasta apagada, caminho de rede caido: a escolha
+        # envelhece entre o clique e o envio.
+        checa("a pasta e reconferida no envio, e nao so na escolha",
+              _ui.count("MotivoPastaRecusada(") >= 3)
 
     # --- REFERENCIA DE ELEMENTO QUE O MODELO INVENTOU ---
     # Execucao real contra o google.com:
@@ -2602,21 +2670,22 @@ def teste_modelo_na_conversa():
     checa("existe o anunciador de modo", "void AnunciarModoNoChat(" in fonte)
     checa("a linha de modo tem formato proprio", 'L">>> Modo "' in fonte)
     for modo in ("Chat", "Scan DOM", "Automacao MCP - tela",
-                 "Automacao MCP - API", "Automacao MCP - banco"):
+                 "Automacao MCP - API", "Automacao MCP - banco",
+                 "Automacao MCP - arquivos"):
         checa(f"o modo {modo} se identifica na conversa",
               f'L"{modo}"' in fonte)
-    checa("os tres modos de automacao dizem que usam MCP",
-          fonte.count("Automacao MCP -") == 3)
+    checa("os quatro modos de automacao dizem que usam MCP",
+          fonte.count("Automacao MCP -") == 4)
     checa("o modo Chat avisa que nao le a pagina",
           "nada e lido da pagina nesta resposta" in fonte)
     # Todo caminho de envio tem de anunciar: um caminho mudo reintroduz
     # exatamente a duvida que gerou esta mudanca.
-    # Cinco modos de envio + a geracao de imagem, mais a definicao. Um caminho
+    # Seis modos de envio + a geracao de imagem, mais a definicao. Um caminho
     # mudo reintroduz exatamente a duvida que criou esta linha: "isso foi Chat
     # ou Scan DOM?".
     checa("todo caminho de envio anuncia o modo",
-          fonte.count("AnunciarModoNoChat(") == 7,
-          f"encontrados {fonte.count('AnunciarModoNoChat(')} (6 chamadas + 1 definicao)")
+          fonte.count("AnunciarModoNoChat(") == 8,
+          f"encontrados {fonte.count('AnunciarModoNoChat(')} (7 chamadas + 1 definicao)")
     checa("a geracao de imagem tambem se identifica",
           'AnunciarModoNoChat(L"Geracao de imagem"' in fonte)
     m = fonte.find("void AnunciarModoNoChat")
