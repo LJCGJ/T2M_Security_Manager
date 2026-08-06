@@ -1758,6 +1758,8 @@ async def _chamar_ferramenta_mcp(session, nome, args):
     try:
         r = await asyncio.wait_for(session.call_tool(nome, args or {}),
                                    timeout=TIMEOUT_OPERACAO)
+        global _PASSOS_COM_SUCESSO
+        _PASSOS_COM_SUCESSO += 1
         return texto_do_resultado_mcp(r, nome), False
     except asyncio.TimeoutError:
         _registrar_falha_ferramenta(nome)
@@ -1794,6 +1796,13 @@ SEM_CONTEUDO = "(sem conteudo textual)"
 _PRINTS_DA_EXECUCAO = []
 _MAX_PRINTS = 12            # teto por execucao; um teste longo nao vira album
 _LIMITE_PASTA_PRINTS = 400  # arquivos guardados no total, antes de rotacionar
+
+# Quantas ferramentas MCP rodaram SEM erro nesta execucao. Serve a uma coisa
+# so: saber se existe alguma tela para fotografar. Quando a cota estoura antes
+# da primeira chamada, o navegador esta aberto numa pagina em branco - e um
+# print dela era guardado como "evidencia", com 2 KB e nada dentro. Prova de
+# nada e pior que prova nenhuma: ela entra no relatorio com cara de prova.
+_PASSOS_COM_SUCESSO = 0
 
 
 def _pasta_prints():
@@ -1857,7 +1866,9 @@ def _guardar_print(dados_b64, origem, mime="image/png"):
 
 
 def _zerar_prints():
+    global _PASSOS_COM_SUCESSO
     _PRINTS_DA_EXECUCAO.clear()
+    _PASSOS_COM_SUCESSO = 0
 
 
 async def _print_final(session, ferramentas_disponiveis):
@@ -1871,6 +1882,15 @@ async def _print_final(session, ferramentas_disponiveis):
         return                      # o modelo ja documentou; nao duplica
     if "browser_take_screenshot" not in (ferramentas_disponiveis or ()):
         return                      # modo sem navegador (banco, API)
+    if _PASSOS_COM_SUCESSO == 0:
+        # Nenhuma ferramenta chegou a rodar - a cota estourou antes do primeiro
+        # passo. O navegador esta aberto numa pagina em branco, e fotografa-la
+        # produz um arquivo com cara de evidencia e nada dentro. Visto de
+        # verdade: "print de evidencia guardado (2 KB)" num teste que nao saiu
+        # do lugar. Um relatorio que exibe isso mente sem precisar afirmar nada.
+        log(">>> sem print final: nenhum passo chegou a rodar, "
+            "a tela esta em branco e nao ha o que documentar.")
+        return
     try:
         r = await asyncio.wait_for(
             session.call_tool("browser_take_screenshot", {}),

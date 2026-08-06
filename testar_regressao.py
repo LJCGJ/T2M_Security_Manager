@@ -1024,6 +1024,22 @@ def teste_leitura_da_pagina():
     checa("falha ao tirar o print nao quebra o fechamento",
           "nao foi possivel garantir o print antes de fechar" in fonte_mcp)
 
+    # --- PRINT DE PAGINA EM BRANCO NAO E EVIDENCIA ---
+    # Visto em execucao real: a cota do Gemini estourou ANTES da primeira
+    # ferramenta, o laco terminou sem ter feito nada, e o print final saiu
+    # assim mesmo - 2 KB de pagina em branco, anunciados como "print de
+    # evidencia guardado". Num relatorio, esse arquivo tem aparencia de prova
+    # e conteudo nenhum. E o defeito exato que este produto existe para achar.
+    checa("o print final conta os passos que deram certo",
+          "_PASSOS_COM_SUCESSO = 0" in fonte_mcp
+          and "_PASSOS_COM_SUCESSO += 1" in fonte_mcp)
+    checa("execucao sem nenhum passo nao gera print de evidencia",
+          "if _PASSOS_COM_SUCESSO == 0:" in fonte_mcp
+          and "nenhum passo chegou a rodar" in fonte_mcp)
+    checa("o contador zera junto com os prints da execucao",
+          fonte_mcp.index("_PASSOS_COM_SUCESSO = 0\n", fonte_mcp.index("def _zerar_prints():"))
+          > fonte_mcp.index("def _zerar_prints():"))
+
     # --- MODELO QUE NAO SABE CHAMAR FERRAMENTA ---
     # Encontrado no primeiro teste de MCP com o Groq: llama-3.3-70b escreveu
     # <function=browser_navigate{...}</function> como TEXTO, a rota devolveu 400
