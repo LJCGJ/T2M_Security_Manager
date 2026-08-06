@@ -1005,6 +1005,25 @@ def teste_leitura_da_pagina():
                   open(_os.path.join(_base, "evals", "limiares.json"),
                        encoding="utf-8"))["limiares"]) == 0)
 
+    # --- QUEM FECHA O NAVEGADOR NAO PODE LEVAR A PROVA JUNTO ---
+    # A medicao do gemini-2.5-flash pegou isto antes do teste real: com o
+    # objetivo cumprido, o modelo chamou browser_close. O print de evidencia
+    # sai depois do laco, entao o relatorio chegaria sem prova - e sem erro
+    # visivel, so uma linha de log. A ferramenta continua oferecida; o que
+    # mudou e que a evidencia e garantida antes do fechamento passar adiante.
+    checa("browser_close guarda o print antes de fechar",
+          'if nome == "browser_close" and not _PRINTS_DA_EXECUCAO:' in fonte_mcp
+          and "_print_final(session," in fonte_mcp)
+    checa("a garantia fica no caminho unico de chamada de ferramenta",
+          fonte_mcp.index('if nome == "browser_close"')
+          > fonte_mcp.index("async def _chamar_ferramenta_mcp(session, nome, args):")
+          and fonte_mcp.index('if nome == "browser_close"')
+          < fonte_mcp.index("AVISO_NAVEGADOR = "))
+    # Falhar ao tirar o print nao pode impedir o fechamento nem derrubar a
+    # automacao: a prova e desejavel, o teste ja rodou.
+    checa("falha ao tirar o print nao quebra o fechamento",
+          "nao foi possivel garantir o print antes de fechar" in fonte_mcp)
+
     # --- MODELO QUE NAO SABE CHAMAR FERRAMENTA ---
     # Encontrado no primeiro teste de MCP com o Groq: llama-3.3-70b escreveu
     # <function=browser_navigate{...}</function> como TEXTO, a rota devolveu 400

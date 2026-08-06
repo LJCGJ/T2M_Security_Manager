@@ -1740,6 +1740,21 @@ async def _chamar_ferramenta_mcp(session, nome, args):
         return f"ERRO na chamada de {nome}: {motivo}", False
 
     args = _completar_defaults(nome, args)
+
+    # browser_close destroi a pagina, e o print de evidencia so e tirado DEPOIS
+    # do laco (_print_final): quem fecha o navegador entrega relatorio sem
+    # prova, e a falha e silenciosa - vira uma linha de log e mais nada.
+    # Nao e hipotese: na medicao do gemini-2.5-flash (cenario sel-005) o modelo
+    # chamou browser_close com o objetivo ja cumprido. A ferramenta continua
+    # oferecida - tirar do modelo mudaria o mundo que a eval mede -, mas a
+    # evidencia e garantida antes de repassar o fechamento ao servidor.
+    if nome == "browser_close" and not _PRINTS_DA_EXECUCAO:
+        log(">>> browser_close pedido: guardando o print de evidencia antes de fechar.")
+        try:
+            await _print_final(session, ("browser_take_screenshot",))
+        except Exception as e:
+            log(f">>> nao foi possivel garantir o print antes de fechar: {type(e).__name__}")
+
     try:
         r = await asyncio.wait_for(session.call_tool(nome, args or {}),
                                    timeout=TIMEOUT_OPERACAO)
