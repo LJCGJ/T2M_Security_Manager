@@ -9,7 +9,7 @@
 ; ============================================================
 
 #define NomeApp        "T2M Security Manager"
-#define VersaoApp      "4.3"
+#define VersaoApp      "5.0"
 #define AutorApp       "Leonardo Gonzaga"
 #define UrlApp         "https://github.com/LJCGJ/T2M_Security_Manager"
 #define ExeApp         "T2M_Security_Manager.exe"

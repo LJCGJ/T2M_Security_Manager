@@ -1233,9 +1233,26 @@ def teste_leitura_da_pagina():
                   and "agente_mcp.py" not in open(
                       _bat, encoding="utf-8", errors="replace").read())
         # Versao esquecida faz dois instaladores diferentes se chamarem igual, e
-        # o usuario nao sabe qual esta rodando.
-        checa("a versao do instalador saiu do 4.2",
-              '#define VersaoApp      "4.2"' not in _iss)
+        # o usuario nao sabe qual esta rodando. Amarrar a versao do .iss ao nome
+        # do arquivo de notas pega o esquecimento mais comum: subir a versao num
+        # lugar so, e publicar um pacote 5.0 com as notas da 4.3.
+        import re as _re2
+        _mv = _re2.search(r'#define VersaoApp\s+"([^"]+)"', _iss)
+        _versao = _mv.group(1) if _mv else ""
+        checa(f"a versao do instalador esta declarada ({_versao})", _versao != "")
+        checa(f"existe o arquivo de notas dessa versao (RELEASE_{_versao}.md)",
+              _os.path.exists(_os.path.join(_base, f"RELEASE_{_versao}.md")))
+        if _versao:
+            _notas = _os.path.join(_base, f"RELEASE_{_versao}.md")
+            if _os.path.exists(_notas):
+                checa("as notas comecam pelo nome e versao do produto",
+                      open(_notas, encoding="utf-8").read().startswith(
+                          f"# T2M Security Manager {_versao}"))
+        # O AppId nunca pode mudar entre versoes: cada mudanca faz a atualizacao
+        # virar instalacao paralela, e o usuario fica com duas entradas em
+        # Programas e Recursos sem saber qual abriu.
+        checa("o AppId continua o mesmo de sempre",
+              "AppId={{8F3A2C41-7B95-4E62-A1D8-T2MSECMGR2026}" in _iss)
         # Ate a 4.2 o Chromium de testes e o cache dos servidores MCP ficavam
         # para tras em silencio: centenas de MB baixados por causa do T2M que
         # nenhuma desinstalacao devolvia.
