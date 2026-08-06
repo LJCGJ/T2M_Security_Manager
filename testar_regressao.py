@@ -1024,6 +1024,34 @@ def teste_leitura_da_pagina():
     checa("falha ao tirar o print nao quebra o fechamento",
           "nao foi possivel garantir o print antes de fechar" in fonte_mcp)
 
+    # --- O INSTALADOR TEM DE LEVAR TUDO O QUE O AGENTE PROCURA ---
+    # Achado ao revisar o instalador para o lancamento: o agente carrega
+    # servidor_http_mcp.py de SCRIPT_DIR para o modo "Teste de API HTTP", e o
+    # instalador nunca o listou. Em desenvolvimento nada falhava - o build copia
+    # *.py para a Release -, entao o defeito so existia na maquina de quem
+    # instalou, que e justamente quem nao tem como diagnosticar. Esta
+    # verificacao cruza as duas listas para que a proxima ausencia apareca aqui,
+    # e nao no cliente.
+    import re as _re
+    _iss_path = _os.path.join(_base, "instalador_t2m.iss")
+    checa("existe o script do instalador", _os.path.exists(_iss_path))
+    if _os.path.exists(_iss_path):
+        _iss = open(_iss_path, encoding="utf-8", errors="replace").read()
+        _pedidos = set(_re.findall(
+            r'os\.path\.join\(SCRIPT_DIR,\s*["\']([A-Za-z0-9_\-]+\.py)["\']', fonte_mcp))
+        _faltando = sorted(n for n in _pedidos if n not in _iss)
+        checa("o agente pede algum script vizinho pelo nome", len(_pedidos) >= 1)
+        checa(f"o instalador leva todo script que o agente procura (faltando: {_faltando})",
+              not _faltando)
+        # Curinga na pasta Release embarca sobra de teste no instalador: prints
+        # de execucoes antigas e icones aposentados que ninguem revisa.
+        checa("o instalador nao usa curinga na pasta Release",
+              "{#PastaRelease}\\*." not in _iss)
+        # Versao esquecida faz dois instaladores diferentes se chamarem igual, e
+        # o usuario nao sabe qual esta rodando.
+        checa("a versao do instalador saiu do 4.2",
+              '#define VersaoApp      "4.2"' not in _iss)
+
     # --- CONVERSA COM O MODELO TAMBEM PRECISA DE TIMEOUT ---
     # Visto em execucao real: com a cota diaria do Gemini esgotada, a chamada
     # seguinte nao devolveu erro - ficou pendurada dez minutos, sem uma linha

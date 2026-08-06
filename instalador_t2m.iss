@@ -9,7 +9,7 @@
 ; ============================================================
 
 #define NomeApp        "T2M Security Manager"
-#define VersaoApp      "4.2"
+#define VersaoApp      "4.3"
 #define AutorApp       "Leonardo Gonzaga"
 #define UrlApp         "https://github.com/LJCGJ/T2M_Security_Manager"
 #define ExeApp         "T2M_Security_Manager.exe"
@@ -59,11 +59,18 @@ Source: "{#PastaRelease}\agente_mcp.py";     DestDir: "{app}"; Flags: ignorevers
 Source: "{#PastaRelease}\gerador_ia.py";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PastaRelease}\get_token.py";      DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PastaRelease}\listar_modelos.py"; DestDir: "{app}"; Flags: ignoreversion
-; Servidor MCP proprio do modo API (sobe como subprocesso do agente_mcp.py)
+; Servidor MCP proprio do T2M para o modo "Teste de API HTTP".
+; Ficou de fora ate a versao 4.2: o agente_mcp.py procura este arquivo ao lado
+; dele (SCRIPT_DIR) e, sem ele, o modo de API respondia "Arquivo ausente:
+; servidor_http_mcp.py". Na pasta Release o arquivo sempre esteve la - o build
+; copia *.py -, entao a falha NUNCA aparecia em desenvolvimento: so na maquina
+; de quem instalou. E o motivo de testar o instalador, e nao so o programa.
 Source: "{#PastaRelease}\servidor_http_mcp.py"; DestDir: "{app}"; Flags: ignoreversion
-; Imagens e icones usados pelo app
-Source: "{#PastaRelease}\*.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#PastaRelease}\*.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; Imagens e icones usados pelo app. Nomeados um a um pelo mesmo motivo dos .py:
+; a pasta Release acumula sobras de teste, e um curinga as levaria embutidas no
+; instalador (icon2_antigo.ico, prints de execucoes antigas).
+Source: "{#PastaRelease}\T2M_logo-03.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#PastaRelease}\icon2.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; O icone fica na pasta do codigo-fonte (nao e copiado para a Release pelo build)
 Source: "{#PastaApoio}\T2M_Security_Manager\icon2.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; Apoio: dependencias e documentacao
