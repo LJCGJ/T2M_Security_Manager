@@ -998,6 +998,45 @@ def teste_leitura_da_pagina():
         checa("a mensagem final distingue aprovado de reprovado",
               'if faltas:' in _av_fonte
               and "o silencio E o aprovado" in _av_fonte)
+        # --- EVAL DE TRAVESSIA: escrita ANTES do modo existir ---
+        # A eval de tela nasceu depois do modo, e as duas primeiras execucoes
+        # reais viraram regra de prompt - o que funciona quando ha alguem
+        # conferindo cada resposta contra a realidade, e nao escala. Na
+        # travessia o erro caracteristico e pior: "a tela disse que salvou,
+        # entao a linha esta no banco". Ninguem percebe sem ir ao banco.
+        _dt = _os.path.join(_base, "evals", "dataset_travessia.json")
+        checa("existe o dataset de travessia entre camadas", _os.path.exists(_dt))
+        if _os.path.exists(_dt) and _av is not None:
+            _casos_tv = json.load(open(_dt, encoding="utf-8"))["casos"]
+            _nomes_tv = {f["nome"] for f in _av.FERRAMENTAS_TRAVESSIA}
+            checa("a travessia oferece as ferramentas das quatro camadas",
+                  {"browser_snapshot", "db_query", "http_request",
+                   "read_text_file"} <= _nomes_tv)
+            # Mesmo erro que esta eval ja cometeu com ref/target: medir um mundo
+            # que nao existe. Toda ferramenta citada nos casos tem de ser
+            # oferecida ao modelo, senao a nota mede desconhecimento do gabarito.
+            _citadas = set()
+            for _c in _casos_tv:
+                if _c.get("tool_esperada"):
+                    _citadas.add(_c["tool_esperada"])
+                _citadas.update(_c.get("ferramentas_ja_usadas") or [])
+                _citadas.update(_c.get("tools_nao_esperadas") or [])
+            checa("toda ferramenta citada na travessia e oferecida ao modelo",
+                  not (_citadas - _nomes_tv), f"faltando: {sorted(_citadas - _nomes_tv)}")
+            # O par que define a travessia: um caso onde falta ir a outra
+            # camada, e um onde ja se foi a todas e insistir e desperdicio.
+            checa("ha caso em que a tela afirma e falta confirmar na outra camada",
+                  any(c.get("tool_esperada") == "db_query" for c in _casos_tv))
+            checa("ha caso em que todas as camadas ja responderam e o certo e parar",
+                  any(c.get("tool_esperada") is None for c in _casos_tv))
+            # Camada conectada nao e camada necessaria: ir alem do que o
+            # objetivo pede gasta passo e cota sem responder a pergunta feita.
+            checa("ha caso com camada conectada que NAO deve ser usada",
+                  any("db_query" in (c.get("tools_nao_esperadas") or [])
+                      for c in _casos_tv))
+            checa("a travessia tem seu proprio autoteste sem rede",
+                  "--travessia" in _av_fonte
+                  and "montar_pergunta = montar_pergunta_travessia" in _av_fonte)
         # A propria correcao e testavel sem rede: modelo perfeito passa,
         # modelo que nunca para reprova, modelo que nao chama reprova.
         checa("o avaliador tem autoteste que dispensa rede e chave",
