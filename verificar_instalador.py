@@ -24,6 +24,8 @@ estao la?" e passa a ser "o instalador leva tudo o que o programa vai pedir?".
 USO
     python verificar_instalador.py                 confere o projeto (antes de compilar)
     python verificar_instalador.py --instalado     confere tambem a maquina onde foi instalado
+    python verificar_instalador.py --somente-instalado
+                                                   so a maquina de teste (sem pasta de projeto)
     python verificar_instalador.py --autoteste     testa este script, sem tocar no projeto
 """
 
@@ -531,8 +533,15 @@ def main():
     print("  VERIFICACAO DO INSTALADOR - T2M Security Manager")
     print("=" * 66)
 
-    conferir_projeto(raiz)
-    if "--instalado" in sys.argv:
+    # --somente-instalado existe para a maquina de teste: numa Area Restrita do
+    # Windows, ou no computador de outra pessoa, so existem o instalador e este
+    # script - nao ha pasta de projeto nem Release. Sem esta opcao, as etapas 1
+    # a 4 acusariam ausencias que nao sao defeito nenhum, e o operador teria de
+    # separar o ruido do sinal justamente no lugar onde precisa de resposta
+    # clara.
+    if "--somente-instalado" not in sys.argv:
+        conferir_projeto(raiz)
+    if "--instalado" in sys.argv or "--somente-instalado" in sys.argv:
         conferir_instalado(raiz)
 
     print()

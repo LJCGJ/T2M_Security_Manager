@@ -9,10 +9,15 @@ de verdade — tela (Playwright), banco de dados e APIs HTTP — via MCP.
 
 **O instalador não é assinado digitalmente.** O Windows vai exibir a tela azul
 "O Windows protegeu o seu computador" (SmartScreen). Para continuar, clique em
-*Mais informações* e depois em *Executar assim mesmo*. Antivírus corporativos
-podem bloquear o arquivo — se isso acontecer na sua empresa, fale com o TI em
-vez de desativar a proteção. Um certificado de assinatura de código está no
-planejamento; até lá, esse aviso é esperado.
+*Mais informações* e depois em *Executar assim mesmo*.
+
+Em máquina corporativa isso pode ir além do aviso: durante os testes desta
+versão, um antivírus gerenciado **impediu a execução** do instalador, com erro
+de acesso negado. Se acontecer com você, fale com o TI da sua empresa e peça a
+liberação — não desative a proteção por conta própria. Um certificado de
+assinatura de código está no planejamento e deve resolver o caso do SmartScreen;
+políticas corporativas que bloqueiam qualquer programa não aprovado continuarão
+exigindo liberação pelo TI.
 
 **Pré-requisitos: Python 3.10+ e Node.js 18+.** Você não precisa instalá-los por
 conta própria: marque a opção *Preparar o ambiente agora* durante a instalação e
