@@ -1594,6 +1594,47 @@ def _limpar_referencias_em_profundidade(valor):
     return valor
 
 
+_PALAVRAS_DE_ESPACO_RESERVADO = {
+    "ref", "target", "element", "element_ref", "selector", "id",
+    "elemento", "referencia", "seletor", "ref_id", "e", "x",
+}
+
+
+def _e_referencia_de_mentira(valor):
+    """Diz se o 'target' e um espaco reservado em vez de um elemento de verdade.
+
+    Uma referencia legitima vem do snapshot e parece 'e39'. O que se recusa aqui
+    e o que o modelo escreve quando NAO olhou o snapshot: '[ref]', '<ref>', ou
+    a palavra 'target' pura. Deixar passar custa caro de um jeito silencioso -
+    o servidor nao acha o elemento, a acao nao acontece, e o modelo continua o
+    teste como se tivesse acontecido."""
+    if not isinstance(valor, str):
+        return False
+    v = valor.strip()
+    if not v:
+        return True
+    if re.match(r"^[\[\<\{\(].*[\]\>\}\)]$", v):
+        return True
+    return v.lower() in _PALAVRAS_DE_ESPACO_RESERVADO
+
+
+def _alvos_de_mentira(valor, achados=None):
+    """Junta todo 'target' de mentira, inclusive dentro da lista de campos do
+    browser_fill_form - onde um so campo errado ja invalida o preenchimento."""
+    if achados is None:
+        achados = []
+    if isinstance(valor, dict):
+        for k, v in valor.items():
+            if k == "target" and _e_referencia_de_mentira(v):
+                achados.append(f"'{v}'")
+            else:
+                _alvos_de_mentira(v, achados)
+    elif isinstance(valor, list):
+        for v in valor:
+            _alvos_de_mentira(v, achados)
+    return achados
+
+
 def _normalizar_args(nome, args):
     """Traduz apelido de parametro para o nome que o schema pede, e limpa o
     valor da referencia de elemento.
@@ -1714,6 +1755,21 @@ def _conferir_args(nome, args):
     faltando = [n for n in ((_esquema_para_o_modelo(esquema) or {}).get("required") or [])
                 if n not in (args or {})]
     desconhecidos = [n for n in (args or {}) if n not in props]
+
+    # REFERENCIA DE MENTIRA. Visto em execucao real contra o google.com:
+    #   browser_type {"target": "[ref]", "text": "previsao do tempo"}
+    # O modelo copiou o PLACEHOLDER da documentacao em vez de usar a referencia
+    # que o snapshot devolveu. O servidor nao acha elemento nenhum, a digitacao
+    # nao acontece - e como o erro volta como texto, o modelo segue adiante e o
+    # relatorio pode declarar que pesquisou. Nao ha caso legitimo: referencia de
+    # elemento sai do snapshot, sempre.
+    de_mentira = _alvos_de_mentira(args)
+    if de_mentira:
+        return (f"referencia de elemento invalida: {', '.join(de_mentira)}. "
+                "Isso e um espaco reservado, nao um elemento. Chame "
+                "browser_snapshot e use a referencia exata que ele devolver "
+                "(por exemplo e39), sem colchetes e sem o prefixo ref=.")
+
     if not faltando and not desconhecidos:
         return ""
 

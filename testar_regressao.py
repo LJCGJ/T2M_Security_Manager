@@ -1024,6 +1024,38 @@ def teste_leitura_da_pagina():
     checa("falha ao tirar o print nao quebra o fechamento",
           "nao foi possivel garantir o print antes de fechar" in fonte_mcp)
 
+    # --- REFERENCIA DE ELEMENTO QUE O MODELO INVENTOU ---
+    # Execucao real contra o google.com:
+    #   browser_type {"target": "[ref]", "text": "previsao do tempo"}
+    # O modelo copiou o espaco reservado da documentacao em vez de usar a
+    # referencia que o snapshot devolveu. O servidor nao acha elemento, a
+    # digitacao nao acontece, o erro volta como texto e o modelo segue como se
+    # tivesse digitado - o relatorio entao afirma uma acao que nunca ocorreu.
+    # E o defeito mais caro deste produto: silencioso e convincente.
+    checa("espaco reservado no lugar da referencia e recusado",
+          "def _e_referencia_de_mentira(valor):" in fonte_mcp
+          and "_PALAVRAS_DE_ESPACO_RESERVADO" in fonte_mcp)
+    checa("a recusa acontece antes de sair do aplicativo",
+          "de_mentira = _alvos_de_mentira(args)" in fonte_mcp
+          and fonte_mcp.index("de_mentira = _alvos_de_mentira(args)")
+          < fonte_mcp.index("async def _chamar_ferramenta_mcp("))
+    checa("a recusa ensina de onde vem a referencia certa",
+          "Chame " in fonte_mcp and "browser_snapshot e use a referencia exata" in fonte_mcp)
+    if A is not None:
+        checa("colchete, chave e palavra solta contam como espaco reservado",
+              all(A._e_referencia_de_mentira(v)
+                  for v in ("[ref]", "<ref>", "{ref}", "(elemento)", "ref", "target", "", "REF")))
+        # Recusar demais seria pior: uma referencia boa barrada trava o teste
+        # inteiro e o operador nao tem como saber por que.
+        checa("referencia de verdade nao e barrada",
+              not any(A._e_referencia_de_mentira(v)
+                      for v in ("e39", "e42", "button#login", "e1", 39, None)))
+        # browser_fill_form manda uma LISTA de campos: um alvo falso no meio
+        # invalida o preenchimento inteiro e passaria batido na superficie.
+        checa("alvo falso e achado dentro da lista de campos",
+              A._alvos_de_mentira({"fields": [{"target": "e39"}, {"target": "[ref]"}]})
+              == ["'[ref]'"])
+
     # --- O INSTALADOR TEM DE LEVAR TUDO O QUE O AGENTE PROCURA ---
     # Achado ao revisar o instalador para o lancamento: o agente carrega
     # servidor_http_mcp.py de SCRIPT_DIR para o modo "Teste de API HTTP", e o
@@ -1047,10 +1079,61 @@ def teste_leitura_da_pagina():
         # de execucoes antigas e icones aposentados que ninguem revisa.
         checa("o instalador nao usa curinga na pasta Release",
               "{#PastaRelease}\\*." not in _iss)
+        # A conferencia do instalador tem de rodar sozinha, e tem de saber
+        # acusar. Um verificador que so aprova e pior que verificador nenhum:
+        # ele transforma "ninguem olhou" em "esta tudo certo".
+        _vi = _os.path.join(_base, "verificar_instalador.py")
+        checa("existe a conferencia do instalador por linha de comando",
+              _os.path.exists(_vi))
+        if _os.path.exists(_vi):
+            import subprocess as _sub
+            _r = _sub.run([sys.executable, _vi, "--autoteste"],
+                          capture_output=True, text=True, timeout=120)
+            checa("a conferencia do instalador acha os defeitos plantados",
+                  _r.returncode == 0 and "Autoteste OK" in (_r.stdout or ""))
+            # A primeira versao procurava a palavra "T2M" solta na saida do
+            # registro e apontou o Panda Aether Agent como sendo o T2M; depois
+            # disso acusou os 14 arquivos de nao terem chegado, porque olhava a
+            # pasta de outro programa. Identificacao tem de ser exata.
+            _vi_fonte = open(_vi, encoding="utf-8").read()
+            checa("a instalacao e identificada por AppId ou nome completo",
+                  "def ler_appid(" in _vi_fonte
+                  and 'bate_nome = nome.strip().lower() == "t2m security manager"' in _vi_fonte)
+            checa("o caso do Panda Aether Agent esta no autoteste",
+                  "Panda Aether Agent" in _vi_fonte)
+            checa("pasta sem nenhum arquivo e tratada como deteccao errada",
+                  "a pasta encontrada nao parece ser a do T2M" in _vi_fonte)
+            _bat = _os.path.join(_base, "verificar_antes_do_instalador.bat")
+            # O .bat antigo tinha a lista escrita a mao e por isso dizia "TUDO
+            # CERTO" com o servidor_http_mcp.py faltando. Ele agora so chama o
+            # Python; se voltar a ter lista propria, volta a mentir.
+            checa("o .bat de pre-instalador nao tem lista propria",
+                  _os.path.exists(_bat)
+                  and "verificar_instalador.py" in open(
+                      _bat, encoding="utf-8", errors="replace").read()
+                  and "agente_mcp.py" not in open(
+                      _bat, encoding="utf-8", errors="replace").read())
         # Versao esquecida faz dois instaladores diferentes se chamarem igual, e
         # o usuario nao sabe qual esta rodando.
         checa("a versao do instalador saiu do 4.2",
               '#define VersaoApp      "4.2"' not in _iss)
+        # Ate a 4.2 o Chromium de testes e o cache dos servidores MCP ficavam
+        # para tras em silencio: centenas de MB baixados por causa do T2M que
+        # nenhuma desinstalacao devolvia.
+        checa("a desinstalacao oferece remover o que o T2M baixou",
+              "ms-playwright" in _iss and "npm-cache" in _iss
+              and "function TamanhoEmBytes(" in _iss)
+        # A pergunta so vale se for honesta: numero real, e nao a promessa vaga
+        # de "limpar arquivos temporarios".
+        checa("a pergunta mostra quantos MB serao liberados",
+              "IntToStr(Megas)" in _iss)
+        # Arrancar o Python da maquina de alguem por causa da desinstalacao de
+        # UM programa quebra os outros projetos dessa pessoa.
+        checa("a desinstalacao nao promete remover Python nem Node",
+              "Python, o Node.js e as bibliotecas instaladas NAO serao removidos" in _iss)
+        # Padrao conservador: quem so aperta Enter nao perde nada.
+        checa("a remocao dos downloads vem com NAO como padrao",
+              "MB_YESNO or MB_DEFBUTTON2" in _iss)
 
     # --- CONVERSA COM O MODELO TAMBEM PRECISA DE TIMEOUT ---
     # Visto em execucao real: com a cota diaria do Gemini esgotada, a chamada

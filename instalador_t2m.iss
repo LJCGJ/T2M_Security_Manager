@@ -153,6 +153,41 @@ begin
 end;
 
 // ------------------------------------------------------------------
+//  TAMANHO DE UMA PASTA, EM BYTES
+//
+//  Serve so para escrever um numero honesto no dialogo. "Remover
+//  arquivos temporarios?" nao ajuda ninguem a decidir; "remover 412 MB"
+//  ajuda. Pasta inexistente devolve zero, e ai a pergunta nem aparece.
+// ------------------------------------------------------------------
+function TamanhoEmBytes(Pasta: String): Int64;
+var
+  FR: TFindRec;
+  Total: Int64;
+begin
+  Total := 0;
+  if FindFirst(AddBackslash(Pasta) + '*', FR) then
+  begin
+    try
+      repeat
+        if (FR.Name <> '.') and (FR.Name <> '..') then
+        begin
+          if (FR.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            Total := Total + TamanhoEmBytes(AddBackslash(Pasta) + FR.Name)
+          else
+            // Só a parte baixa do tamanho. O numero serve para o usuario
+            // decidir, nao para auditoria, e aqui nao existe arquivo de
+            // mais de 4 GB: sao binarios de navegador e cache de pacote.
+            Total := Total + FR.SizeLow;
+        end;
+      until not FindNext(FR);
+    finally
+      FindClose(FR);
+    end;
+  end;
+  Result := Total;
+end;
+
+// ------------------------------------------------------------------
 //  DESINSTALACAO
 //  Pergunta se o usuario quer remover os dados pessoais do aplicativo.
 //  IMPORTANTE: relatorios, scripts e sessoes NAO sao apagados, porque
@@ -162,6 +197,9 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   PastaDados: String;
+  Navegadores: String;
+  CacheNpx: String;
+  Megas: Int64;
 begin
   if CurUninstallStep = usUninstall then
   begin
@@ -176,6 +214,42 @@ begin
                 mbConfirmation, MB_YESNO) = IDYES then
       begin
         DelTree(PastaDados, True, True, True);
+      end;
+    end;
+
+    // --------------------------------------------------------------
+    //  DOWNLOADS FEITOS POR CAUSA DO T2M
+    //
+    //  O preparador de ambiente baixa o Chromium de testes e o cache dos
+    //  servidores MCP. Sao centenas de megabytes que existem por causa
+    //  deste programa e que, ate a versao 4.2, ficavam para tras em
+    //  silencio depois da desinstalacao.
+    //
+    //  Python, Node.js e as bibliotecas do pip NAO entram aqui, de
+    //  proposito: outros projetos da maquina dependem deles, e um
+    //  desinstalador que arranca o Python causa um estrago muito maior
+    //  do que o espaco que devolve.
+    // --------------------------------------------------------------
+    Navegadores := ExpandConstant('{localappdata}\ms-playwright');
+    CacheNpx    := ExpandConstant('{localappdata}\npm-cache\_npx');
+    Megas := (TamanhoEmBytes(Navegadores) + TamanhoEmBytes(CacheNpx)) div 1048576;
+
+    if Megas > 0 then
+    begin
+      if MsgBox('Remover tambem o navegador de testes e os servidores MCP que o T2M baixou?'
+                + #13#10#13#10
+                + 'Ocupam cerca de ' + IntToStr(Megas) + ' MB:' + #13#10
+                + '  - Chromium de testes (' + Navegadores + ')' + #13#10
+                + '  - cache dos servidores MCP (' + CacheNpx + ')' + #13#10#13#10
+                + 'O Python, o Node.js e as bibliotecas instaladas NAO serao removidos: '
+                + 'outros programas seus podem depender deles.' + #13#10#13#10
+                + 'Obs.: o cache do npx e compartilhado com outros projetos que usam npx. '
+                + 'Apagar nao quebra nada — ele se refaz sozinho no proximo uso —, '
+                + 'mas esses projetos vao baixar de novo na primeira vez.',
+                mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      begin
+        DelTree(Navegadores, True, True, True);
+        DelTree(CacheNpx, True, True, True);
       end;
     end;
 

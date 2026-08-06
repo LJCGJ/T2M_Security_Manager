@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>T2M - roteiro do instalador 4.3</title>
+<style>
+  :root{--azul:#2c3e6b;--borda:#d6dae2;--cinza:#5f6774;--ok:#166534;}
+  *{box-sizing:border-box;}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f2f4f7;color:#1f2937;
+       margin:0;padding:30px 24px 60px;line-height:1.55;}
+  .wrap{max-width:900px;margin:0 auto;}
+  h1{font-size:22px;margin:0 0 6px;color:var(--azul);}
+  .lead{color:var(--cinza);font-size:13.5px;margin:0 0 8px;}
+  .aviso{background:#fff7ed;border:1px solid #fdba74;border-radius:6px;padding:11px 14px;
+         font-size:13px;margin:16px 0 26px;color:#7c2d12;}
+  h2{font-size:15px;color:var(--azul);margin:30px 0 10px;padding-bottom:6px;
+     border-bottom:2px solid var(--borda);display:flex;justify-content:space-between;
+     align-items:baseline;}
+  h2 small{font-weight:400;color:var(--cinza);font-size:11.5px;}
+  .item{background:#fff;border:1px solid var(--borda);border-radius:7px;
+        padding:13px 15px 13px 44px;margin:9px 0;position:relative;font-size:13.5px;}
+  .item input{position:absolute;left:15px;top:15px;width:16px;height:16px;cursor:pointer;}
+  .item.feito{background:#f0fdf4;border-color:#86efac;}
+  .n{font-weight:700;color:var(--azul);}
+  .faca{margin:2px 0 0;}
+  .esp{margin:6px 0 0;color:#065f46;}
+  .esp b{color:var(--ok);}
+  .falha{margin:6px 0 0;color:#7f1d1d;font-size:12.5px;
+         background:#fef2f2;border-left:3px solid #fca5a5;padding:5px 9px;border-radius:0 4px 4px 0;}
+  code{background:#eef1f6;padding:1px 5px;border-radius:3px;font-size:12.5px;
+       font-family:Consolas,monospace;}
+  .custa{display:inline-block;background:#fef3c7;color:#78350f;font-size:10.5px;
+         font-weight:700;border-radius:9px;padding:1px 8px;margin-left:6px;
+         vertical-align:middle;}
+  .barra{position:sticky;top:0;background:#fff;border:1px solid var(--borda);
+     border-radius:7px;padding:11px 15px;margin-bottom:20px;font-size:13.5px;
+     display:flex;justify-content:space-between;align-items:center;z-index:9;
+     box-shadow:0 2px 8px rgba(0,0,0,.05);}
+  .barra b{color:var(--azul);font-size:16px;}
+  .fim{background:#fff;border:1px solid var(--borda);border-radius:7px;
+       padding:14px 16px;margin-top:26px;font-size:13.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Roteiro do instalador &mdash; T2M Security Manager 4.3</h1>
+<p class="lead">Quinze itens, nenhum deles sobre o programa em si: o que se testa aqui e a
+<b>travessia</b> &mdash; o que sai da sua maquina e chega na de outra pessoa. Todo defeito desta
+lista tem a mesma assinatura: funciona em desenvolvimento e falha em quem instalou, porque a pasta
+<code>x64\Release</code> tem arquivos que o instalador nao leva.</p>
+
+<div class="aviso">
+  <b>Por que este roteiro existe.</b> O instalador nunca foi testado. Ao revisa-lo para o
+  lancamento apareceu, so na leitura, um arquivo faltando: o <code>servidor_http_mcp.py</code>,
+  que o agente procura para o modo de API HTTP. Na Release ele sempre esteve la (o build copia
+  todos os <code>.py</code>), entao o modo de API funcionava aqui e responderia
+  <i>&ldquo;Arquivo ausente&rdquo;</i> na maquina do cliente. Se um apareceu na leitura, o
+  roteiro serve para achar os que a leitura nao pega.
+  <br><br>
+  <b>Custo.</b> Treze dos quinze itens nao gastam nada de cota de IA. Os dois marcados com
+  <span class="custa">GASTA COTA</span> ficam para quando a cota do Gemini virar &mdash; e podem
+  ser feitos depois de publicar, porque testam o programa, nao o instalador.
+</div>
+
+<div class="barra"><span>Progresso</span><b><span id="feitos">0</span> / 15</b></div>
+
+<h2>Antes de compilar o instalador <small>a Release precisa estar atual</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">1.</span> Recompile a solucao em <b>Release x64</b> e compare os
+  tamanhos: <code>T2M_Security_Manager\agente_mcp.py</code> e
+  <code>x64\Release\agente_mcp.py</code> devem ter o <b>mesmo tamanho em bytes</b>.</p>
+  <p class="esp">Esperado: <b>iguais.</b> O MSBuild copia os <code>.py</code> na compilacao.</p>
+  <p class="falha">Se o da Release for menor, o instalador vai empacotar a versao antiga do agente
+  &mdash; sem o timeout do Gemini e sem a trava do print em branco. Ja aconteceu hoje.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">2.</span> Rode <code>python testar_regressao.py</code> na raiz
+  do projeto.</p>
+  <p class="esp">Esperado: <b>964 verificacoes, todas OK.</b></p>
+  <p class="falha">Qualquer falha aqui e um defeito conhecido saindo no instalador. Pare e corrija
+  antes de compilar.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">3.</span> Abra <code>instalador_t2m.iss</code> no Inno Setup e
+  compile (F9). Confira o nome do arquivo gerado em <code>Saida\</code>.</p>
+  <p class="esp">Esperado: <code>T2M_Security_Manager_Setup_4.3.exe</code>, com <b>4.3</b> no
+  nome.</p>
+  <p class="falha">Se sair 4.2, a versao nao foi salva &mdash; e dois instaladores diferentes vao
+  se chamar igual, sem ninguem saber qual esta instalado.</p>
+</div>
+
+<h2>Instalacao <small>de preferencia em outra maquina, ou numa conta de usuario diferente</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">4.</span> Rode o instalador. Anote o que o Windows faz
+  <b>antes</b> de abrir o assistente.</p>
+  <p class="esp">Esperado: a tela azul <b>&ldquo;O Windows protegeu o computador&rdquo;</b>
+  (SmartScreen), porque o executavel nao e assinado. E preciso clicar em <i>Mais informacoes &rarr;
+  Executar assim mesmo</i>.</p>
+  <p class="falha">Isso nao e defeito, e consequencia de nao ter certificado &mdash; mas
+  <b>precisa estar escrito na pagina do release</b>. Quem baixa e ve essa tela sem aviso desiste,
+  ou pior, acha que o arquivo esta infectado.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">5.</span> Confira a tela de licenca e as duas tarefas oferecidas
+  (atalho na area de trabalho e preparar ambiente).</p>
+  <p class="esp">Esperado: licenca <b>GPL-3.0</b> legivel, e o aviso sobre Python/Node aparecendo
+  <b>antes</b> se eles faltarem na maquina.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">6.</span> Instale em <b>Program Files</b> (aceitando a elevacao)
+  e deixe marcada a tarefa <i>Preparar o ambiente agora</i>.</p>
+  <p class="esp">Esperado: o <code>.bat</code> abre <b>depois</b> da instalacao, numa janela
+  visivel, e faz perguntas.</p>
+  <p class="falha">Se ele rodar durante a instalacao, ou ficar escondido atras da janela, o
+  instalador parece travado &mdash; foi o que as flags <code>postinstall</code> e
+  <code>nowait</code> corrigiram.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">7.</span> Ainda no preparador de ambiente: deixe instalar Python
+  e Node. Depois, <b>na conta do usuario comum</b>, abra um Prompt e rode <code>where python</code>
+  e <code>where npx</code>.</p>
+  <p class="esp">Esperado: os dois caminhos apontam para o perfil do <b>usuario real</b>, nao para
+  <code>C:\Users\&lt;admin&gt;</code>.</p>
+  <p class="falha">Esta e a armadilha que a flag <code>runasoriginaluser</code> resolve: sem ela,
+  tudo era instalado no perfil do administrador e o usuario abria o app com nada instalado.</p>
+</div>
+
+<h2>O que chegou do outro lado <small>a parte que so o instalador responde</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">8.</span> Abra a pasta de instalacao e confirme, um a um:
+  <code>T2M_Security_Manager.exe</code>, <code>agente_mcp.py</code>, <code>gerador_ia.py</code>,
+  <code>get_token.py</code>, <code>listar_modelos.py</code>,
+  <b><code>servidor_http_mcp.py</code></b>, <code>requirements.txt</code>,
+  <code>instalar_dependencias.bat</code>, <code>icon2.ico</code>, <code>T2M_logo-03.png</code>,
+  <code>LICENSE</code>.</p>
+  <p class="esp">Esperado: <b>os onze presentes.</b></p>
+  <p class="falha">O <code>servidor_http_mcp.py</code> e o que faltava ate a 4.2. Confira este
+  primeiro.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">9.</span> Confira o que <b>nao</b> deveria estar la:
+  <code>icon2_antigo.ico</code>, prints de teste (<code>login*.png</code>),
+  <code>api_keys_ia.txt</code>, <code>config.txt</code>, <code>teste_t2m.db</code>.</p>
+  <p class="esp">Esperado: <b>nenhum deles.</b></p>
+  <p class="falha">O <code>api_keys_ia.txt</code> e o grave: ele existe na sua Release e contem
+  <b>chaves de API reais</b>. Se algum dia entrar na lista de arquivos do instalador, suas chaves
+  vao junto para a maquina de todo mundo que instalar.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">10.</span> Confira os atalhos: area de trabalho e menu Iniciar
+  (aplicativo, <i>Preparar ambiente</i> e <i>Desinstalar</i>).</p>
+  <p class="esp">Esperado: os tres no menu Iniciar, com o <b>icone certo</b> &mdash; nao o icone
+  branco padrao do Windows.</p>
+</div>
+
+<h2>Primeira execucao <small>na maquina limpa, sem nada configurado</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">11.</span> Abra o app pelo atalho. <b>Sem</b> cadastrar chave
+  nenhuma, percorra a tela principal e o Copilot.</p>
+  <p class="esp">Esperado: abre normalmente, sem traceback, e pede a chave de forma clara quando
+  ela for necessaria.</p>
+  <p class="falha">Um erro de Python aparecendo na primeira execucao e a pior primeira impressao
+  possivel &mdash; o usuario nao tem como saber que faltou so uma chave.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">12.</span> Abra <b>Configuracoes</b>, mude algo pequeno (o
+  timeout, por exemplo), salve, feche e reabra o app.</p>
+  <p class="esp">Esperado: o valor persiste, e o arquivo aparece em
+  <code>%APPDATA%\T2M Security Manager</code> &mdash; <b>nao</b> na pasta do programa, que e
+  somente leitura para o usuario comum.</p>
+  <p class="falha">Se ele tentar gravar em Program Files, a configuracao se perde a cada
+  reinicio, silenciosamente.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">13.</span> <b>Modo Teste de API HTTP</b>, com qualquer URL
+  publica. <span class="custa">GASTA COTA</span></p>
+  <p class="esp">Esperado: a execucao comeca de verdade. O que importa aqui e <b>nao</b> ver
+  <i>&ldquo;Arquivo ausente: servidor_http_mcp.py&rdquo;</i>.</p>
+  <p class="falha">Este e o item que valida a correcao do instalador. Se a mensagem aparecer, o
+  arquivo nao chegou &mdash; volte ao item 8.</p>
+</div>
+
+<h2>Desinstalacao e atualizacao <small>o caminho que ninguem testa e todo mundo usa</small></h2>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">14.</span> Instale a 4.3 <b>por cima</b> de uma instalacao
+  existente, sem desinstalar antes.</p>
+  <p class="esp">Esperado: atualiza no lugar, mantendo chaves e configuracoes, e
+  <b>nao</b> cria uma segunda entrada em Programas e Recursos.</p>
+  <p class="falha">Duas entradas significam que o <code>AppId</code> mudou. Ele nunca pode mudar
+  entre versoes, ou cada atualizacao vira uma instalacao paralela.</p>
+</div>
+
+<div class="item"><input type="checkbox">
+  <p class="faca"><span class="n">15.</span> Desinstale. Responda <b>NAO</b> a pergunta sobre
+  remover configuracoes e chaves.</p>
+  <p class="esp">Esperado: o programa sai, a pasta <code>%APPDATA%\T2M Security Manager</code>
+  <b>fica</b>, e aparece o aviso de que relatorios, scripts e sessoes nao foram apagados. Reinstale
+  e confirme que as chaves continuam la.</p>
+  <p class="falha">Apagar chave de quem respondeu NAO e perda de dado do usuario &mdash; a unica
+  coisa nesta lista que nao da para desfazer.</p>
+</div>
+
+<div class="fim">
+  <b>Quando todos os quinze passarem</b>, o instalador esta pronto para virar release. Sugestao para
+  a pagina de publicacao: dizer que o executavel nao e assinado e que o SmartScreen vai avisar (item
+  4), listar Python 3.10+ e Node 18+ como pre-requisitos que o proprio instalador oferece resolver,
+  e deixar claro que chaves de API ficam <b>so na maquina do usuario</b>, em
+  <code>%APPDATA%</code>, e nunca sao enviadas para lugar nenhum.
+</div>
+
+</div>
+<script>
+  var caixas = document.querySelectorAll('.item input');
+  function contar(){
+    var n = 0;
+    caixas.forEach(function(c){
+      c.parentElement.classList.toggle('feito', c.checked);
+      if (c.checked) n++;
+    });
+    document.getElementById('feitos').textContent = n;
+  }
+  caixas.forEach(function(c){ c.addEventListener('change', contar); });
+  contar();
+</script>
+</body>
+</html>
