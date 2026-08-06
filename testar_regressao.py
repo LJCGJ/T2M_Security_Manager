@@ -992,6 +992,12 @@ def teste_leitura_da_pagina():
               "if _e_cota(e) and not primeiro_bloqueio:" in _av_fonte
               and "time.sleep(30)" in _av_fonte
               and "pausa = 8" in _av_fonte)
+        # "O aplicativo avisa" saia igual para aprovado e reprovado. Quem media
+        # um modelo bom ficava esperando um aviso que nunca vinha e duvidava da
+        # protecao no exato momento em que ela estava certa.
+        checa("a mensagem final distingue aprovado de reprovado",
+              'if faltas:' in _av_fonte
+              and "o silencio E o aprovado" in _av_fonte)
         # A propria correcao e testavel sem rede: modelo perfeito passa,
         # modelo que nunca para reprova, modelo que nao chama reprova.
         checa("o avaliador tem autoteste que dispensa rede e chave",

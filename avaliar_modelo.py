@@ -628,8 +628,16 @@ def main():
     import time
     destino = gravar_veredito(provedor, modelo, faltas, notas, time.time())
     if destino:
-        log(f">>> Veredito guardado: o aplicativo avisa se este modelo for "
-            f"usado em Automacao.")
+        # A mensagem tem de dizer o que VAI acontecer, e o que acontece depende
+        # do veredito. Dizer "o aplicativo avisa" depois de um APROVADO fazia o
+        # operador esperar um aviso que nunca vem, e ficar em duvida se a
+        # protecao estava funcionando - justamente quando ela estava.
+        if faltas:
+            log(">>> Veredito guardado: o aplicativo avisa quando este modelo "
+                "for usado em Automacao.")
+        else:
+            log(">>> Veredito guardado: aprovado. Em Automacao o aplicativo "
+                "fica calado com este modelo - o silencio E o aprovado.")
 
     if args.saida_json:
         try:
