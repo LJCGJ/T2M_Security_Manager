@@ -1024,6 +1024,26 @@ def teste_leitura_da_pagina():
     checa("falha ao tirar o print nao quebra o fechamento",
           "nao foi possivel garantir o print antes de fechar" in fonte_mcp)
 
+    # --- CONVERSA COM O MODELO TAMBEM PRECISA DE TIMEOUT ---
+    # Visto em execucao real: com a cota diaria do Gemini esgotada, a chamada
+    # seguinte nao devolveu erro - ficou pendurada dez minutos, sem uma linha
+    # nova no painel. O operador nao tinha como saber se o teste estava vivo.
+    # TIMEOUT_OPERACAO ja valia para as ferramentas MCP; faltava aqui.
+    checa("toda requisicao ao Gemini leva timeout explicito",
+          "def _opcoes_gemini():" in fonte_mcp
+          and fonte_mcp.count("request_options=_opcoes_gemini()") == 3
+          and "chat.send_message(proxima_mensagem, request_options=" in fonte_mcp)
+    checa("nenhuma chamada ao Gemini fica sem timeout",
+          "chat.send_message(proxima_mensagem)" not in fonte_mcp
+          and "chat.send_message(proxima)\n" not in fonte_mcp)
+    checa("o timeout do modelo respeita o limite de Configuracoes",
+          "max(30, min(TIMEOUT_OPERACAO, 180))" in fonte_mcp)
+    # Estourar o tempo tem causa provavel conhecida: dizer "instabilidade do
+    # modelo" mandaria o operador procurar no lugar errado.
+    checa("timeout do modelo explica a cota diaria em vez de culpar instabilidade",
+          '"DeadlineExceeded" in nome_erro' in fonte_mcp
+          and "pendurada em vez de ser recusada" in fonte_mcp)
+
     # --- PRINT DE PAGINA EM BRANCO NAO E EVIDENCIA ---
     # Visto em execucao real: a cota do Gemini estourou ANTES da primeira
     # ferramenta, o laco terminou sem ter feito nada, e o print final saiu

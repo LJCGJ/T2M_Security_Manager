@@ -698,6 +698,18 @@ def _resumo_args(args, limite=120):
             return "(argumentos nao exibiveis)"
 
 
+def _opcoes_gemini():
+    """Timeout explicito para cada requisicao ao Gemini.
+
+    Sem isto a biblioteca usa o padrao dela, que e de varios minutos: quando a
+    cota diaria acabou, a chamada seguinte nao devolve erro - ela fica pendurada
+    e a automacao trava sem escrever nada no painel. Medido em execucao real:
+    dez minutos parado na mesma linha, com o operador sem saber se o teste
+    estava vivo. TIMEOUT_OPERACAO ja era respeitado pelas ferramentas MCP; a
+    conversa com o modelo tinha ficado de fora."""
+    return {"timeout": max(30, min(TIMEOUT_OPERACAO, 180))}
+
+
 def _texto_do_modelo(resp):
     """Extrai o texto GERADO PELO MODELO de uma resposta do Gemini.
 
@@ -728,7 +740,8 @@ def _relatorio_parcial_gemini(chat, ultimo_texto, sufixo=None):
         resp = chat.send_message(
             "Voce atingiu o limite de passos desta automacao. NAO chame mais "
             "ferramentas. Escreva agora o relatorio final do que voce testou, do "
-            "que observou e do que ficou pendente.")
+            "que observou e do que ficou pendente.",
+            request_options=_opcoes_gemini())
         texto = _texto_do_modelo(resp)
         if texto:
             return texto + "\n\n" + sufixo
@@ -2174,7 +2187,7 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
         while resp is None and tentativas_totais < 8:   # teto de seguranca
             tentativas_totais += 1
             try:
-                resp = chat.send_message(proxima_mensagem)
+                resp = chat.send_message(proxima_mensagem, request_options=_opcoes_gemini())
             except Exception as e:
                 nome_erro = type(e).__name__
                 msg = str(e)
@@ -2234,6 +2247,22 @@ async def loop_gemini(session, api_key, objetivo, mcp_tools):
                         proxima_mensagem = ("A ultima acao falhou por chamada malformada. "
                                             "Refaca chamando UMA ferramenta simples por vez.")
                         continue
+
+                # 3.5) A requisicao passou do tempo. Quando a cota DIARIA acaba,
+                # a biblioteca do Google nem sempre recusa: ela segura a chamada
+                # por varios minutos. Sem o timeout de _opcoes_gemini isso virava
+                # uma tela travada sem nenhuma linha nova no painel.
+                if ("DeadlineExceeded" in nome_erro or "Timeout" in nome_erro
+                        or "timed out" in msg.lower()):
+                    limite = max(30, min(TIMEOUT_OPERACAO, 180))
+                    aviso = (f"A IA nao respondeu em {limite}s. Isso costuma ser a cota "
+                             "DIARIA do plano gratuito esgotada: a requisicao fica "
+                             "pendurada em vez de ser recusada. Espere a virada do dia, "
+                             "troque de modelo ou use outra chave.\n\n" + COMO_TROCAR_MODELO)
+                    log(f">>> requisicao ao Gemini sem resposta em {limite}s; encerrando.")
+                    if ultimo_texto:
+                        return ultimo_texto + "\n\n[Automacao interrompida: " + aviso + "]"
+                    return aviso
 
                 # 4) Erro que nao da para recuperar
                 if ultimo_texto:
@@ -4005,7 +4034,7 @@ async def _loop_ferramentas_gemini(api_key, instrucao, ferramentas, despachar):
         if passo > 0 and pausa_passo > 0:
             time.sleep(pausa_passo)
         try:
-            resp = chat.send_message(proxima)
+            resp = chat.send_message(proxima, request_options=_opcoes_gemini())
         except Exception as e:
             if "ResourceExhausted" in type(e).__name__ or "429" in str(e):
                 if pausa_passo < 6:
