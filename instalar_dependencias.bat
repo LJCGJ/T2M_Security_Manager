@@ -259,6 +259,14 @@ if errorlevel 1 (
   echo          [OK]
 )
 
+echo       @modelcontextprotocol/server-filesystem@2026.7.10
+call npx -y @modelcontextprotocol/server-filesystem@2026.7.10 --help >nul 2>&1
+if errorlevel 1 (
+  echo          [!] nao baixou agora; sera baixado no primeiro uso do modo Arquivos
+) else (
+  echo          [OK]
+)
+
 REM ============================================================
 REM  5 e 6. SUPORTE A ORACLE VIA MCP (OPCIONAL)
 REM
