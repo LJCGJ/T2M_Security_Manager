@@ -528,8 +528,19 @@ def main():
     log(">>> Nenhum navegador sera aberto: o que se mede aqui e a escolha.")
     log("")
 
+    import time
     resultados = []
-    for caso in casos:
+    # ESPACAMENTO ENTRE OS CENARIOS.
+    #
+    # Sete requisicoes emendadas estouram o limite POR MINUTO de um plano
+    # gratuito - e a medicao morre pela metade, sem nota, tendo gastado as
+    # requisicoes que ja fez. Tres segundos entre uma e outra custam vinte
+    # segundos no total e mudam "nao consegui medir" para "medido".
+    pausa = 3
+    primeiro_bloqueio = False
+    for indice, caso in enumerate(casos):
+        if indice > 0:
+            time.sleep(pausa)
         try:
             escolhida, argumentos, _ = perguntar(
                 provedor, chave, modelo, args.endpoint, montar_pergunta(caso))
@@ -538,6 +549,27 @@ def main():
             r = corrigir(caso, None, {}, falhou_formato=True)
             log(f"    {caso['id']}: a rota recusou - chamada veio como texto")
         except Exception as e:
+            # Limite POR MINUTO nao e o fim da medicao: e so cedo demais.
+            # Esperar meio minuto e refazer o cenario custa tempo e salva as
+            # requisicoes ja gastas - desistir aqui jogaria fora o que ja foi
+            # medido e obrigaria a comecar do zero.
+            if _e_cota(e) and not primeiro_bloqueio:
+                primeiro_bloqueio = True
+                log(f"    {caso['id']}: limite por minuto - aguardando 30s e "
+                    f"refazendo este cenario...")
+                time.sleep(30)
+                pausa = 8   # a partir daqui, mais folga entre os cenarios
+                try:
+                    escolhida, argumentos, _ = perguntar(
+                        provedor, chave, modelo, args.endpoint, montar_pergunta(caso))
+                    r = corrigir(caso, escolhida, argumentos)
+                    resultados.append(r)
+                    marca = "ok " if r["acertou"] else "ERRO"
+                    log(f"[{marca}] {r['id']}  esperado={r['esperada']}  "
+                        f"veio={r['escolhida']}")
+                    continue
+                except Exception as e2:
+                    e = e2
             if _e_chave_ou_cota(e):
                 log("")
                 if _e_cota(e):

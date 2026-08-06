@@ -981,6 +981,17 @@ def teste_leitura_da_pagina():
               and 'ARQ_VEREDITOS = "vereditos_modelos.txt"' in _av_fonte)
         checa("uma linha por modelo, com o que faltou e a nota",
               'f"{modelo}|{estado}|{int(quando)}|{detalhe}|{acerto}|{provedor}"' in _av_fonte)
+        # Sete requisicoes emendadas estouram o limite POR MINUTO de um plano
+        # gratuito, e a medicao morre pela metade - sem nota, tendo gastado as
+        # requisicoes que ja fez.
+        checa("os cenarios sao espacados para caber no limite por minuto",
+              "pausa = 3" in _av_fonte and "time.sleep(pausa)" in _av_fonte)
+        # Limite por minuto nao e o fim da medicao: e cedo demais. Desistir ali
+        # jogaria fora o que ja foi medido.
+        checa("bloqueio por minuto espera e refaz o cenario",
+              "if _e_cota(e) and not primeiro_bloqueio:" in _av_fonte
+              and "time.sleep(30)" in _av_fonte
+              and "pausa = 8" in _av_fonte)
         # A propria correcao e testavel sem rede: modelo perfeito passa,
         # modelo que nunca para reprova, modelo que nao chama reprova.
         checa("o avaliador tem autoteste que dispensa rede e chave",
