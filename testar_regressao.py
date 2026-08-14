@@ -1087,6 +1087,23 @@ def teste_leitura_da_pagina():
         # As travas nao dependem do host: elas sao codigo deste lado.
         checa("a pasta permitida e conferida no servidor MCP tambem",
               "def pasta_recusada(" in _fsrv and "_RAIZES_PROIBIDAS" in _fsrv)
+        # Decisao do dono do produto: acesso total ao disco. Fica como OPCAO
+        # explicita, e o codigo registra o que ela troca - num produto de QA,
+        # quem dirige boa parte do tempo nao e a pessoa, e sim conteudo
+        # observado. Continua sem escrita: o risco e vazamento, nao perda.
+        checa("o acesso total existe como opcao declarada",
+              "ACESSO_TOTAL = os.environ.get" in _fsrv
+              and "def raizes_do_disco():" in _fsrv)
+        # Mesmo com a fronteira retirada, arquivo de credencial nao ajuda teste
+        # nenhum - e e exatamente o que um texto plantado tentaria abrir.
+        checa("arquivos de credencial nao sao lidos nem com acesso total",
+              "def caminho_secreto(" in _fsrv
+              and "api_keys_ia.txt" in _fsrv and ".ssh" in _fsrv)
+        checa("da para desligar essa protecao, se o operador quiser",
+              "T2M_LER_SEGREDOS" in _fsrv)
+        checa("a situacao diz qual e o alcance dos arquivos",
+              '"acesso_a_arquivos"' in _fsrv
+              and '"arquivos_de_credencial"' in _fsrv)
         checa("nenhuma ferramenta de escrita em disco e declarada",
               "@app.tool()" in _fsrv
               and "def arquivos_escrever(" not in _fsrv
@@ -1501,19 +1518,26 @@ def teste_leitura_da_pagina():
         checa("a versao da barra de titulo acompanha a do instalador",
               "T2M Security Manager v5.0" in _ui2)
         checa("da para conectar sem dar acesso a pasta nenhuma",
-              "MessageBoxButtons::YesNoCancel" in _ui2
-              and "void ConectarClaudeSemArquivos()" in _ui2
+              "void ConectarClaudeSemArquivos()" in _ui2
               and "void ConectarClaudeComPasta()" in _ui2
               and "--sem-arquivos" in _ui2)
-        checa("o dialogo diz o que cada botao faz",
-              "NAO conecta sem acesso a arquivo nenhum" in _ui2
-              and "CANCELAR nao altera nada" in _ui2)
+        # MessageBox com Sim/Nao explicando no texto o que cada um faz nao
+        # funciona: a pessoa le, clica no botao padrao e o comportamento parece
+        # ignorar o aviso. Foi o que aconteceu no teste - e e a mesma correcao
+        # que o Redefinir aplicativo recebeu, pelo mesmo motivo.
+        checa("os botoes tem nome proprio em vez de Sim/Nao",
+              'btnSem->Text = L"Conectar sem acesso a arquivos"' in _ui2
+              and 'btnCom->Text = L"Escolher uma pasta e conectar"' in _ui2)
+        checa("nenhum Sim/Nao/Cancelar sobrou nesse fluxo",
+              "MessageBoxButtons::YesNoCancel" not in _ui2)
+        # Quem aperta Enter sem ler nao pode acabar dando acesso a uma pasta.
+        checa("o padrao e o caminho que nao pede permissao",
+              "d->AcceptButton = btnSem;" in _ui2)
         checa("o conector aceita conexao sem pasta",
               "--sem-arquivos" in _fc
               and 'if pasta_permitida:' in _fc)
         checa("o dialogo explica a inversao antes de conectar",
-              "e o caminho contrario" in _ui2
-              and "e ELE quem chama o T2M" in _ui2)
+              "ELE quem chama o T2M" in _ui2)
         # Se virasse "ultima chave", a janela reabriria tentando selecionar uma
         # acao como se fosse chave.
         checa("entrada de acao nunca e gravada como ultima chave",

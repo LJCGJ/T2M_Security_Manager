@@ -79,6 +79,53 @@ VERSAO_FS_MCP = os.environ.get("T2M_VERSAO_FS", "2026.7.10")
 VERSAO_DBHUB = os.environ.get("T2M_VERSAO_DBHUB", "0.24.0")
 DSN_BANCO = (os.environ.get("T2M_DSN", "") or "").strip()
 PASTA_PERMITIDA = (os.environ.get("T2M_PASTA_PERMITIDA", "") or "").strip().strip('"')
+
+# ACESSO TOTAL AO DISCO.
+#
+# Decisao do dono do produto, tomada com o custo na mao. Fica registrado o que
+# ela troca: a camada de arquivos deixa de ter fronteira, e num produto de QA
+# quem dirige boa parte do tempo NAO e a pessoa - e conteudo observado. Uma
+# linha plantada num CSV de massa, numa pagina de homologacao ou numa resposta
+# de API pode mirar uma leitura em qualquer lugar da maquina.
+#
+# O que reduz o estrago, e continua valendo: nao ha escrita. O risco aqui e
+# vazamento por leitura, nao perda de arquivo.
+ACESSO_TOTAL = os.environ.get("T2M_ACESSO_TOTAL", "0").strip() == "1"
+
+# Mesmo com acesso total, estes NAO sao lidos. Nao e desconfianca do operador:
+# e que o conteudo deles nao ajuda nenhum teste de QA e, se um texto plantado
+# conseguir mirar uma leitura, sao exatamente estes os arquivos que ele quer.
+# Custa nada manter, e quem discordar desliga com T2M_LER_SEGREDOS=1.
+PROTEGER_SEGREDOS = os.environ.get("T2M_LER_SEGREDOS", "0").strip() != "1"
+_NOMES_SECRETOS = (
+    "api_keys_ia.txt", "ultima_chave.txt", ".env", "id_rsa", "id_ed25519",
+    "credentials", "credentials.json", ".npmrc", ".pypirc", ".git-credentials",
+    "claude_desktop_config.json", "secrets.json", ".netrc",
+)
+_PASTAS_SECRETAS = (".ssh", ".aws", ".gnupg", ".azure", ".kube")
+
+
+def caminho_secreto(caminho):
+    """Diz se o caminho e um arquivo de segredo conhecido."""
+    if not PROTEGER_SEGREDOS:
+        return ""
+    p = (caminho or "").replace("\\", "/").lower()
+    nome = p.rsplit("/", 1)[-1]
+    if nome in [n.lower() for n in _NOMES_SECRETOS]:
+        return nome
+    for pasta in _PASTAS_SECRETAS:
+        if f"/{pasta}/" in p or p.endswith(f"/{pasta}"):
+            return pasta
+    return ""
+
+
+def raizes_do_disco():
+    """Todas as raizes montadas, para o modo de acesso total."""
+    if platform.system() == "Windows":
+        import string
+        return [f"{letra}:\\" for letra in string.ascii_uppercase
+                if os.path.isdir(f"{letra}:\\")]
+    return ["/"]
 HEADLESS = os.environ.get("T2M_HEADLESS", "0").strip() == "1"
 
 try:
@@ -112,7 +159,12 @@ def _registrar(camada, acao, resultado):
 def pasta_recusada(pasta):
     """Mesma recusa do agente e da tela. Repetida aqui porque este processo
     pode ser iniciado sem nenhum dos dois: quem sabe que servir C:\\ inteiro e
-    um engano e o T2M, nao o servidor de arquivos."""
+    um engano e o T2M, nao o servidor de arquivos.
+
+    No modo de acesso total nao ha o que recusar - a fronteira foi retirada de
+    proposito, e fingir que ela existe seria pior do que nao te-la."""
+    if ACESSO_TOTAL:
+        return ""
     p = (pasta or "").strip().strip('"')
     if not p:
         return ("nenhuma pasta permitida foi configurada. Defina "
@@ -359,8 +411,9 @@ def _limpar_ref(valor):
 async def _garantir_arquivos():
     if _fundo.sessao("arquivos") is not None:
         return _fundo.sessao("arquivos")
-    args = ["-y", f"@modelcontextprotocol/server-filesystem@{VERSAO_FS_MCP}",
-            PASTA_PERMITIDA]
+    permitidas = raizes_do_disco() if ACESSO_TOTAL else [PASTA_PERMITIDA]
+    args = ["-y", f"@modelcontextprotocol/server-filesystem@{VERSAO_FS_MCP}"]
+    args += [p for p in permitidas if p]
     return await _fundo._abrir("arquivos", _npx(), args)
 
 
@@ -429,7 +482,15 @@ def arquivos_ler(caminho: str) -> str:
     motivo = pasta_recusada(PASTA_PERMITIDA)
     if motivo:
         return f"ERRO: {motivo}"
-    alvo = caminho if os.path.isabs(caminho) else os.path.join(PASTA_PERMITIDA, caminho)
+    alvo = caminho if os.path.isabs(caminho) else os.path.join(
+        PASTA_PERMITIDA or "", caminho)
+    segredo = caminho_secreto(alvo)
+    if segredo:
+        return (f"ERRO: '{segredo}' e um arquivo de credencial e nao e lido por "
+                f"esta ferramenta. O conteudo dele nao ajuda nenhum teste de QA, "
+                f"e e exatamente o que um texto plantado tentaria fazer voce "
+                f"abrir. Se o teste precisa MESMO disso, o operador liga com "
+                f"T2M_LER_SEGREDOS=1.")
     try:
         texto = _fundo.executar(_chamar_arquivos("read_text_file", {"path": alvo}))
         _registrar("arquivos", f"ler {alvo}", texto)
@@ -573,6 +634,10 @@ def t2m_situacao() -> str:
         "pasta_permitida": PASTA_PERMITIDA or "(nao configurada)",
         "pasta_valida": pasta_recusada(PASTA_PERMITIDA) == "",
         "escrita_em_arquivos": "desligada",
+        "acesso_a_arquivos": ("maquina inteira" if ACESSO_TOTAL
+                              else "somente a pasta permitida"),
+        "arquivos_de_credencial": ("protegidos" if PROTEGER_SEGREDOS
+                                   else "LEITURA LIBERADA"),
         "navegador": "aberto" if _fundo.sessao("tela") else "fechado",
         "navegador_isolado": True,
         "timeout_por_operacao_s": TIMEOUT,

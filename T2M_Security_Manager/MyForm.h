@@ -2100,20 +2100,6 @@ namespace T2MSecurityManager {
 		if (comboModeloChat->SelectedItem != nullptr
 			&& comboModeloChat->SelectedItem->ToString() == L"\u27a4 Usar pelo Claude Desktop (sem chave de API)...") {
 			int voltarPara = indiceChaveAnterior;
-			// Aqui a explicacao da INVERSAO vem antes: quem chegou pelo seletor de
-			// chaves esta procurando um provedor, e precisa entender por que este
-			// item nao e um. Quem clicou em Configuracoes ja sabe o que quer.
-			MessageBox::Show(
-				L"Esta opcao nao e uma chave de API - e o caminho contrario.\n\n"
-				L"Aqui no T2M, voce escreve o objetivo e a IA executa usando a chave "
-				L"selecionada. Pelo Claude Desktop e ao contrario: voce conversa la, e "
-				L"e ELE quem chama o T2M para abrir a tela, ler arquivos, consultar o "
-				L"banco e testar APIs.\n\n"
-				L"Por isso a chave selecionada nao muda: o botao Enviar continua "
-				L"usando a que estava valendo.",
-				L"Usar pelo Claude Desktop", MessageBoxButtons::OK,
-				MessageBoxIcon::Information);
-
 			// A selecao volta ANTES de abrir qualquer dialogo: se o usuario
 			// fechar tudo no X, a chave que estava valendo continua valendo.
 			montandoListaDeChaves = true;
@@ -5746,32 +5732,100 @@ namespace T2MSecurityManager {
 
 		   // Abre o conector. Ele proprio decide o que fazer: conecta se o
 		   // Claude estiver instalado, e diz o que falta se nao estiver.
-		   // A PERGUNTA MORA NUM LUGAR SO.
+		   // A PERGUNTA MORA NUM LUGAR SO, E COM BOTOES QUE TEM NOME.
 		   //
-		   // Antes, o seletor de chaves perguntava "com pasta ou sem?" e o botao
-		   // de Configuracoes ia direto para o seletor de pasta. Dois caminhos
-		   // para a mesma coisa, com comportamentos diferentes - e quem usasse o
-		   // segundo continuaria obrigado a dar uma permissao que talvez nao
-		   // fosse usar. Agora os dois chamam esta funcao.
+		   // A primeira versao usava MessageBox com Sim/Nao/Cancelar e explicava
+		   // no texto o que cada um fazia. Nao funciona: a pessoa le o texto,
+		   // clica em "Sim" - que e o botao padrao - e o seletor de pasta abre,
+		   // parecendo que o aviso nao serviu para nada. Foi exatamente o que
+		   // aconteceu no teste.
+		   //
+		   // E a mesma correcao que o Redefinir aplicativo recebeu semanas atras,
+		   // pelo mesmo motivo: quando as opcoes nao sao "sim" e "nao", os botoes
+		   // precisam dizer o que fazem.
 	private: void PerguntarComoConectarClaude() {
-		String^ estado = TemClaudeDesktopInstalado()
-			? L"O Claude Desktop foi encontrado nesta maquina."
-			: L"O Claude Desktop nao foi encontrado nesta maquina - instale-o primeiro.";
-		System::Windows::Forms::DialogResult r = MessageBox::Show(
-			L"Conectar o T2M ao Claude Desktop.\n\n"
-			L"A automacao passa a rodar pela sua assinatura, em vez de consumir "
-			L"creditos de API. As travas continuam sendo do T2M: banco somente "
-			L"leitura, sem escrita em disco, e os arquivos limitados a uma unica "
-			L"pasta - se voce escolher dar esse acesso.\n\n"
-			+ estado + L"\n\n"
-			L"SIM conecta dando acesso a UMA pasta, que voce escolhe - so a camada "
-			L"de arquivos depende disso.\n"
-			L"NAO conecta sem acesso a arquivo nenhum: tela, banco e API continuam "
-			L"funcionando.\n"
-			L"CANCELAR nao altera nada.",
-			L"Usar pelo Claude Desktop",
-			MessageBoxButtons::YesNoCancel, MessageBoxIcon::Information);
+		Form^ d = gcnew Form();
+		d->Text = L"Usar o T2M pelo Claude Desktop";
+		d->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
+		d->MaximizeBox = false; d->MinimizeBox = false;
+		d->ShowInTaskbar = false;
+		d->StartPosition = FormStartPosition::CenterParent;
+		AplicarIcone(d);
 
+		Label^ topo = gcnew Label();
+		topo->Text = L"A automacao passa a rodar pela sua assinatura do Claude.";
+		topo->Font = gcnew System::Drawing::Font("Segoe UI", 10, System::Drawing::FontStyle::Bold);
+		topo->Location = System::Drawing::Point(18, 16);
+		topo->AutoSize = true;
+		d->Controls->Add(topo);
+
+		Label^ corpoTxt = gcnew Label();
+		corpoTxt->Text =
+			L"Em vez de consumir creditos de API, voce conversa no Claude Desktop e e\n"
+			L"ELE quem chama o T2M para abrir a tela, consultar o banco e testar APIs.\n\n"
+			L"As travas continuam sendo do T2M: banco somente leitura, sem escrita em\n"
+			L"disco, e os arquivos limitados a uma unica pasta - se voce der esse acesso.";
+		corpoTxt->Location = System::Drawing::Point(18, topo->Bottom + 12);
+		corpoTxt->AutoSize = true;
+		d->Controls->Add(corpoTxt);
+
+		Label^ estado = gcnew Label();
+		estado->Text = TemClaudeDesktopInstalado()
+			? L"Claude Desktop encontrado nesta maquina."
+			: L"Claude Desktop NAO encontrado - instale-o antes de conectar.";
+		estado->Location = System::Drawing::Point(18, corpoTxt->Bottom + 14);
+		estado->AutoSize = true;
+		estado->ForeColor = TemClaudeDesktopInstalado()
+			? System::Drawing::Color::FromArgb(0, 100, 60)
+			: System::Drawing::Color::FromArgb(150, 60, 0);
+		d->Controls->Add(estado);
+
+		Panel^ rodapeClaude = gcnew Panel();
+		rodapeClaude->Dock = System::Windows::Forms::DockStyle::Bottom;
+		rodapeClaude->Height = 56;
+		rodapeClaude->BackColor = System::Drawing::Color::FromArgb(240, 242, 246);
+		d->Controls->Add(rodapeClaude);
+
+		Button^ btnSem = gcnew Button();
+		btnSem->Text = L"Conectar sem acesso a arquivos";
+		btnSem->Size = System::Drawing::Size(230, 30);
+		btnSem->Location = System::Drawing::Point(14, 13);
+		btnSem->BackColor = System::Drawing::Color::FromArgb(0, 120, 70);
+		btnSem->ForeColor = System::Drawing::Color::White;
+		btnSem->FlatStyle = FlatStyle::Flat;
+		btnSem->Cursor = Cursors::Hand;
+		btnSem->DialogResult = System::Windows::Forms::DialogResult::No;
+		rodapeClaude->Controls->Add(btnSem);
+
+		Button^ btnCom = gcnew Button();
+		btnCom->Text = L"Escolher uma pasta e conectar";
+		btnCom->Size = System::Drawing::Size(220, 30);
+		btnCom->Location = System::Drawing::Point(btnSem->Right + 10, 13);
+		btnCom->Cursor = Cursors::Hand;
+		btnCom->DialogResult = System::Windows::Forms::DialogResult::Yes;
+		rodapeClaude->Controls->Add(btnCom);
+
+		Button^ btnCancelar = gcnew Button();
+		btnCancelar->Text = L"Cancelar";
+		btnCancelar->Size = System::Drawing::Size(110, 30);
+		btnCancelar->Location = System::Drawing::Point(btnCom->Right + 10, 13);
+		btnCancelar->Cursor = Cursors::Hand;
+		btnCancelar->DialogResult = System::Windows::Forms::DialogResult::Cancel;
+		rodapeClaude->Controls->Add(btnCancelar);
+
+		// O padrao e o caminho que NAO pede permissao: quem aperta Enter sem ler
+		// nao acaba dando acesso a uma pasta sem querer.
+		d->AcceptButton = btnSem;
+		d->CancelButton = btnCancelar;
+
+		int largura = 0;
+		for each (Control ^ filho in d->Controls) {
+			if (filho != rodapeClaude) largura = Math::Max(largura, filho->Right);
+		}
+		largura = Math::Max(largura + 24, btnCancelar->Right + 24);
+		d->ClientSize = System::Drawing::Size(largura, estado->Bottom + 16 + rodapeClaude->Height);
+
+		System::Windows::Forms::DialogResult r = d->ShowDialog();
 		if (r == System::Windows::Forms::DialogResult::Yes) ConectarClaudeComPasta();
 		else if (r == System::Windows::Forms::DialogResult::No) ConectarClaudeSemArquivos();
 	}
