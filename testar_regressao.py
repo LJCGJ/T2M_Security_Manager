@@ -1480,6 +1480,13 @@ def teste_leitura_da_pagina():
         checa("a secao diz que a integracao e opcional",
               "com chave de API" in _ui2 and "tudo continua funcionando" in _ui2)
         # A pasta passa pela mesma recusa do resto do produto.
+        # C2660 na compilacao: CaminhoApp RECEBE o nome do arquivo e devolve o
+        # caminho completo - nao e um getter de pasta. Escrevi Combine(CaminhoApp(),
+        # ...) por analogia com outros codigos e o compilador pegou. Fica a
+        # verificacao para o proximo que for montar caminho aqui.
+        checa("os caminhos usam CaminhoApp com o nome do arquivo",
+              "CaminhoApp(L\"conectar_claude.bat\")" in _ui2
+              and "Path::Combine(CaminhoApp()" not in _ui2)
         checa("a pasta escolhida ali passa pela recusa de raiz de sistema",
               _ui2.index("btnConectarClaude_Click") > 0
               and "MotivoPastaRecusada(dlg->SelectedPath->Trim())" in _ui2)

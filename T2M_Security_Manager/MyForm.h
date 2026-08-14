@@ -5696,7 +5696,9 @@ namespace T2MSecurityManager {
 				MessageBoxButtons::OK, MessageBoxIcon::Warning);
 			return;
 		}
-		String^ script = System::IO::Path::Combine(CaminhoApp(), L"conectar_claude.bat");
+		// CaminhoApp ja recebe o nome do arquivo e devolve o caminho completo -
+		// e a mesma funcao usada para achar o get_token.py e o gerador_ia.py.
+		String^ script = CaminhoApp(L"conectar_claude.bat");
 		if (!System::IO::File::Exists(script)) {
 			MessageBox::Show(
 				L"O conector nao foi encontrado ao lado do programa.\n\n"
