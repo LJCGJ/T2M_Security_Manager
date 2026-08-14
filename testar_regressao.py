@@ -1546,6 +1546,27 @@ def teste_leitura_da_pagina():
         # seletor de chaves perguntava com/sem pasta, e o botao de Configuracoes
         # ia direto para o seletor de pasta. Quem usasse o segundo continuava
         # obrigado a dar uma permissao que talvez nao fosse usar.
+        # Quem ja preencheu a conexao em Automacao > Banco nao pode ter de
+        # digita-la de novo na extensao: seriam duas fontes de verdade para a
+        # mesma conexao, e a senha num segundo lugar.
+        checa("a conexao de banco ja configurada e reaproveitada",
+              "bool PrepararConexaoParaOPlugin()" in _ui2
+              and 'Environment::SetEnvironmentVariable(L"T2M_DSN", MontarDSN())' in _ui2)
+        # No T2M a senha fica cifrada; o arquivo do Claude Desktop e texto
+        # comum. Levar a conexao para la e uma troca legitima, mas quem decide
+        # precisa saber que esta trocando.
+        checa("o aviso diz que a senha ficara legivel no arquivo do host",
+              "a senha " in _ui2 and "ficaria legivel la dentro" in _ui2)
+        checa("o padrao e NAO enviar a conexao",
+              "MessageBoxDefaultButton::Button2" in _ui2)
+        # Oracle usa driver nativo e Mongo usa outro servidor: mandar um DSN de
+        # DBHub para eles falharia so no meio de um teste.
+        checa("bancos fora do DBHub sao avisados em vez de enviados errado",
+              'dbTipo == "Oracle" || dbTipo == "MongoDB"' in _ui2)
+        # Argumento de processo aparece em lista de processos e em log.
+        checa("o DSN chega ao conector por ambiente, nunca por argumento",
+              'os.environ.get("T2M_DSN", "")' in _fc
+              and '--dsn "' not in _ui2)
         checa("os dois caminhos fazem a mesma pergunta",
               "void PerguntarComoConectarClaude()" in _ui2
               and _ui2.count("PerguntarComoConectarClaude()") >= 3)
@@ -1564,8 +1585,13 @@ def teste_leitura_da_pagina():
         checa("os botoes tem nome proprio em vez de Sim/Nao",
               'btnSem->Text = L"Conectar sem acesso a arquivos"' in _ui2
               and 'btnCom->Text = L"Escolher uma pasta e conectar"' in _ui2)
-        checa("nenhum Sim/Nao/Cancelar sobrou nesse fluxo",
-              "MessageBoxButtons::YesNoCancel" not in _ui2)
+        # A proibicao vale para a escolha de COMO conectar, onde as opcoes nao
+        # sao "sim" e "nao". "Enviar tambem a conexao de banco?" e uma pergunta
+        # de sim ou nao de verdade - ali o MessageBox e a ferramenta certa.
+        _i_perg = _ui2.index("void PerguntarComoConectarClaude()")
+        _i_fim = _ui2.index("btnConectarClaude_Click", _i_perg)
+        checa("a escolha de como conectar nao usa MessageBox",
+              "MessageBox::Show" not in _ui2[_i_perg:_i_fim])
         # Quem aperta Enter sem ler nao pode acabar dando acesso a uma pasta.
         checa("o padrao e o caminho que nao pede permissao",
               "d->AcceptButton = btnSem;" in _ui2)

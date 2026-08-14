@@ -298,10 +298,15 @@ def main():
                    help="tira a entrada do T2M da configuracao")
     args = p.parse_args()
 
+    # O T2M passa a conexao ja configurada por VARIAVEL DE AMBIENTE, herdada
+    # deste processo. Nunca por argumento: argumento aparece em lista de
+    # processos e em log de sistema, e dentro dele vai a senha do banco.
+    dsn = args.dsn.strip() or os.environ.get("T2M_DSN", "").strip()
+
     if args.remover:
         return remover()
     if args.sem_arquivos:
-        return conectar("", args.dsn.strip())
+        return conectar("", dsn)
     if not args.pasta:
         return situacao()
 
@@ -309,7 +314,7 @@ def main():
     if not os.path.isdir(pasta):
         print(f"  [X] A pasta nao existe: {pasta}")
         return 2
-    return conectar(pasta, args.dsn.strip())
+    return conectar(pasta, dsn)
 
 
 if __name__ == "__main__":

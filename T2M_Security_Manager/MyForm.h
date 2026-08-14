@@ -5835,6 +5835,7 @@ namespace T2MSecurityManager {
 	}
 
 	private: void ConectarClaudeComPasta() {
+		if (!PrepararConexaoParaOPlugin()) return;
 		System::Windows::Forms::FolderBrowserDialog^ dlg = gcnew System::Windows::Forms::FolderBrowserDialog();
 		dlg->Description = L"Escolha a pasta que a automacao podera ler pelo Claude Desktop. "
 			L"Ela nao enxerga nada fora daqui.";
@@ -5876,7 +5877,52 @@ namespace T2MSecurityManager {
 		   // pasta de quem so vai testar tela, banco ou API seria pedir uma
 		   // permissao que nao vai ser usada - e essa e a forma mais rapida de
 		   // ensinar alguem a clicar em "permitir" sem ler.
+		   // A CONEXAO DE BANCO JA CONFIGURADA VIAJA PARA O PLUGIN.
+		   //
+		   // Sem isto, quem ja preencheu host, base, usuario e senha em
+		   // Automacao > Banco de Dados teria de digitar tudo de novo na
+		   // extensao - duas fontes de verdade para a mesma conexao, e a senha
+		   // num segundo lugar. O contrato do plugin diz o contrario.
+		   //
+		   // Vai por VARIAVEL DE AMBIENTE, herdada pelo processo filho, e nunca
+		   // como argumento: argumento de processo aparece em lista de
+		   // processos e em log de sistema, e dentro dele vai a senha.
+		   //
+		   // Devolve false quando o operador desistiu ao ler o aviso.
+	private: bool PrepararConexaoParaOPlugin() {
+		Environment::SetEnvironmentVariable(L"T2M_DSN", L"");
+		if (!dbConfigurado) return true;
+		if (dbTipo == "Oracle" || dbTipo == "MongoDB") {
+			// O plugin fala com o DBHub; Oracle usa driver nativo e Mongo usa
+			// outro servidor. Dizer isso e melhor que mandar um DSN que nao
+			// serve e deixar a falha aparecer no meio de um teste.
+			MessageBox::Show(
+				L"A conexao configurada e " + dbTipo + L", e o plugin do Claude "
+				L"Desktop ainda cobre apenas os bancos atendidos pelo DBHub "
+				L"(PostgreSQL, MySQL, MariaDB, SQLite e SQL Server).\n\n"
+				L"A conexao NAO sera enviada. As demais camadas seguem normalmente.",
+				L"Banco nao suportado no plugin",
+				MessageBoxButtons::OK, MessageBoxIcon::Information);
+			return true;
+		}
+		System::Windows::Forms::DialogResult r = MessageBox::Show(
+			L"Enviar tambem a conexao de banco ja configurada?\n\n"
+			L"Assim voce nao precisa digita-la de novo na extensao.\n\n"
+			L"ATENCAO: no T2M a senha fica cifrada nesta maquina. O arquivo de "
+			L"configuracao do Claude Desktop e texto comum, sem cifra - a senha "
+			L"do banco ficaria legivel la dentro.\n\n"
+			L"SIM envia a conexao. NAO conecta sem banco (voce ainda pode "
+			L"configurar depois, direto na extensao).",
+			L"Conexao de banco", MessageBoxButtons::YesNoCancel,
+			MessageBoxIcon::Warning, MessageBoxDefaultButton::Button2);
+		if (r == System::Windows::Forms::DialogResult::Cancel) return false;
+		if (r == System::Windows::Forms::DialogResult::Yes)
+			Environment::SetEnvironmentVariable(L"T2M_DSN", MontarDSN());
+		return true;
+	}
+
 	private: void ConectarClaudeSemArquivos() {
+		if (!PrepararConexaoParaOPlugin()) return;
 		String^ script = CaminhoApp(L"conectar_claude.bat");
 		if (!System::IO::File::Exists(script)) {
 			MessageBox::Show(
