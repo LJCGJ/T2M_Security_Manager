@@ -66,6 +66,12 @@ Source: "{#PastaRelease}\listar_modelos.py"; DestDir: "{app}"; Flags: ignorevers
 ; copia *.py -, entao a falha NUNCA aparecia em desenvolvimento: so na maquina
 ; de quem instalou. E o motivo de testar o instalador, e nao so o programa.
 Source: "{#PastaRelease}\servidor_http_mcp.py"; DestDir: "{app}"; Flags: ignoreversion
+; Servidor MCP que expoe o T2M ao Claude Desktop. Nao e usado pelo aplicativo:
+; quem o inicia e o host, pela configuracao de servidores MCP. Precisa ser
+; instalado mesmo assim - sem ele, o plugin nao tem o que apontar, e o usuario
+; teria de clonar o repositorio para usar uma funcionalidade que o instalador
+; diz entregar.
+Source: "{#PastaRelease}\servidor_mcp_t2m.py"; DestDir: "{app}"; Flags: ignoreversion
 ; Imagens e icones usados pelo app. Nomeados um a um pelo mesmo motivo dos .py:
 ; a pasta Release acumula sobras de teste, e um curinga as levaria embutidas no
 ; instalador (icon2_antigo.ico, prints de execucoes antigas).
@@ -73,6 +79,14 @@ Source: "{#PastaRelease}\T2M_logo-03.png"; DestDir: "{app}"; Flags: ignoreversio
 Source: "{#PastaRelease}\icon2.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; O icone fica na pasta do codigo-fonte (nao e copiado para a Release pelo build)
 Source: "{#PastaApoio}\T2M_Security_Manager\icon2.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; Ligacao com o Claude Desktop. Vao juntos de proposito: o .mcpb instala com
+; dois cliques QUANDO o Claude Desktop existe, e o script diz o que fazer
+; quando ele nao existe - inclusive meses depois, pelo atalho do menu Iniciar.
+; Instalar os dois mesmo sem o Claude na maquina e barato (88 KB) e evita que a
+; funcionalidade dependa de o usuario voltar ao site do projeto para baixar.
+Source: "{#PastaApoio}\plugin_claude\t2m-security-manager-5.0.0.mcpb"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#PastaApoio}\conectar_claude.py"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#PastaApoio}\conectar_claude.bat"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; Apoio: dependencias e documentacao
 Source: "{#PastaApoio}\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PastaApoio}\instalar_dependencias.bat"; DestDir: "{app}"; Flags: ignoreversion
@@ -83,6 +97,15 @@ Source: "{#PastaApoio}\README.pt.md"; DestDir: "{app}"; Flags: ignoreversion ski
 [Icons]
 Name: "{group}\{#NomeApp}"; Filename: "{app}\{#ExeApp}"; IconFilename: "{app}\icon2.ico"
 Name: "{group}\Preparar ambiente (dependencias)"; Filename: "{app}\instalar_dependencias.bat"
+Name: "{group}\Conectar ao Claude Desktop"; Filename: "{app}\conectar_claude.bat"; \
+  Comment: "Liga o T2M ao Claude Desktop - ou diz o que falta, se ele ainda nao estiver instalado"
+; Atalho na area de trabalho SOMENTE quando o Claude Desktop nao esta instalado.
+; Quem ja tem o Claude nao precisa dele na area de trabalho - o do menu Iniciar
+; basta. Quem NAO tem e justamente quem vai esquecer que esta parte existe, e
+; para essa pessoa o atalho e o lembrete de que falta um passo.
+Name: "{autodesktop}\Conectar T2M ao Claude Desktop"; Filename: "{app}\conectar_claude.bat"; \
+  Comment: "Rode isto depois de instalar o Claude Desktop, para ligar o T2M a ele"; \
+  Check: not TemClaudeDesktop
 Name: "{group}\Desinstalar {#NomeApp}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#NomeApp}"; Filename: "{app}\{#ExeApp}"; IconFilename: "{app}\icon2.ico"; Tasks: desktopicon
 
@@ -129,6 +152,61 @@ begin
             and (Codigo = 0);
 end;
 
+// ------------------------------------------------------------------
+//  O CLAUDE DESKTOP ESTA NESTA MAQUINA?
+//
+//  Varias pastas, porque uma so nao responde - e isso foi MEDIDO, nao
+//  suposto. A primeira versao olhava so %APPDATA%\Claude, que e o caminho
+//  documentado, e respondeu "nao instalado" numa maquina com o Claude
+//  Desktop ABERTO na hora: ali a pasta real era %LOCALAPPDATA%\Claude.
+//
+//  Some-se a isso que a pasta de configuracao so nasce quando o programa e
+//  aberto pela primeira vez - quem instalou e ainda nao abriu apareceria
+//  como "nao tem". Por isso a lista cobre dados E instalacao.
+//
+//  Errar aqui e barato nos dois sentidos: um falso negativo mostra um
+//  aviso a mais e deixa um atalho a mais na area de trabalho; um falso
+//  positivo apenas deixa de avisar quem ja sabia. Nenhum dos dois
+//  impede nada.
+// ------------------------------------------------------------------
+// A versao da Microsoft Store (MSIX) roda em conteiner: o %APPDATA% dela
+// e virtualizado para dentro de Packages, e a configuracao real fica em
+//   %LOCALAPPDATA%\Packages\Claude_<sufixo>\LocalCache\Roaming\Claude
+// O sufixo muda por instalacao, entao a busca e por padrao. Descoberto
+// medindo a maquina de um usuario: as pastas "obvias" existiam e nenhuma
+// delas era a certa.
+function TemClaudeNaStore(): Boolean;
+var
+  FR: TFindRec;
+  Base: String;
+begin
+  Result := False;
+  Base := ExpandConstant('{localappdata}\Packages\');
+  if FindFirst(Base + 'Claude*', FR) then
+  begin
+    try
+      repeat
+        if (FR.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+        begin
+          if DirExists(Base + FR.Name + '\LocalCache\Roaming\Claude') then
+            Result := True;
+        end;
+      until Result or (not FindNext(FR));
+    finally
+      FindClose(FR);
+    end;
+  end;
+end;
+
+function TemClaudeDesktop(): Boolean;
+begin
+  Result := TemClaudeNaStore
+         or DirExists(ExpandConstant('{localappdata}\Claude'))
+         or DirExists(ExpandConstant('{userappdata}\Claude'))
+         or DirExists(ExpandConstant('{localappdata}\AnthropicClaude'))
+         or DirExists(ExpandConstant('{localappdata}\Programs\Claude'));
+end;
+
 function InitializeSetup(): Boolean;
 var
   Faltando: String;
@@ -150,6 +228,57 @@ begin
            mbInformation, MB_OK);
 
   Result := True;  // segue com a instalacao de qualquer forma
+end;
+
+// ------------------------------------------------------------------
+//  AVISO DE FIM DE INSTALACAO SOBRE O CLAUDE DESKTOP
+//
+//  A extensao do Claude Desktop e instalada PELO Claude Desktop. Sem ele
+//  na maquina nao existe quem a instale, e escrever nas pastas internas
+//  dele seria adivinhar formato nao documentado.
+//
+//  Entao o instalador faz a unica coisa honesta: conta o que deixou
+//  pronto, diz onde esta, e explica o que fazer depois. Sem isso, a
+//  funcionalidade existiria no disco e nao na cabeca de ninguem.
+// ------------------------------------------------------------------
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  // Quem JA TEM o Claude Desktop tambem precisa saber que a opcao existe -
+  // antes so quem NAO tinha recebia aviso, e o resultado era o pior dos dois
+  // mundos: a funcionalidade pronta no disco e invisivel para quem podia usar
+  // no mesmo minuto.
+  if (CurStep = ssPostInstall) and TemClaudeDesktop then
+  begin
+    MsgBox('O Claude Desktop foi encontrado nesta maquina.' + #13#10#13#10
+           + 'O T2M pode ser operado por ele: a automacao passa a rodar pela '
+           + 'assinatura que voce ja tem, em vez de consumir creditos de API. '
+           + 'As travas continuam sendo do T2M - pasta unica, banco somente '
+           + 'leitura, sem escrita em disco.' + #13#10#13#10
+           + 'Para ligar os dois, use qualquer um destes caminhos:' + #13#10#13#10
+           + '  - menu Iniciar > T2M Security Manager > "Conectar ao Claude Desktop";'
+           + #13#10
+           + '  - ou, dentro do aplicativo, Configuracoes > "Conectar ao Claude Desktop".'
+           + #13#10#13#10
+           + 'E opcional: com chave de API o T2M funciona como sempre.',
+           mbInformation, MB_OK);
+  end;
+
+  if (CurStep = ssPostInstall) and (not TemClaudeDesktop) then
+  begin
+    MsgBox('O Claude Desktop nao foi encontrado nesta maquina.' + #13#10#13#10
+           + 'O T2M pode ser usado por ele: em vez de gastar creditos de API, '
+           + 'a automacao passa a rodar pela assinatura do Claude que voce ja '
+           + 'tiver. Isso e opcional - o T2M funciona normalmente sem ele, com '
+           + 'chave de API.' + #13#10#13#10
+           + 'Deixamos tudo pronto para quando voce quiser:' + #13#10#13#10
+           + '  - a extensao do T2M foi instalada em:' + #13#10
+           + '    ' + ExpandConstant('{app}') + #13#10#13#10
+           + '  - um atalho "Conectar T2M ao Claude Desktop" foi criado na sua '
+           + 'AREA DE TRABALHO.' + #13#10#13#10
+           + 'Depois de instalar o Claude Desktop, use esse atalho: ele liga os '
+           + 'dois e diz se deu certo. O mesmo atalho fica no menu Iniciar.',
+           mbInformation, MB_OK);
+  end;
 end;
 
 // ------------------------------------------------------------------

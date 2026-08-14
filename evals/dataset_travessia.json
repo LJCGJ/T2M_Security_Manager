@@ -1,6 +1,6 @@
 {
   "descricao": "Cenarios de decisao ENTRE CAMADAS (tela, banco, API, arquivos) na mesma execucao. A pergunta que se mede aqui nao e 'qual a proxima ferramenta desta camada', e sim 'em qual camada agir agora - ou parar'. Nenhuma execucao real acontece: o que custa e uma requisicao por caso.",
-  "origem": "A eval de selecao de ferramenta nasceu depois do modo de tela existir, e as duas primeiras execucoes reais viraram regra de prompt. Esta nasce ANTES do modo de travessia existir, de proposito: os casos sao a especificacao do que o laco tera de fazer. Cada um vem de uma falha ja vista neste projeto, adaptada para o cenario de varias camadas - nenhum e hipotese. O tv-003 e o tv-007 nasceram partidos em dois depois da primeira medicao: o gabarito original pedia encerramento na primeira consulta vazia, e o modelo consultou de novo. Ele estava certo. Quando o gabarito e o modelo discordam, a primeira coisa a conferir e o gabarito.",
+  "origem": "A eval de selecao de ferramenta nasceu depois do modo de tela existir, e as duas primeiras execucoes reais viraram regra de prompt. Esta nasce ANTES do modo de travessia existir, de proposito: os casos sao a especificacao do que o laco tera de fazer. Cada um vem de uma falha ja vista neste projeto, adaptada para o cenario de varias camadas - nenhum e hipotese. O tv-003 e o tv-007 nasceram partidos em dois depois da primeira medicao: o gabarito original pedia encerramento na primeira consulta vazia, e o modelo consultou de novo. Ele estava certo. Quando o gabarito e o modelo discordam, a primeira coisa a conferir e o gabarito. O tv-008 veio de uma execucao real do plugin no Claude Desktop: a pagina de teste publica ja trazia a mensagem de erro no DOM antes de qualquer acao.",
   "casos": [
     {
       "id": "tv-001",
@@ -187,6 +187,30 @@
         "http_request"
       ],
       "justificativa": "Caso real do modo Arquivos: perguntado o total incluindo subpastas, o modelo listou um nivel de cada uma e somou 53. O numero verificado passa de 485 - uma subpasta que ele chamou de vazia continha outra pasta com 32 arquivos, e outra continha mais de 400. Encerrar aqui com um total seria uma resposta errada com aparencia de resposta; um nivel a menos nao e aproximacao."
+    },
+    {
+      "id": "tv-008",
+      "titulo": "O texto ja estava la antes da acao",
+      "camadas": [
+        "tela"
+      ],
+      "objetivo": "Fazer login com o usuario student e a senha SenhaErrada123 e confirmar que a aplicacao rejeita com mensagem de erro.",
+      "estado": "A pagina de login acabou de ser aberta. Nenhum campo foi preenchido e nenhum botao foi clicado. O snapshot mostra: textbox \"Username\" [ref=e39] vazio, textbox \"Password\" [ref=e41] vazio, button \"Submit\" [ref=e42], e um elemento [ref=e43] contendo o texto \"Your username is invalid!\".",
+      "ferramentas_ja_usadas": [
+        "browser_navigate",
+        "browser_snapshot"
+      ],
+      "tool_esperada": "browser_type",
+      "argumentos_esperados": {
+        "text": "student",
+        "target": "e39"
+      },
+      "tools_nao_esperadas": [
+        "browser_take_screenshot",
+        "browser_close",
+        "browser_navigate"
+      ],
+      "justificativa": "Caso REAL, colhido em execucao numa pagina publica - nao construido por nos. A practicetestautomation.com mantem o elemento de erro no DOM desde o carregamento, com o texto \"Your username is invalid!\" ja visivel antes de qualquer interacao. Um agente que abre a pagina, procura por 'mensagem de erro' e a encontra conclui que o login foi testado sem ter testado nada - e o relatorio sai coerente, citando um texto que existe mesmo. Foi exatamente isso que aconteceu com o llama-3.3-70b, e na epoca tratamos como alucinacao; nao era. O texto estava la. O certo aqui e IGNORAR a mensagem preexistente e executar o teste: presenca nao e prova de causa. So a MUDANCA do texto - de 'username' para 'password' - depois do clique prova que a mensagem veio da submissao. Tirar print agora seria fotografar um estado que nao testa nada."
     }
   ]
 }

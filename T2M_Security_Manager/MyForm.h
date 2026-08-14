@@ -3454,6 +3454,50 @@ namespace T2MSecurityManager {
 		dicaJs->Font = gcnew System::Drawing::Font("Segoe UI", 8);
 		corpo->Controls->Add(dicaJs);
 
+		// --- USAR PELO CLAUDE DESKTOP ---
+		// Sem isto, a funcionalidade existia no disco e nao na cabeca de
+		// ninguem: quem instalava o T2M e ja tinha o Claude Desktop nao
+		// recebia aviso nenhum (o do instalador so aparece para quem NAO
+		// tem), e nao havia nada na interface contando que a opcao existe.
+		// Uma alternativa que ninguem descobre nao e uma alternativa.
+		y += 50;
+		Label^ tituloPlugin = gcnew Label();
+		tituloPlugin->Text = L"Usar pelo Claude Desktop (sem gastar creditos de API)";
+		tituloPlugin->Location = System::Drawing::Point(x1, y); tituloPlugin->AutoSize = true;
+		tituloPlugin->Font = gcnew System::Drawing::Font("Segoe UI", 9, System::Drawing::FontStyle::Bold);
+		corpo->Controls->Add(tituloPlugin);
+
+		y += 24;
+		Label^ dicaPlugin = gcnew Label();
+		dicaPlugin->Text =
+			L"O T2M pode ser operado pelo Claude Desktop: a automacao passa a rodar pela assinatura\n"
+			L"que voce ja tem, em vez de consumir creditos de API. As travas continuam sendo do T2M -\n"
+			L"pasta unica, somente leitura no banco, sem escrita em disco. E opcional: com chave de API\n"
+			L"tudo continua funcionando como sempre.";
+		dicaPlugin->Location = System::Drawing::Point(x1 + 18, y);
+		dicaPlugin->Size = System::Drawing::Size(650, 60);
+		dicaPlugin->ForeColor = System::Drawing::Color::DimGray;
+		dicaPlugin->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		corpo->Controls->Add(dicaPlugin);
+
+		y += 64;
+		Button^ btnPlugin = gcnew Button();
+		btnPlugin->Text = L"Conectar ao Claude Desktop";
+		btnPlugin->Location = System::Drawing::Point(x1 + 18, y);
+		btnPlugin->Size = System::Drawing::Size(210, 28);
+		btnPlugin->FlatStyle = FlatStyle::Flat;
+		btnPlugin->Click += gcnew System::EventHandler(this, &MyForm::btnConectarClaude_Click);
+		corpo->Controls->Add(btnPlugin);
+
+		Label^ estadoPlugin = gcnew Label();
+		estadoPlugin->Text = TextoEstadoClaude();
+		estadoPlugin->Location = System::Drawing::Point(x1 + 240, y + 6);
+		estadoPlugin->AutoSize = true;
+		estadoPlugin->ForeColor = TemClaudeDesktopInstalado()
+			? System::Drawing::Color::DarkGreen : System::Drawing::Color::DimGray;
+		estadoPlugin->Font = gcnew System::Drawing::Font("Segoe UI", 8);
+		corpo->Controls->Add(estadoPlugin);
+
 		y += 50;
 		Label^ lblDom = gcnew Label();
 		lblDom->Text = L"Dominios confiaveis:";
@@ -5603,6 +5647,78 @@ namespace T2MSecurityManager {
 		modoAtivo = 2; tipoAutomacao = 0;
 		AtualizarBotoesModo();
 	}
+		   // O Claude Desktop empacotado da Microsoft Store roda em conteiner e
+		   // VIRTUALIZA o %APPDATA% para dentro de Packages. Descoberto medindo
+		   // uma maquina real: as pastas obvias existiam e nenhuma era a certa.
+	private: bool TemClaudeDesktopInstalado() {
+		try {
+			String^ local = Environment::GetFolderPath(
+				Environment::SpecialFolder::LocalApplicationData);
+			String^ roaming = Environment::GetFolderPath(
+				Environment::SpecialFolder::ApplicationData);
+			if (System::IO::Directory::Exists(System::IO::Path::Combine(local, L"Claude")))
+				return true;
+			if (System::IO::Directory::Exists(System::IO::Path::Combine(roaming, L"Claude")))
+				return true;
+			String^ pacotes = System::IO::Path::Combine(local, L"Packages");
+			if (System::IO::Directory::Exists(pacotes)) {
+				cli::array<String^>^ achados =
+					System::IO::Directory::GetDirectories(pacotes, L"Claude*");
+				for each (String ^ p in achados) {
+					if (System::IO::Directory::Exists(
+						System::IO::Path::Combine(p, L"LocalCache\\Roaming\\Claude")))
+						return true;
+				}
+			}
+		}
+		catch (Exception^) {}
+		return false;
+	}
+
+	private: String^ TextoEstadoClaude() {
+		return TemClaudeDesktopInstalado()
+			? L"Claude Desktop encontrado nesta maquina."
+			: L"Claude Desktop nao encontrado - o botao explica o que fazer.";
+	}
+
+		   // Abre o conector. Ele proprio decide o que fazer: conecta se o
+		   // Claude estiver instalado, e diz o que falta se nao estiver.
+	private: System::Void btnConectarClaude_Click(System::Object^ sender, System::EventArgs^ e) {
+		System::Windows::Forms::FolderBrowserDialog^ dlg = gcnew System::Windows::Forms::FolderBrowserDialog();
+		dlg->Description = L"Escolha a pasta que a automacao podera ler pelo Claude Desktop. "
+			L"Ela nao enxerga nada fora daqui.";
+		dlg->ShowNewFolderButton = false;
+		if (dlg->ShowDialog() != System::Windows::Forms::DialogResult::OK) return;
+
+		String^ recusa = MotivoPastaRecusada(dlg->SelectedPath->Trim());
+		if (recusa != L"") {
+			MessageBox::Show(recusa, L"Pasta nao permitida",
+				MessageBoxButtons::OK, MessageBoxIcon::Warning);
+			return;
+		}
+		String^ script = System::IO::Path::Combine(CaminhoApp(), L"conectar_claude.bat");
+		if (!System::IO::File::Exists(script)) {
+			MessageBox::Show(
+				L"O conector nao foi encontrado ao lado do programa.\n\n"
+				L"Esperado em: " + script + L"\n\n"
+				L"Ele acompanha a instalacao do T2M; se voce esta rodando de dentro do "
+				L"codigo-fonte, use o conectar_claude.py na raiz do repositorio.",
+				L"Conector ausente", MessageBoxButtons::OK, MessageBoxIcon::Warning);
+			return;
+		}
+		try {
+			System::Diagnostics::ProcessStartInfo^ psi = gcnew System::Diagnostics::ProcessStartInfo();
+			psi->FileName = script;
+			psi->Arguments = L"--pasta \"" + dlg->SelectedPath->Trim() + L"\"";
+			psi->UseShellExecute = true;
+			System::Diagnostics::Process::Start(psi);
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Nao foi possivel abrir o conector: " + ex->Message,
+				L"Erro", MessageBoxButtons::OK, MessageBoxIcon::Error);
+		}
+	}
+
 		   // Opcao Arquivos do Windows - a IA le uma pasta, e SO ela.
 		   //
 		   // A pasta e escolhida a cada vez, e nao guardada em Configuracoes, de

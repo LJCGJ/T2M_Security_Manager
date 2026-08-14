@@ -1,0 +1,82 @@
+{
+  "manifest_version": "0.3",
+  "name": "t2m-security-manager",
+  "display_name": "T2M Security Manager",
+  "version": "5.0.0",
+  "description": "Automacao de testes de QA em quatro camadas - tela, arquivos, banco e API - com as travas de seguranca aplicadas do lado do T2M.",
+  "long_description": "Expoe o T2M Security Manager como servidor MCP para o Claude Desktop. Em vez de rodar o proprio laco de IA com uma chave de API, o T2M entrega as primitivas de teste e deixa o raciocinio com o Claude: ver a tela, clicar, digitar, ler arquivos, consultar o banco e chamar APIs. Todas as operacoes sao somente-leitura no que toca a mudar o estado do mundo - o banco aceita apenas SELECT e WITH, e nao ha escrita em disco. O navegador roda em perfil isolado, sem herdar suas sessoes logadas. Os arquivos ficam limitados a uma unica pasta que voce escolhe. Requer Python 3.10+ e Node.js 18+ instalados (o instalador do T2M oferece instalar os dois).",
+  "author": {
+    "name": "Leonardo Gonzaga",
+    "url": "https://github.com/LJCGJ/T2M_Security_Manager"
+  },
+  "homepage": "https://github.com/LJCGJ/T2M_Security_Manager",
+  "documentation": "https://github.com/LJCGJ/T2M_Security_Manager/blob/main/README.pt.md",
+  "support": "https://github.com/LJCGJ/T2M_Security_Manager/issues",
+  "license": "GPL-3.0",
+  "keywords": ["qa", "testes", "automacao", "seguranca", "playwright", "banco de dados"],
+  "server": {
+    "type": "python",
+    "entry_point": "server/servidor_mcp_t2m.py",
+    "mcp_config": {
+      "command": "python",
+      "args": ["${__dirname}/server/servidor_mcp_t2m.py"],
+      "env": {
+        "T2M_PASTA_PERMITIDA": "${user_config.pasta_permitida}",
+        "T2M_DSN": "${user_config.dsn}",
+        "T2M_TIMEOUT": "${user_config.timeout}",
+        "T2M_HEADLESS": "${user_config.headless}"
+      }
+    }
+  },
+  "tools": [
+    {"name": "t2m_situacao", "description": "Diz o que o T2M enxerga: pasta permitida, banco, navegador e limites."},
+    {"name": "tela_abrir", "description": "Abre o navegador de testes numa URL e devolve o conteudo da pagina."},
+    {"name": "tela_ver", "description": "Devolve o estado atual da pagina, com as referencias de elemento."},
+    {"name": "tela_clicar", "description": "Clica num elemento indicado por uma referencia do snapshot."},
+    {"name": "tela_digitar", "description": "Digita um texto num campo indicado por uma referencia do snapshot."},
+    {"name": "tela_evidencia", "description": "Guarda um print da tela como evidencia do relatorio."},
+    {"name": "arquivos_listar", "description": "Lista um nivel da pasta permitida, com tamanhos."},
+    {"name": "arquivos_arvore", "description": "Percorre a arvore inteira da pasta permitida."},
+    {"name": "arquivos_ler", "description": "Le um arquivo de texto de dentro da pasta permitida."},
+    {"name": "banco_consultar", "description": "Executa SELECT ou WITH no banco configurado. Nada que escreva."},
+    {"name": "banco_estrutura", "description": "Lista tabelas e colunas do banco."},
+    {"name": "api_requisitar", "description": "Faz uma requisicao HTTP e devolve status, cabecalhos e corpo."},
+    {"name": "t2m_relatorio", "description": "Gera o relatorio do teste com as evidencias observadas na sessao."}
+  ],
+  "user_config": {
+    "pasta_permitida": {
+      "type": "directory",
+      "title": "Pasta que a automacao pode ler",
+      "description": "A unica pasta que as ferramentas de arquivo enxergam. Nada fora dela e acessivel - nem por caminho absoluto, nem por '..'. Escolha uma pasta de trabalho, nunca a raiz do disco.",
+      "required": true
+    },
+    "dsn": {
+      "type": "string",
+      "title": "Conexao do banco (opcional)",
+      "description": "Ex.: postgres://usuario:senha@host:5432/base. Deixe vazio se nao for testar banco. A conexao vai por variavel de ambiente, nunca pela linha de comando - assim a senha nao aparece na lista de processos.",
+      "sensitive": true,
+      "required": false
+    },
+    "timeout": {
+      "type": "number",
+      "title": "Tempo limite por operacao (segundos)",
+      "description": "Quanto esperar por cada acao antes de desistir. Padrao 120.",
+      "default": 120,
+      "required": false
+    },
+    "headless": {
+      "type": "string",
+      "title": "Navegador sem janela",
+      "description": "Escreva 1 para rodar o navegador invisivel, ou 0 para ver a automacao acontecendo. Ver a tela ajuda a confiar no resultado.",
+      "default": "0",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["win32", "darwin"],
+    "runtimes": {
+      "python": ">=3.10.0"
+    }
+  }
+}
