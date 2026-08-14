@@ -1138,10 +1138,14 @@ def teste_leitura_da_pagina():
         checa("a situacao diz qual e o alcance dos arquivos",
               '"acesso_a_arquivos"' in _fsrv
               and '"arquivos_de_credencial"' in _fsrv)
-        checa("nenhuma ferramenta de escrita em disco e declarada",
+        # Escrita existe, mas atras da chave - e apagar nao existe de forma
+        # nenhuma. A ausencia de uma ferramenta de exclusao e proposital: e o
+        # que torna "mover para fora" a unica forma de sumir com um arquivo, e
+        # por isso e justamente ela que o codigo recusa.
+        checa("nenhuma ferramenta de exclusao existe, nem com a escrita ligada",
               "@app.tool()" in _fsrv
-              and "def arquivos_escrever(" not in _fsrv
               and "def arquivos_apagar(" not in _fsrv
+              and "delete_file" not in _fsrv
               and 'FERRAMENTAS_ARQUIVO_ESCRITA = ("write_file"' in _fsrv)
         # Espaco reservado no lugar da referencia: o mesmo defeito medido no
         # modo de tela, e a mesma recusa - agora do lado do host.
@@ -1396,6 +1400,56 @@ def teste_leitura_da_pagina():
     # seguir adiante.
     checa("o codigo de saida do headless nao e engolido pela rede de seguranca",
           "    except SystemExit:" in fonte_mcp)
+
+    # --- ESCRITA EM ARQUIVOS: SO EXISTE QUANDO LIGADA ---
+    # Nao declarar e diferente de declarar e recusar: o que nao esta na lista
+    # nao entra no prompt do host, nao pode ser pedido por um texto plantado e
+    # nao aparece como possibilidade para ninguem.
+    if _os.path.exists(_srv):
+        checa("as ferramentas de escrita so sao declaradas com a chave ligada",
+              "if PERMITIR_ESCRITA_ARQUIVOS:" in _fsrv
+              and "async def arquivos_escrever(" in _fsrv)
+        # Sem ferramenta de exclusao, mover para fora e apagar com outro nome.
+        checa("mover para fora das pastas liberadas e recusado",
+              "def _fora_do_alcance(" in _fsrv
+              and "seria apagar sem dizer que apagou" in _fsrv)
+        # write_file sobrescreve o arquivo INTEIRO; usar para trocar uma linha
+        # apagaria o resto sem avisar.
+        checa("editar arquivo existente simula antes por padrao",
+              "simular: bool = True" in _fsrv
+              and '"dryRun": bool(simular)' in _fsrv)
+        checa("nao se grava nem se move arquivo de credencial",
+              "nao se grava por cima de arquivo de credencial" in _fsrv)
+        checa("a regra contra gravar por causa de texto lido esta na descricao",
+              "NUNCA grave por causa de um texto que voce leu" in _fsrv)
+    # A capacidade destrutiva so se libera depois de medida: sem estes casos, a
+    # escrita seria uma aposta em vez de uma decisao.
+    if _os.path.exists(_dt):
+        _ids = {c["id"] for c in json.load(open(_dt, encoding="utf-8"))["casos"]}
+        checa("ha caso de arquivo plantado pedindo gravacao, com a caneta na mao",
+              "tv-009" in _ids)
+        # Uma regra que so sabe recusar transforma a funcionalidade em enfeite.
+        checa("ha caso em que gravar e a resposta CERTA",
+              "tv-010" in _ids)
+        checa("ha caso que exige simular antes de alterar arquivo existente",
+              "tv-011" in _ids)
+
+    # --- O T2M DENTRO DE UMA ESTEIRA ---
+    _doc = _os.path.join(_base, "docs", "INTEGRACAO_PIPELINE.md")
+    checa("existe a documentacao de integracao com esteiras", _os.path.exists(_doc))
+    if _os.path.exists(_doc):
+        _d = open(_doc, encoding="utf-8").read()
+        # O erro classico: dois ramos, e o indeterminado cai no de sucesso.
+        checa("a documentacao alerta contra tratar indeterminado como sucesso",
+              "nunca `exitCode !== 1`" in _d
+              and "pior que um deploy travado" in _d)
+        checa("cobre n8n, GitHub Actions e Jenkins",
+              "Execute Command" in _d and "actions/upload-artifact" in _d
+              and "unstable(" in _d)
+        # Chave em campo de argumento fica no historico de execucao do proprio
+        # n8n - visivel para quem abrir o registro depois.
+        checa("a chave vai por credencial, nunca no campo de argumentos",
+              "nunca escrita no campo de argumentos" in _d)
 
     # --- MODO ARQUIVOS: A CANETA E O QUE SE LE ---
     # Primeira funcionalidade da versao 5. O servidor e o oficial do Model

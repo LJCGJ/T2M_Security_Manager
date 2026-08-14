@@ -166,6 +166,47 @@ FERRAMENTAS_TRAVESSIA = FERRAMENTAS + [
         },
     },
     {
+        "nome": "write_file",
+        "descricao": "Cria ou SOBRESCREVE um arquivo inteiro dentro da pasta liberada.",
+        "parametros": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "nome": "edit_file",
+        "descricao": "Troca um trecho de um arquivo existente. dryRun=true simula sem alterar.",
+        "parametros": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "oldText": {"type": "string"},
+                "newText": {"type": "string"},
+                "dryRun": {"type": "boolean", "description": "true simula, sem alterar nada"},
+            },
+            "required": ["path", "oldText", "newText"],
+        },
+    },
+    {
+        "nome": "move_file",
+        "descricao": "Move ou renomeia um arquivo dentro da pasta liberada.",
+        "parametros": {
+            "type": "object",
+            "properties": {"source": {"type": "string"}, "destination": {"type": "string"}},
+            "required": ["source", "destination"],
+        },
+    },
+    {
+        "nome": "create_directory",
+        "descricao": "Cria uma pasta dentro da pasta liberada.",
+        "parametros": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
+    {
         "nome": "list_directory_with_sizes",
         "descricao": "Lista UM nivel da pasta, com o tamanho de cada arquivo. Nao entra nas subpastas.",
         "parametros": {
