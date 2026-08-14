@@ -314,6 +314,11 @@ namespace T2MSecurityManager {
 		int modoAtivo;
 		int tipoAutomacao;       // quando modoAtivo==2: 0=Tela, 1=API, 2=Banco, 3=Arquivos
 
+		// Ultima posicao do seletor que era MESMO uma chave. A entrada do Claude
+		// Desktop e uma acao, nao um provedor: depois de executada, a selecao
+		// volta para aqui, e o Enviar continua usando a chave que estava valendo.
+		int indiceChaveAnterior;
+
 		// Pasta unica que a automacao de arquivos enxerga. Vai como argumento
 		// para o servidor MCP oficial de sistema de arquivos, que RECUSA
 		// qualquer caminho fora dela - a trava mora no servidor, nao numa frase
@@ -1462,6 +1467,11 @@ namespace T2MSecurityManager {
 		}
 		if (combo->Items->Count == 0) combo->Items->Add(L" Nenhuma chave ");
 		combo->Items->Add("-------------------------"); combo->Items->Add(L"+ Adicionar Nova API Key...");
+		// NAO E UMA CHAVE - e uma ACAO, e por isso volta a selecao anterior
+		// depois de executada. Esta aqui porque e onde as pessoas olham quando
+		// pensam "como esta IA vai rodar"; ficar so em Configuracoes deixava a
+		// alternativa invisivel para quem mais se beneficia dela.
+		combo->Items->Add(L"\u27a4 Usar pelo Claude Desktop (sem chave de API)...");
 
 		// VOLTA NA CHAVE DE ONTEM, nao na primeira da lista. Quem tem duas
 		// chaves cadastradas usa UMA delas o dia inteiro; abrir sempre na
@@ -1501,7 +1511,11 @@ namespace T2MSecurityManager {
 		try {
 			if (combo == nullptr || combo->SelectedItem == nullptr) return;
 			String^ escolha = combo->SelectedItem->ToString();
+			// Nenhuma ENTRADA DE ACAO pode virar "ultima chave": ao reabrir, a
+			// janela tentaria selecionar uma acao como se fosse chave. O
+			// prefixo e a marca - "-" separador, "+" adicionar, "\u27a4" acao.
 			if (escolha->StartsWith(L"-") || escolha->StartsWith(L"+")
+				|| escolha->StartsWith(L"\u27a4")
 				|| escolha->Trim() == L"Nenhuma chave") return;
 			File::WriteAllText(CaminhoDados("ultima_chave.txt"), escolha);
 		}
@@ -2069,6 +2083,51 @@ namespace T2MSecurityManager {
 	}
 
 	private: System::Void comboModeloChat_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
+		// A ENTRADA DO CLAUDE DESKTOP NAO E UM PROVEDOR.
+		//
+		// O seletor escolhe quem roda o laco DENTRO do T2M. No caminho do Claude
+		// Desktop a direcao se inverte: e ELE quem chama o T2M, e nao existe API
+		// pela qual o nosso aplicativo mande uma tarefa para ele executar.
+		//
+		// Deixar isso parecendo um provedor seria a pior forma de descobrir a
+		// funcionalidade: a pessoa selecionaria, apertaria Enviar e nada
+		// aconteceria. Entao a entrada explica a inversao, oferece conectar, e
+		// DEVOLVE a selecao para a chave anterior - o Enviar continua usando a
+		// chave que estava valendo.
+		if (comboModeloChat->SelectedItem != nullptr
+			&& comboModeloChat->SelectedItem->ToString() == L"\u27a4 Usar pelo Claude Desktop (sem chave de API)...") {
+			int voltarPara = indiceChaveAnterior;
+			String^ estado = TemClaudeDesktopInstalado()
+				? L"O Claude Desktop foi encontrado nesta maquina."
+				: L"O Claude Desktop nao foi encontrado nesta maquina - instale-o primeiro.";
+			System::Windows::Forms::DialogResult r = MessageBox::Show(
+				L"Esta opcao nao e uma chave de API - e o caminho contrario.\n\n"
+				L"Aqui no T2M, voce escreve o objetivo e a IA executa usando a chave "
+				L"selecionada. Pelo Claude Desktop e ao contrario: voce conversa la, e "
+				L"e ELE quem chama o T2M para abrir a tela, ler arquivos, consultar o "
+				L"banco e testar APIs. A automacao passa a rodar pela sua assinatura, "
+				L"sem consumir creditos de API.\n\n"
+				L"As travas continuam sendo do T2M: pasta unica, banco somente leitura, "
+				L"sem escrita em disco.\n\n"
+				+ estado + L"\n\n"
+				L"Deseja conectar agora? Voce escolhera a pasta que a automacao podera ler.",
+				L"Usar pelo Claude Desktop",
+				MessageBoxButtons::YesNo, MessageBoxIcon::Information);
+
+			// A selecao volta ANTES de abrir qualquer dialogo: se o usuario
+			// fechar tudo no X, a chave que estava valendo continua valendo.
+			montandoListaDeChaves = true;
+			try {
+				if (voltarPara >= 0 && voltarPara < comboModeloChat->Items->Count)
+					comboModeloChat->SelectedIndex = voltarPara;
+				else if (comboModeloChat->Items->Count > 0)
+					comboModeloChat->SelectedIndex = 0;
+			}
+			finally { montandoListaDeChaves = false; }
+
+			if (r == System::Windows::Forms::DialogResult::Yes) btnConectarClaude_Click(sender, e);
+			return;
+		}
 		if (comboModeloChat->SelectedItem != nullptr && comboModeloChat->SelectedItem->ToString() == L"+ Adicionar Nova API Key...") {
 			Form^ formAdd = gcnew Form();
 			formAdd->Text = L"Adicionar API Key";
@@ -2113,6 +2172,9 @@ namespace T2MSecurityManager {
 		}
 		AtualizarIndicadorIA();  // atualiza a bolinha/nome da IA conforme a chave
 		LembrarChaveEscolhida(comboModeloChat);
+		// So chega aqui quando a selecao e uma chave de verdade - as entradas de
+		// acao ja retornaram acima.
+		indiceChaveAnterior = comboModeloChat->SelectedIndex;
 
 		// Trocar de CHAVE tambem troca de provedor e de modelo, e e um ato
 		// explicito - merece a linha na hora, nao so no proximo envio.
@@ -2490,6 +2552,7 @@ namespace T2MSecurityManager {
 		// Estado inicial: modo Chat + indicador da IA da chave atual
 		modoAtivo = 0;
 		tipoAutomacao = 0;
+		indiceChaveAnterior = 0;
 		pastaArquivos = L"";
 		dbConfigurado = false;
 		apiConfigurado = false;

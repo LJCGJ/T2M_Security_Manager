@@ -1477,6 +1477,22 @@ def teste_leitura_da_pagina():
               and 'GetDirectories(pacotes, L"Claude*")' in _ui2)
         # O texto tem de dizer que e opcional: aviso sobre integracao ausente
         # parece defeito de instalacao.
+        # A entrada do Claude Desktop no seletor de chaves NAO e um provedor: o
+        # T2M nao tem como mandar tarefa para o Claude Desktop executar - a
+        # direcao e a inversa. Deixa-la parecendo chave faria a pessoa
+        # selecionar, apertar Enviar e nada acontecer.
+        checa("a opcao do Claude Desktop aparece no seletor de chaves",
+              "Usar pelo Claude Desktop (sem chave de API)" in _ui2)
+        checa("ela devolve a selecao para a chave anterior",
+              "int indiceChaveAnterior;" in _ui2
+              and "int voltarPara = indiceChaveAnterior;" in _ui2)
+        checa("o dialogo explica a inversao antes de conectar",
+              "e o caminho contrario" in _ui2
+              and "e ELE quem chama o T2M" in _ui2)
+        # Se virasse "ultima chave", a janela reabriria tentando selecionar uma
+        # acao como se fosse chave.
+        checa("entrada de acao nunca e gravada como ultima chave",
+              'escolha->StartsWith(L"\\u27a4")' in _ui2)
         checa("a secao diz que a integracao e opcional",
               "com chave de API" in _ui2 and "tudo continua funcionando" in _ui2)
         # A pasta passa pela mesma recusa do resto do produto.
