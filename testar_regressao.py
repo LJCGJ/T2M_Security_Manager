@@ -2961,9 +2961,19 @@ def teste_endpoint_compativel():
         for M, nome in ((A, "agente_mcp"), (G, "gerador_ia")):
             portas, endp, det, mod = (M._PORTAS_LOCAIS, M.ENDPOINT_COMPATIVEL,
                                       M._ENDPOINT_DETECTADO, M._MODELO_LOCAL_DETECTADO)
+            # MODELO_COMPATIVEL vem do configuracoes.txt do operador, e
+            # _modelo_openai o devolve ANTES de perguntar ao servidor. Sem
+            # zera-lo aqui, quem tivesse um modelo local escrito na configuracao
+            # via este teste falhar - e quem nao tivesse via passar. Uma suite
+            # cujo resultado depende da maquina de quem roda nao serve para
+            # nada: o proximo que visse a falha ia procurar defeito no codigo.
+            # Encontrado na maquina do operador, que tinha o campo preenchido de
+            # um teste antigo com servidor local.
+            mod_compat = M.MODELO_COMPATIVEL
             try:
                 M._PORTAS_LOCAIS = ((1234, "LM Studio"),)
                 M.ENDPOINT_COMPATIVEL = ""
+                M.MODELO_COMPATIVEL = ""
                 M._ENDPOINT_DETECTADO = None
                 M._MODELO_LOCAL_DETECTADO = None
                 checa(f"{nome}: acha o servidor local sem ninguem configurar",
@@ -2989,6 +2999,7 @@ def teste_endpoint_compativel():
             finally:
                 (M._PORTAS_LOCAIS, M.ENDPOINT_COMPATIVEL,
                  M._ENDPOINT_DETECTADO, M._MODELO_LOCAL_DETECTADO) = portas, endp, det, mod
+                M.MODELO_COMPATIVEL = mod_compat
     finally:
         srv.shutdown()
         srv.server_close()
