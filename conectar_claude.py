@@ -134,6 +134,12 @@ def ler_config(caminho):
 
 
 def conectar(pasta_permitida, dsn=""):
+    """pasta_permitida vazia e uma escolha legitima, nao um erro.
+
+    So a camada de ARQUIVOS depende dela. Quem vai testar tela, banco ou API
+    nao precisa dar acesso a pasta nenhuma - e exigir isso seria pedir uma
+    permissao que nao vai ser usada, que e a forma mais rapida de ensinar
+    alguem a clicar em 'permitir' sem ler."""
     destino = pasta_do_claude()
     if not destino:
         print("  [X] Nao foi possivel determinar a pasta do Claude Desktop.")
@@ -171,7 +177,9 @@ def conectar(pasta_permitida, dsn=""):
         servidores = {}
 
     outros = [n for n in servidores if n != NOME_SERVIDOR]
-    env = {"T2M_PASTA_PERMITIDA": pasta_permitida}
+    env = {}
+    if pasta_permitida:
+        env["T2M_PASTA_PERMITIDA"] = pasta_permitida
     if dsn:
         env["T2M_DSN"] = dsn
     servidores[NOME_SERVIDOR] = {
@@ -202,7 +210,7 @@ def conectar(pasta_permitida, dsn=""):
 
     print(f"  [OK] T2M conectado ao Claude Desktop.")
     print(f"       Arquivo: {config}")
-    print(f"       Pasta permitida: {pasta_permitida}")
+    print(f"       Pasta permitida: {pasta_permitida or 'nenhuma - camada de arquivos desligada'}")
     print(f"       Banco: {'configurado' if dsn else 'nao configurado'}")
     if outros:
         print(f"       Servidores que ja estavam la e foram preservados: "
@@ -281,7 +289,9 @@ def situacao():
 def main():
     p = argparse.ArgumentParser(description="Liga o T2M ao Claude Desktop.")
     p.add_argument("--pasta", default="",
-                   help="pasta unica que a automacao podera ler")
+                   help="pasta unica que a automacao podera ler (opcional)")
+    p.add_argument("--sem-arquivos", dest="sem_arquivos", action="store_true",
+                   help="conecta sem dar acesso a pasta nenhuma")
     p.add_argument("--dsn", default="",
                    help="conexao do banco (opcional)")
     p.add_argument("--remover", action="store_true",
@@ -290,6 +300,8 @@ def main():
 
     if args.remover:
         return remover()
+    if args.sem_arquivos:
+        return conectar("", args.dsn.strip())
     if not args.pasta:
         return situacao()
 

@@ -2110,9 +2110,13 @@ namespace T2MSecurityManager {
 				L"As travas continuam sendo do T2M: pasta unica, banco somente leitura, "
 				L"sem escrita em disco.\n\n"
 				+ estado + L"\n\n"
-				L"Deseja conectar agora? Voce escolhera a pasta que a automacao podera ler.",
+				L"SIM conecta dando acesso a UMA pasta, que voce escolhe - so a camada "
+				L"de arquivos depende disso.\n"
+				L"NAO conecta sem acesso a arquivo nenhum: tela, banco e API continuam "
+				L"funcionando.\n"
+				L"CANCELAR nao altera nada.",
 				L"Usar pelo Claude Desktop",
-				MessageBoxButtons::YesNo, MessageBoxIcon::Information);
+				MessageBoxButtons::YesNoCancel, MessageBoxIcon::Information);
 
 			// A selecao volta ANTES de abrir qualquer dialogo: se o usuario
 			// fechar tudo no X, a chave que estava valendo continua valendo.
@@ -2125,7 +2129,10 @@ namespace T2MSecurityManager {
 			}
 			finally { montandoListaDeChaves = false; }
 
-			if (r == System::Windows::Forms::DialogResult::Yes) btnConectarClaude_Click(sender, e);
+			if (r == System::Windows::Forms::DialogResult::Yes)
+				btnConectarClaude_Click(sender, e);
+			else if (r == System::Windows::Forms::DialogResult::No)
+				ConectarClaudeSemArquivos();
 			return;
 		}
 		if (comboModeloChat->SelectedItem != nullptr && comboModeloChat->SelectedItem->ToString() == L"+ Adicionar Nova API Key...") {
@@ -5775,6 +5782,32 @@ namespace T2MSecurityManager {
 			System::Diagnostics::ProcessStartInfo^ psi = gcnew System::Diagnostics::ProcessStartInfo();
 			psi->FileName = script;
 			psi->Arguments = L"--pasta \"" + dlg->SelectedPath->Trim() + L"\"";
+			psi->UseShellExecute = true;
+			System::Diagnostics::Process::Start(psi);
+		}
+		catch (Exception^ ex) {
+			MessageBox::Show(L"Nao foi possivel abrir o conector: " + ex->Message,
+				L"Erro", MessageBoxButtons::OK, MessageBoxIcon::Error);
+		}
+	}
+
+		   // Conecta sem dar acesso a pasta nenhuma. Existe porque exigir uma
+		   // pasta de quem so vai testar tela, banco ou API seria pedir uma
+		   // permissao que nao vai ser usada - e essa e a forma mais rapida de
+		   // ensinar alguem a clicar em "permitir" sem ler.
+	private: void ConectarClaudeSemArquivos() {
+		String^ script = CaminhoApp(L"conectar_claude.bat");
+		if (!System::IO::File::Exists(script)) {
+			MessageBox::Show(
+				L"O conector nao foi encontrado ao lado do programa.\n\n"
+				L"Esperado em: " + script,
+				L"Conector ausente", MessageBoxButtons::OK, MessageBoxIcon::Warning);
+			return;
+		}
+		try {
+			System::Diagnostics::ProcessStartInfo^ psi = gcnew System::Diagnostics::ProcessStartInfo();
+			psi->FileName = script;
+			psi->Arguments = L"--sem-arquivos";
 			psi->UseShellExecute = true;
 			System::Diagnostics::Process::Start(psi);
 		}

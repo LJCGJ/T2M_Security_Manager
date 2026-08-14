@@ -1486,6 +1486,19 @@ def teste_leitura_da_pagina():
         checa("ela devolve a selecao para a chave anterior",
               "int indiceChaveAnterior;" in _ui2
               and "int voltarPara = indiceChaveAnterior;" in _ui2)
+        # Exigir pasta de quem so vai testar tela, banco ou API e pedir uma
+        # permissao que nao sera usada - e e assim que se ensina alguem a
+        # clicar em "permitir" sem ler. So a camada de arquivos depende dela.
+        checa("da para conectar sem dar acesso a pasta nenhuma",
+              "MessageBoxButtons::YesNoCancel" in _ui2
+              and "void ConectarClaudeSemArquivos()" in _ui2
+              and "--sem-arquivos" in _ui2)
+        checa("o dialogo diz o que cada botao faz",
+              "NAO conecta sem acesso a arquivo nenhum" in _ui2
+              and "CANCELAR nao altera nada" in _ui2)
+        checa("o conector aceita conexao sem pasta",
+              "--sem-arquivos" in _fc
+              and 'if pasta_permitida:' in _fc)
         checa("o dialogo explica a inversao antes de conectar",
               "e o caminho contrario" in _ui2
               and "e ELE quem chama o T2M" in _ui2)
