@@ -1044,6 +1044,8 @@ HISTORICO_MAX_BYTES = 5 * 1024 * 1024
 HISTORICO_MANTER = 500          # execucoes preservadas ao rotacionar
 
 _EXECUCAO = None                # dict enquanto uma execucao esta em curso
+_ULTIMA_RESPOSTA = ""           # laudo entregue, lido pelo modo headless
+_ULTIMO_ERRO = False            # a execucao chegou a rodar?
 _JA_RESPONDEU = False           # o operador ja recebeu um relatorio desta execucao
 _PASSOS_USADOS = 0
 _PROVEDOR_USADO = ""
@@ -1280,8 +1282,14 @@ def responder(texto, erro=None, devolver=""):
     # O mesmo texto para os dois destinos. Antes o historico guardava o
     # relatorio sem o rodape de recusas - justamente a ressalva de que o
     # resultado podia estar incompleto sumia da copia arquivada.
-    global _JA_RESPONDEU
+    global _JA_RESPONDEU, _ULTIMA_RESPOSTA, _ULTIMO_ERRO
     final = _sem_marcadores(texto) + _resumo_falhas() + _resumo_bloqueios()
+    # O modo headless precisa do laudo COMO TEXTO para extrair o veredito. Ele
+    # nao pode reimprimir nem recalcular: tem de ser exatamente o que foi
+    # entregue, com rodape de recusas e tudo - senao o JSON e a tela contariam
+    # historias diferentes sobre a mesma execucao.
+    _ULTIMA_RESPOSTA = final
+    _ULTIMO_ERRO = bool(erro)
     _gravar_historico(final, erro)
     _JA_RESPONDEU = True
     # Quem REALMENTE respondeu. _MODELO_USADO ja e mantido por _marcar_passo, e
@@ -4443,6 +4451,143 @@ async def executar_arquivos(api_key, pasta, objetivo):
             responder(f"ERRO no modo Arquivos: {detalhe}{dica}", erro=True)
 
 
+# ================================================================== #
+# MODO HEADLESS: o T2M como passo de um pipeline                     #
+#                                                                    #
+# Existe para que o T2M possa ser chamado por quem nao tem a janela   #
+# aberta: n8n, Jenkins, GitHub Actions, Azure DevOps, ou um servidor  #
+# MCP que exponha os modos como ferramentas. Nenhum deles ganha       #
+# integracao propria - todos falam o mesmo contrato: entrada          #
+# declarada, saida em JSON, codigo de saida com significado.          #
+# ================================================================== #
+
+# O codigo de saida e a unica coisa que um pipeline le sem esforco, e por
+# isso ele precisa dizer a verdade inclusive quando nao ha verdade a dizer.
+SAIDA_PASSOU = 0          # o teste rodou e nao encontrou problema
+SAIDA_ACHOU_PROBLEMA = 1  # o teste rodou e encontrou problema
+SAIDA_INDETERMINADO = 2   # nao da para afirmar nem uma coisa nem outra
+
+# INDETERMINADO nao e um estado de conforto: e o mais importante dos tres.
+# Cota estourada, modelo que divagou, navegador que morreu no meio - tudo
+# isso produz uma execucao SEM resposta, e mapear isso para 0 faria o
+# pipeline seguir adiante porque o teste nao soube responder. Um pipeline
+# que trava por duvida custa uma investigacao; um que segue por duvida
+# entrega o defeito ao cliente.
+INSTRUCAO_VEREDITO = (
+    "\n\nFECHAMENTO OBRIGATORIO: a ultima linha da sua resposta tem de ser "
+    "exatamente uma destas tres, sem nada depois:\n"
+    "VEREDITO: PASSOU - <motivo em uma frase>\n"
+    "VEREDITO: FALHOU - <o que foi encontrado, em uma frase>\n"
+    "VEREDITO: INDETERMINADO - <o que faltou observar, em uma frase>\n"
+    "Use PASSOU somente se voce OBSERVOU o que o objetivo pedia e estava "
+    "correto. Use FALHOU quando observou algo errado. Use INDETERMINADO "
+    "quando nao conseguiu observar o suficiente - por passo esgotado, erro "
+    "de ferramenta ou pagina que nao carregou. Nao escolha PASSOU por "
+    "eliminacao: nao ter visto problema nao e o mesmo que ter visto que "
+    "esta certo."
+)
+
+_RE_VEREDITO = re.compile(
+    r"^[ \t>*-]*VEREDITO\s*[:\-]\s*(PASSOU|FALHOU|INDETERMINADO)\b[ \t:\-]*(.*)$",
+    re.M | re.I)
+
+
+def extrair_veredito(texto):
+    """Devolve (estado, motivo) lido do laudo. Sem linha, 'indeterminado'.
+
+    Le a ULTIMA ocorrencia de proposito: o modelo as vezes explica o formato
+    no meio do texto antes de usa-lo no fim, e a primeira ocorrencia seria a
+    explicacao, nao a conclusao."""
+    achados = _RE_VEREDITO.findall(texto or "")
+    if not achados:
+        return "indeterminado", "o laudo nao trouxe a linha de veredito"
+    estado, motivo = achados[-1]
+    return estado.lower(), (motivo or "").strip(" -\t")
+
+
+def _codigo_de_saida(estado):
+    return {"passou": SAIDA_PASSOU,
+            "falhou": SAIDA_ACHOU_PROBLEMA}.get(estado, SAIDA_INDETERMINADO)
+
+
+def executar_headless(args):
+    """Roda um modo sem interface e escreve o resultado em JSON."""
+    objetivo = (args.objetivo or "").strip()
+    if not objetivo:
+        log("Informe o objetivo com --objetivo.")
+        return SAIDA_INDETERMINADO
+
+    chave = (args.chave or os.environ.get("T2M_CHAVE", "")).strip()
+    if not chave:
+        log("Informe a chave com --chave ou pela variavel T2M_CHAVE.")
+        return SAIDA_INDETERMINADO
+
+    alvo = (args.alvo or "").strip()
+    objetivo_com_veredito = objetivo + INSTRUCAO_VEREDITO
+
+    modo = (args.modo or "tela").strip().lower()
+    try:
+        if modo == "tela":
+            if not alvo:
+                log("O modo tela precisa de --alvo com a URL.")
+                return SAIDA_INDETERMINADO
+            asyncio.run(executar(chave, alvo, objetivo_com_veredito))
+        elif modo == "arquivos":
+            asyncio.run(executar_arquivos(chave, alvo, objetivo_com_veredito))
+        elif modo == "banco":
+            asyncio.run(executar_banco(chave, alvo, not args.escrita,
+                                       objetivo_com_veredito))
+        elif modo == "api":
+            try:
+                req = json.loads(alvo) if alvo.strip().startswith("{") else {}
+            except Exception:
+                log("O modo api espera --alvo com um JSON da requisicao.")
+                return SAIDA_INDETERMINADO
+            asyncio.run(executar_api(chave, req, objetivo_com_veredito))
+        else:
+            log(f"Modo desconhecido: {modo}. Use tela, banco, api ou arquivos.")
+            return SAIDA_INDETERMINADO
+    except BaseException as e:
+        log(f"Execucao interrompida: {type(e).__name__}: {e}")
+
+    laudo = _ULTIMA_RESPOSTA or ""
+    estado, motivo = extrair_veredito(laudo)
+    # Execucao que nem chegou a rodar nao pode sair como PASSOU nem como
+    # FALHOU: nao houve teste. O erro de infraestrutura e do pipeline, nao
+    # do sistema sob teste, e confundir os dois manda procurar defeito no
+    # lugar errado.
+    if _ULTIMO_ERRO:
+        estado = "indeterminado"
+        motivo = motivo or "a execucao nao chegou a rodar"
+
+    resultado = {
+        "modo": modo,
+        "alvo": alvo,
+        "objetivo": objetivo,
+        "provedor": _PROVEDOR_USADO or "",
+        "modelo": _MODELO_USADO or "",
+        "passos": _PASSOS_USADOS,
+        "limite_de_passos_atingido": _LIMITE_ATINGIDO,
+        "veredito": estado,
+        "motivo": motivo,
+        "prints": [c for c, _ in _PRINTS_DA_EXECUCAO],
+        "recusas": _resumo_falhas().strip(),
+        "relatorio": laudo,
+    }
+    if args.saida_json:
+        try:
+            with open(args.saida_json, "w", encoding="utf-8") as f:
+                json.dump(resultado, f, ensure_ascii=False, indent=2)
+            log(f">>> Resultado gravado em {args.saida_json}")
+        except Exception as e:
+            log(f"Nao foi possivel gravar o JSON: {e}")
+    else:
+        print(json.dumps(resultado, ensure_ascii=False, indent=2))
+
+    log(f">>> VEREDITO: {estado.upper()} - {motivo}")
+    return _codigo_de_saida(estado)
+
+
 def _saida_historico():
     """Modos de consulta do historico, usados pela tela do aplicativo.
 
@@ -4562,10 +4707,38 @@ def _texto_detalhe_historico(r):
     return "\n".join(linhas)
 
 
+def _argumentos_headless():
+    """Le a linha de comando so quando --headless esta presente.
+
+    Sem a checagem, argparse tomaria conta do processo inteiro e um argumento
+    inesperado vindo do C++ derrubaria a execucao normal com uma mensagem de
+    uso - que ninguem veria, porque a tela le stdout entre marcadores."""
+    if "--headless" not in sys.argv:
+        return None
+    import argparse
+    p = argparse.ArgumentParser(prog="agente_mcp.py", add_help=True)
+    p.add_argument("--headless", action="store_true")
+    p.add_argument("--modo", default="tela",
+                   help="tela, banco, api ou arquivos")
+    p.add_argument("--alvo", default="",
+                   help="URL, DSN, pasta ou JSON da requisicao, conforme o modo")
+    p.add_argument("--objetivo", default="", help="o que testar, em uma frase")
+    p.add_argument("--chave", default="", help="chave da IA (ou use T2M_CHAVE)")
+    p.add_argument("--json", dest="saida_json", default="",
+                   help="grava o resultado neste arquivo; sem isso, sai no stdout")
+    p.add_argument("--escrita", action="store_true",
+                   help="modo banco: permite escrita (padrao e somente leitura)")
+    return p.parse_args()
+
+
 def main():
     # Antes de qualquer leitura de stdin: os modos de consulta nao recebem nada.
     if _saida_historico():
         return
+
+    args_hl = _argumentos_headless()
+    if args_hl is not None:
+        sys.exit(executar_headless(args_hl))
 
     dados = sys.stdin.read()
     partes = dados.split("\n", 2)
@@ -4659,6 +4832,12 @@ if __name__ == "__main__":
     # era a unica que ele nunca ia ler.
     try:
         main()
+    except SystemExit:
+        # O modo headless encerra com sys.exit para devolver o codigo de saida
+        # ao pipeline. Sem esta clausula, a rede de seguranca abaixo tratava
+        # isso como falha, imprimia CHAT_MSG e devolvia 0 - engolindo justamente
+        # a informacao que o pipeline usa para decidir se segue ou para.
+        raise
     except BaseException as e:
         import traceback
         log("=== TRACEBACK COMPLETO (fora do laco) ===")

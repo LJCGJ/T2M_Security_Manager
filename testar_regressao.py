@@ -897,8 +897,11 @@ def teste_leitura_da_pagina():
     # do primeiro responder() deixava stdout vazio e o operador via "erro de
     # comunicacao" - a mensagem que menos ajuda. Gatilho real: porta do Oracle
     # digitada como "1521 " levanta ValueError na montagem do DSN.
+    # A clausula de SystemExit entrou no meio quando o modo headless nasceu: ela
+    # deixa o codigo de saida passar para o pipeline. A rede de seguranca
+    # continua logo abaixo, e e ela que esta verificacao guarda.
     checa("nenhuma excecao escapa sem o marcador de resposta",
-          "        main()\n    except BaseException as e:" in fonte_mcp
+          "    except BaseException as e:\n        import traceback\n        log(\"=== TRACEBACK COMPLETO (fora do laco) ===\")" in fonte_mcp
           and 'print("CHAT_MSG_INICIO")' in fonte_mcp)
     # Era o unico ponto do arquivo que logava argumento de ferramenta cru. Com
     # "Somente leitura" desmarcado, um ALTER USER ... IDENTIFIED BY levava a
@@ -1062,6 +1065,49 @@ def teste_leitura_da_pagina():
     # automacao: a prova e desejavel, o teste ja rodou.
     checa("falha ao tirar o print nao quebra o fechamento",
           "nao foi possivel garantir o print antes de fechar" in fonte_mcp)
+
+    # --- MODO HEADLESS: O T2M COMO PASSO DE PIPELINE ---
+    # Alicerce comum do plugin de desktop e da integracao com n8n, Jenkins e
+    # afins: nenhum deles ganha integracao propria; todos falam o mesmo
+    # contrato. O que um pipeline le sem esforco e o CODIGO DE SAIDA, e por
+    # isso ele precisa dizer a verdade inclusive quando nao ha verdade.
+    checa("existe o modo headless com contrato de linha de comando",
+          "def executar_headless(args):" in fonte_mcp
+          and '"--headless" not in sys.argv' in fonte_mcp)
+    checa("os tres codigos de saida estao nomeados",
+          "SAIDA_PASSOU = 0" in fonte_mcp
+          and "SAIDA_ACHOU_PROBLEMA = 1" in fonte_mcp
+          and "SAIDA_INDETERMINADO = 2" in fonte_mcp)
+    if A is not None:
+        # A regra que da sentido ao resto: desconhecido NUNCA vira sucesso. Um
+        # pipeline que trava por duvida custa uma investigacao; um que segue por
+        # duvida entrega o defeito ao cliente.
+        checa("laudo sem linha de veredito sai como indeterminado, nunca como passou",
+              A.extrair_veredito("relatorio qualquer sem veredito")[0] == "indeterminado"
+              and A._codigo_de_saida("indeterminado") == A.SAIDA_INDETERMINADO
+              and A._codigo_de_saida("qualquer coisa") == A.SAIDA_INDETERMINADO)
+        checa("os tres estados sao lidos do laudo",
+              A.extrair_veredito("VEREDITO: PASSOU - ok")[0] == "passou"
+              and A.extrair_veredito("VEREDITO: FALHOU - achei")[0] == "falhou"
+              and A.extrair_veredito("VEREDITO: INDETERMINADO - faltou")[0] == "indeterminado")
+        # O modelo costuma explicar o formato antes de usa-lo. A primeira
+        # ocorrencia seria a explicacao; a conclusao e sempre a ultima.
+        checa("vale a ultima linha de veredito, nao a primeira",
+              A.extrair_veredito(
+                  "o formato e VEREDITO: PASSOU\nVEREDITO: FALHOU - erro real")[0] == "falhou")
+        checa("o motivo do veredito e preservado para o relatorio",
+              A.extrair_veredito("VEREDITO: FALHOU - a linha nao foi gravada")[1]
+              == "a linha nao foi gravada")
+    # PASSOU por eliminacao e o modo de falha desta funcionalidade: nao ter
+    # visto problema nao e o mesmo que ter visto que esta certo.
+    checa("o prompt proibe concluir PASSOU por eliminacao",
+          "Nao escolha PASSOU por " in fonte_mcp
+          and "nao ter visto problema nao e o mesmo" in fonte_mcp)
+    # SystemExit e BaseException: a rede de seguranca do marcador engolia o
+    # codigo de saida e devolvia 0 - justamente o valor que faz o pipeline
+    # seguir adiante.
+    checa("o codigo de saida do headless nao e engolido pela rede de seguranca",
+          "    except SystemExit:" in fonte_mcp)
 
     # --- MODO ARQUIVOS: A CANETA E O QUE SE LE ---
     # Primeira funcionalidade da versao 5. O servidor e o oficial do Model

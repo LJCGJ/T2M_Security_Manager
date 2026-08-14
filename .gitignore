@@ -374,3 +374,5 @@ teste_t2m.db
 /diagnostico_docker.py
 /limpar_disco.py
 /subir_oracle_teste.py
+saida_headless.json
+nota_gemini.json
