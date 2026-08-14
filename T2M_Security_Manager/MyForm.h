@@ -861,7 +861,10 @@ namespace T2MSecurityManager {
 			   this->Controls->Add(this->btnExport);
 			   this->Name = L"MyForm";
 			   this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
-			   this->Text = L"T2M Security Manager v4.2 (MCP Edition)";
+			   // A versao aqui e a que o usuario LE. Ficou em 4.2 enquanto o
+			   // instalador ja saia como 5.0 - duas respostas para "que versao
+			   // e essa?", e a que a pessoa acredita e a da barra de titulo.
+			   this->Text = L"T2M Security Manager v5.0 (MCP Edition)";
 			   this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
 			   // A URL e o token passam a ser gravados ao sair do campo, para nao
 			   // dependerem de um fechamento limpo do programa.
@@ -2097,26 +2100,19 @@ namespace T2MSecurityManager {
 		if (comboModeloChat->SelectedItem != nullptr
 			&& comboModeloChat->SelectedItem->ToString() == L"\u27a4 Usar pelo Claude Desktop (sem chave de API)...") {
 			int voltarPara = indiceChaveAnterior;
-			String^ estado = TemClaudeDesktopInstalado()
-				? L"O Claude Desktop foi encontrado nesta maquina."
-				: L"O Claude Desktop nao foi encontrado nesta maquina - instale-o primeiro.";
-			System::Windows::Forms::DialogResult r = MessageBox::Show(
+			// Aqui a explicacao da INVERSAO vem antes: quem chegou pelo seletor de
+			// chaves esta procurando um provedor, e precisa entender por que este
+			// item nao e um. Quem clicou em Configuracoes ja sabe o que quer.
+			MessageBox::Show(
 				L"Esta opcao nao e uma chave de API - e o caminho contrario.\n\n"
 				L"Aqui no T2M, voce escreve o objetivo e a IA executa usando a chave "
 				L"selecionada. Pelo Claude Desktop e ao contrario: voce conversa la, e "
 				L"e ELE quem chama o T2M para abrir a tela, ler arquivos, consultar o "
-				L"banco e testar APIs. A automacao passa a rodar pela sua assinatura, "
-				L"sem consumir creditos de API.\n\n"
-				L"As travas continuam sendo do T2M: pasta unica, banco somente leitura, "
-				L"sem escrita em disco.\n\n"
-				+ estado + L"\n\n"
-				L"SIM conecta dando acesso a UMA pasta, que voce escolhe - so a camada "
-				L"de arquivos depende disso.\n"
-				L"NAO conecta sem acesso a arquivo nenhum: tela, banco e API continuam "
-				L"funcionando.\n"
-				L"CANCELAR nao altera nada.",
-				L"Usar pelo Claude Desktop",
-				MessageBoxButtons::YesNoCancel, MessageBoxIcon::Information);
+				L"banco e testar APIs.\n\n"
+				L"Por isso a chave selecionada nao muda: o botao Enviar continua "
+				L"usando a que estava valendo.",
+				L"Usar pelo Claude Desktop", MessageBoxButtons::OK,
+				MessageBoxIcon::Information);
 
 			// A selecao volta ANTES de abrir qualquer dialogo: se o usuario
 			// fechar tudo no X, a chave que estava valendo continua valendo.
@@ -2129,10 +2125,7 @@ namespace T2MSecurityManager {
 			}
 			finally { montandoListaDeChaves = false; }
 
-			if (r == System::Windows::Forms::DialogResult::Yes)
-				btnConectarClaude_Click(sender, e);
-			else if (r == System::Windows::Forms::DialogResult::No)
-				ConectarClaudeSemArquivos();
+			PerguntarComoConectarClaude();
 			return;
 		}
 		if (comboModeloChat->SelectedItem != nullptr && comboModeloChat->SelectedItem->ToString() == L"+ Adicionar Nova API Key...") {
@@ -5753,7 +5746,41 @@ namespace T2MSecurityManager {
 
 		   // Abre o conector. Ele proprio decide o que fazer: conecta se o
 		   // Claude estiver instalado, e diz o que falta se nao estiver.
+		   // A PERGUNTA MORA NUM LUGAR SO.
+		   //
+		   // Antes, o seletor de chaves perguntava "com pasta ou sem?" e o botao
+		   // de Configuracoes ia direto para o seletor de pasta. Dois caminhos
+		   // para a mesma coisa, com comportamentos diferentes - e quem usasse o
+		   // segundo continuaria obrigado a dar uma permissao que talvez nao
+		   // fosse usar. Agora os dois chamam esta funcao.
+	private: void PerguntarComoConectarClaude() {
+		String^ estado = TemClaudeDesktopInstalado()
+			? L"O Claude Desktop foi encontrado nesta maquina."
+			: L"O Claude Desktop nao foi encontrado nesta maquina - instale-o primeiro.";
+		System::Windows::Forms::DialogResult r = MessageBox::Show(
+			L"Conectar o T2M ao Claude Desktop.\n\n"
+			L"A automacao passa a rodar pela sua assinatura, em vez de consumir "
+			L"creditos de API. As travas continuam sendo do T2M: banco somente "
+			L"leitura, sem escrita em disco, e os arquivos limitados a uma unica "
+			L"pasta - se voce escolher dar esse acesso.\n\n"
+			+ estado + L"\n\n"
+			L"SIM conecta dando acesso a UMA pasta, que voce escolhe - so a camada "
+			L"de arquivos depende disso.\n"
+			L"NAO conecta sem acesso a arquivo nenhum: tela, banco e API continuam "
+			L"funcionando.\n"
+			L"CANCELAR nao altera nada.",
+			L"Usar pelo Claude Desktop",
+			MessageBoxButtons::YesNoCancel, MessageBoxIcon::Information);
+
+		if (r == System::Windows::Forms::DialogResult::Yes) ConectarClaudeComPasta();
+		else if (r == System::Windows::Forms::DialogResult::No) ConectarClaudeSemArquivos();
+	}
+
 	private: System::Void btnConectarClaude_Click(System::Object^ sender, System::EventArgs^ e) {
+		PerguntarComoConectarClaude();
+	}
+
+	private: void ConectarClaudeComPasta() {
 		System::Windows::Forms::FolderBrowserDialog^ dlg = gcnew System::Windows::Forms::FolderBrowserDialog();
 		dlg->Description = L"Escolha a pasta que a automacao podera ler pelo Claude Desktop. "
 			L"Ela nao enxerga nada fora daqui.";

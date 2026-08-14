@@ -1489,9 +1489,21 @@ def teste_leitura_da_pagina():
         # Exigir pasta de quem so vai testar tela, banco ou API e pedir uma
         # permissao que nao sera usada - e e assim que se ensina alguem a
         # clicar em "permitir" sem ler. So a camada de arquivos depende dela.
+        # Dois caminhos para a mesma coisa, com comportamentos diferentes: o
+        # seletor de chaves perguntava com/sem pasta, e o botao de Configuracoes
+        # ia direto para o seletor de pasta. Quem usasse o segundo continuava
+        # obrigado a dar uma permissao que talvez nao fosse usar.
+        checa("os dois caminhos fazem a mesma pergunta",
+              "void PerguntarComoConectarClaude()" in _ui2
+              and _ui2.count("PerguntarComoConectarClaude()") >= 3)
+        # Duas respostas para "que versao e essa?" - e a que a pessoa acredita e
+        # a da barra de titulo.
+        checa("a versao da barra de titulo acompanha a do instalador",
+              "T2M Security Manager v5.0" in _ui2)
         checa("da para conectar sem dar acesso a pasta nenhuma",
               "MessageBoxButtons::YesNoCancel" in _ui2
               and "void ConectarClaudeSemArquivos()" in _ui2
+              and "void ConectarClaudeComPasta()" in _ui2
               and "--sem-arquivos" in _ui2)
         checa("o dialogo diz o que cada botao faz",
               "NAO conecta sem acesso a arquivo nenhum" in _ui2
