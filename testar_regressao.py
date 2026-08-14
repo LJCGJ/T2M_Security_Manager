@@ -1091,6 +1091,40 @@ def teste_leitura_da_pagina():
         # explicita, e o codigo registra o que ela troca - num produto de QA,
         # quem dirige boa parte do tempo nao e a pessoa, e sim conteudo
         # observado. Continua sem escrita: o risco e vazamento, nao perda.
+        # A IDEIA, escrita onde quem for mexer no arquivo vai ler primeiro:
+        # outra porta para o mesmo produto, nao um segundo produto.
+        checa("o arquivo declara a ideia que o governa",
+              "Outra PORTA para o mesmo produto" in _fsrv
+              and "MESMA CONFIGURACAO" in _fsrv)
+        # Duas portas para o mesmo produto tem de dar no mesmo lugar: o plugin
+        # lia so variaveis de ambiente e ignorava a tela de Configuracoes
+        # inteira - inclusive os dominios confiaveis, que limitam para onde a
+        # automacao pode navegar.
+        checa("o plugin obedece o configuracoes.txt do aplicativo",
+              "from agente_mcp import (" in _fsrv
+              and "DOMINIOS_CONFIAVEIS as _CFG_DOMINIOS" in _fsrv
+              and "_instrucoes_do_operador" in _fsrv)
+        checa("os dominios confiaveis chegam ao navegador",
+              '"--allowed-origins", DOMINIOS_CONFIAVEIS' in _fsrv)
+        # A configuracao da extensao e mais especifica que o arquivo: quem
+        # preencheu a tela da extensao esta falando desta instalacao.
+        checa("o ambiente manda sobre o arquivo, quando existe",
+              "def _do_ambiente_ou_config(" in _fsrv)
+        # "Igual ao Claude Desktop" e isto: o usuario libera pastas no proprio
+        # host e o T2M respeita a mesma fronteira.
+        checa("o servidor pergunta ao host quais pastas foram liberadas",
+              "async def pastas_liberadas_no_host(ctx):" in _fsrv
+              and "ctx.session.list_roots()" in _fsrv)
+        checa("host sem roots nao vira permissao para tudo",
+              "Supor 'o host nao respondeu, entao pode tudo'" in _fsrv)
+        checa("a ordem de precedencia esta declarada",
+              "def _alcance_dos_arquivos(roots):" in _fsrv
+              and "pastas liberadas no Claude Desktop" in _fsrv)
+        # Consultar o host e uma corotina; bloquear o laco dele com a sessao de
+        # fundo travaria o servidor inteiro durante a chamada.
+        checa("as ferramentas de arquivo nao bloqueiam o laco do host",
+              "asyncio.to_thread(" in _fsrv
+              and "async def arquivos_ler(caminho: str, ctx: Context = None)" in _fsrv)
         checa("o acesso total existe como opcao declarada",
               "ACESSO_TOTAL = os.environ.get" in _fsrv
               and "def raizes_do_disco():" in _fsrv)
@@ -1141,7 +1175,7 @@ def teste_leitura_da_pagina():
         # Duas copias de uma regra de seguranca divergem no primeiro conserto,
         # e a copia esquecida e sempre a que esta rodando na maquina de alguem.
         checa("o validador de SQL e importado do agente, nao reescrito",
-              "from agente_mcp import _validar_sql_somente_leitura as validar_sql" in _fsrv)
+              "_validar_sql_somente_leitura as validar_sql" in _fsrv)
         # A recusa tem de acontecer antes de qualquer contato com o banco: um
         # DELETE que chega ao servidor ja e um DELETE tentado.
         checa("o SQL e validado antes de abrir a sessao do banco",
@@ -1181,7 +1215,9 @@ def teste_leitura_da_pagina():
         # Ferramenta anunciada no manifesto e nao implementada vira promessa
         # quebrada no primeiro uso.
         _declaradas = {t["name"] for t in _m.get("tools", [])}
-        _implementadas = set(_re.findall(r"^def (\w+)\(", _fsrv, _re.M))
+        # As de arquivo viraram async quando passaram a consultar os roots do
+        # host: contar so "def" as daria como nao implementadas.
+        _implementadas = set(_re.findall(r"^(?:async )?def (\w+)\(", _fsrv, _re.M))
         checa(f"toda ferramenta anunciada existe no servidor "
               f"(faltando: {sorted(_declaradas - _implementadas)})",
               not (_declaradas - _implementadas))
